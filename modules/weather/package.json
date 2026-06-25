@@ -1,0 +1,9 @@
+{
+  "name": "weather",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Weather tools for Axon agents — powered by Open-Meteo, no API key required.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

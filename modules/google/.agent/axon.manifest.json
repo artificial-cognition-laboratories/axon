@@ -1,0 +1,25 @@
+{
+  "name": "google",
+  "version": "0.1.0",
+  "kind": "agent",
+  "sourceHash": "7c2ade5a76bb0e62f8b0e397d7cb91cba387cfea57f081297d7f1f7d72115e7e",
+  "prompts": [],
+  "promptComponents": [],
+  "scripts": [],
+  "tools": [
+    {
+      "name": "google",
+      "fns": [
+        {
+          "name": "search",
+          "declaration": "function search(query: string, opts: GoogleSearchOptions): Promise<SearchResponse>",
+          "jsdoc": "Search the web using Google Custom Search.\n\nRequires GOOGLE_API_KEY and GOOGLE_CSE_ID in the agent's environment.\n\n```ts\nconst results = await google.search(\"bun javascript runtime\")\nconst results = await google.search(\"TypeScript decorators\", { count: 3, site: \"github.com\" })\n```"
+        }
+      ],
+      "origin": "src"
+    }
+  ],
+  "routes": [],
+  "modules": [],
+  "context": {}
+}

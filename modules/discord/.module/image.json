@@ -1,0 +1,7 @@
+{
+  "moduleId": "discord",
+  "version": "0.1.0",
+  "public": true,
+  "builtAt": "2026-06-23T20:19:16.709Z",
+  "description": "Discord bot integration — messages, music, and channel info."
+}

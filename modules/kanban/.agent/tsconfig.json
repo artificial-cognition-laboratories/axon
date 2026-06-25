@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "lib": [
+      "ESNext"
+    ],
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "h3": [
+        "/home/cody/.bun/install/cache/h3@2.0.1-a6bc7fb1a9d8a190@@@1"
+      ],
+      "h3/*": [
+        "/home/cody/.bun/install/cache/h3@2.0.1-a6bc7fb1a9d8a190@@@1/*"
+      ]
+    }
+  },
+  "include": [
+    "../axon.config.ts",
+    "./**/*.d.ts",
+    "../src/**/*.ts",
+    "../src/**/*.vue",
+    "../scripts/**/*.ts",
+    "../server/**/*.ts",
+    "../modules/**/*.ts",
+    "../modules/**/*.vue",
+    "../tests/**/*.ts"
+  ]
+}

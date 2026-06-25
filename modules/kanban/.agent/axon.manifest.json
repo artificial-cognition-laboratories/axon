@@ -1,0 +1,26 @@
+{
+  "name": "@axon/kanban",
+  "version": "0.1.0",
+  "kind": "agent",
+  "sourceHash": "a6335267787f7e22e65b359b8b820b125cad56666fa31e1fdd79f0210904d90c",
+  "prompts": [
+    {
+      "name": "KanbanSchool",
+      "kind": "dynamic",
+      "filePath": "/home/cody/git/arclabs/.agents/modules/kanban/src/prompts/KanbanSchool.vue",
+      "props": [
+        {
+          "name": "kanbanRoot",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "promptComponents": [],
+  "scripts": [],
+  "tools": [],
+  "routes": [],
+  "modules": [],
+  "context": {}
+}

@@ -1,0 +1,4 @@
+{"event":"open","sessionId":"34e292b7-62cc-4d0a-9d17-cc2331b9bb2d","agentId":"google","mode":"local","startedAt":1782133590349,"eventCount":0}
+{"event":"close","sessionId":"34e292b7-62cc-4d0a-9d17-cc2331b9bb2d","status":"ok","endedAt":1782133591325,"durationMs":978,"eventCount":17}
+{"event":"open","sessionId":"1d17b30d-1eb5-4a2b-9498-6797ae7ff960","agentId":"google","mode":"local","startedAt":1782133623146,"eventCount":0}
+{"event":"close","sessionId":"1d17b30d-1eb5-4a2b-9498-6797ae7ff960","status":"ok","endedAt":1782133624084,"durationMs":940,"eventCount":19}
