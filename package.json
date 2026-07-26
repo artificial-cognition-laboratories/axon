@@ -8,5 +8,10 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "workspaces": [
+    "libs/*",
+    "registry/modules/*",
+    "registry/cognets/*"
+  ]
 }

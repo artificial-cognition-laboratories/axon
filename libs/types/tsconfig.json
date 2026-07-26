@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "lib": ["ESNext"],
+        "types": ["bun-types"],
+        "skipLibCheck": true
+    },
+    "include": [
+        "src/**/*.ts",
+        "../packages/capsule/types/capsule-events.ts",
+        "src/engine.ts"
+    ]
+}

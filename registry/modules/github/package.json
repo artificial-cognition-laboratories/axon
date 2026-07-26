@@ -1,0 +1,9 @@
+{
+  "name": "@axon/github",
+  "description": "GitHub integration — repository navigation, issue triage, and pull request review.",
+  "version": "0.1.1",
+  "type": "module",
+  "dependencies": {
+    "@octokit/rest": "^21.0.0"
+  }
+}

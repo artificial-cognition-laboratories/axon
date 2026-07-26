@@ -1,0 +1,24 @@
+{
+    "name": "@axon/docker",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "packages/*"
+    ],
+    "dependencies": {
+        "@axon/core": "workspace:*",
+        "@arcforge/axon": "workspace:*",
+        "h3": "^1.13.0",
+        "crossws": "^0.3.5"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "scripts": {
+        "deploy": "bun run deploy.ts",
+        "deploy:bump:patch": "bun run deploy.ts --bump patch",
+        "deploy:bump:minor": "bun run deploy.ts --bump minor",
+        "deploy:local": "bun run deploy.ts --local"
+    }
+}

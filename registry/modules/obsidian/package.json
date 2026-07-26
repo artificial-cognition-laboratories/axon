@@ -1,0 +1,6 @@
+{
+  "name": "@axon/obsidian",
+  "description": "Obsidian vault integration — read, write, search, and surgically patch notes. Requires the Obsidian Local REST API plugin running locally.",
+  "version": "0.1.0",
+  "type": "module"
+}

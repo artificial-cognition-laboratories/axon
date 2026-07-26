@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ESNext"],
+        "strict": true,
+        "skipLibCheck": true,
+        "allowImportingTsExtensions": true,
+        "noEmit": true,
+        "paths": {
+            "@arcforge/types": ["../types/src/index.ts"],
+            "@axon/capsule": ["../packages/capsule/src/index.ts"],
+            "@axon/cloud": ["../cloud/src/index.ts"],
+            "@arcforge/engines": ["../packages/engines/src/index.ts"]
+        }
+    },
+    "include": [
+        "src/**/*.ts"
+,
+"../types/src/kernel/abi.ts"
+,
+".deprecated/error.ts"
+]
+}

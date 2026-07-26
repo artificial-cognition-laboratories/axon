@@ -1,0 +1,21 @@
+[test]
+
+parallel = true
+preload = ["./tests/setup/preload.ts"]
+
+coveragePathIgnorePatterns = [
+  # External packages and workspace deps
+  "**/node_modules/**",
+
+  # Workspace sibling packages — covered by their own test suites
+  "../**",
+
+  # Fixture agents — not runtime source
+  "**/tests/fixtures/**",
+
+  # Generated files
+  "**/.agent/**",
+
+  # Test files themselves
+  "**/*.test.ts",
+]

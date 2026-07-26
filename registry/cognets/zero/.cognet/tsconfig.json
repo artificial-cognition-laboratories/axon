@@ -1,0 +1,50 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "lib": [
+      "ESNext"
+    ],
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@arcforge/types": [
+        "/home/cody/git/arclabs/libs/axon/types"
+      ],
+      "@arcforge/types/*": [
+        "/home/cody/git/arclabs/libs/axon/types/*"
+      ],
+      "@arcforge/engines": [
+        "/home/cody/git/arclabs/libs/axon/packages/engines"
+      ],
+      "@arcforge/engines/*": [
+        "/home/cody/git/arclabs/libs/axon/packages/engines/*"
+      ],
+      "@axon/core": [
+        "/home/cody/git/arclabs/libs/axon/core"
+      ],
+      "@axon/core/*": [
+        "/home/cody/git/arclabs/libs/axon/core/*"
+      ],
+      "h3": [
+        "/home/cody/.bun/install/cache/h3@2.0.1-cd9429852f62d751@@@1"
+      ],
+      "h3/*": [
+        "/home/cody/.bun/install/cache/h3@2.0.1-cd9429852f62d751@@@1/*"
+      ]
+    }
+  },
+  "include": [
+    "../cognet.config.ts",
+    "./**/*.d.ts",
+    "../src/**/*.ts",
+    "../plugins/**/*.ts",
+    "../tests/**/*.ts",
+    "/home/cody/node_modules/bun-types/index.d.ts"
+  ]
+}

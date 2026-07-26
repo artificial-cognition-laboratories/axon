@@ -1,0 +1,31 @@
+{
+    "name": "@axon/core",
+    "version": "0.1.0",
+    "type": "module",
+    "private": true,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "test:coverage": "bun test --coverage"
+    },
+    "dependencies": {
+        "@arclabs/cloud": "workspace:*",
+        "@axon/err": "workspace:*",
+        "@arcforge/types": "workspace:*",
+        "@axon/vstr": "workspace:*",
+        "@axon/capsule": "workspace:*",
+        "@arcforge/engines": "workspace:*",
+        "h3": "^1.13.0",
+        "crossws": "^0.3.5",
+        "hookable": "^5.5.3",
+        "jose": "^5.9.6"
+    },
+    "devDependencies": {
+        "@arclabs/repo": "workspace:*",
+        "@types/bun": "latest",
+        "typescript": "^5"
+    }
+}

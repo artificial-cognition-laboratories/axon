@@ -1,0 +1,6 @@
+{
+  "name": "@axon/telegram",
+  "description": "Telegram bot integration — receive messages and button taps via long-polling, send replies, markdown, inline keyboards, files, and typing indicators.",
+  "version": "0.1.0",
+  "type": "module"
+}

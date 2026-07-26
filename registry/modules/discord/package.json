@@ -1,0 +1,12 @@
+{
+  "name": "@axon/discord",
+  "description": "Discord bot integration — receive messages, read channel history, and send messages.",
+  "version": "1.0.2",
+  "type": "module",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "@arcforge/types": "2.0.86",
+    "@arcforge/engines": "2.0.86",
+    "h3": "^1.13.0"
+  }
+}

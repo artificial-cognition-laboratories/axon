@@ -1,0 +1,6 @@
+{
+  "name": "@axon/lsp",
+  "description": "Language server integration — hover, definition, references, rename, diagnostics, and code actions across TypeScript, Python, Rust, Go, and C/C++.",
+  "version": "0.1.0",
+  "type": "module"
+}

@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "lib": ["ESNext"],
+        "skipLibCheck": true,
+        "allowImportingTsExtensions": true,
+        "noEmit": true,
+        "paths": {
+            "@arcforge/types": ["../types/src/index.ts"],
+            "@axon/capsule": ["./src/index.ts"]
+        }
+    },
+    "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
