@@ -1,7 +1,0 @@
-{
-  "moduleId": "telegram",
-  "version": "0.1.0",
-  "public": true,
-  "builtAt": "2026-06-25T19:05:05.649Z",
-  "description": "Telegram bot integration — receive messages and button taps via long-polling, send replies, markdown, inline keyboards, files, and typing indicators. Requires TELEGRAM_BOT_TOKEN. Set TELEGRAM_ALLOWED_USERS to restrict access to specific user IDs."
-}

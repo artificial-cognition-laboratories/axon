@@ -1,7 +1,0 @@
-{
-  "moduleId": "lsp",
-  "version": "0.1.0",
-  "public": true,
-  "builtAt": "2026-06-25T17:21:44.247Z",
-  "description": "Language server integration — hover, definition, references, rename, diagnostics, and code actions across TypeScript, Python, Rust, Go, and C/C++. Requires the relevant language server on PATH; throws a clear error with install instructions if not found."
-}

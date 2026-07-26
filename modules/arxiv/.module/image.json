@@ -1,7 +1,0 @@
-{
-  "moduleId": "arxiv",
-  "version": "0.1.0",
-  "public": true,
-  "builtAt": "2026-06-25T17:51:09.645Z",
-  "description": "arXiv paper search and retrieval — search by query, author, concept, or date range; fetch by ID; browse latest papers in a category. No API key required."
-}
