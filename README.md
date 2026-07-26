@@ -24,17 +24,30 @@ my-agent/
 
 Run it locally, headless, or in the cloud — same folder, same code, no environment-specific config.
 
+## Repository layout
+
+```
+libs/         the runtime — core, types, capsule, engines, err, docker, theme
+registry/
+  modules/    official capability packages
+  cognets/    cognitive loop programs
+  agents/     published agents (empty for now)
+```
+
+This is a read-only mirror of the packages that make up Axon. Issues are welcome;
+pull requests are not being accepted yet.
+
 ## Modules
 
-This repository contains the official Axon modules — installable capability packages that extend what an agent can do:
+Installable capability packages that extend what an agent can do:
 
 ```bash
 axon install @axon/github
 axon install @axon/discord
-axon install @axon/linear
+axon install @axon/tavily
 ```
 
-Available modules: `arxiv` `discord` `github` `google` `kanban` `lsp` `obsidian` `spec` `telegram` `weather`
+Available modules: `arxiv` `brave` `discord` `fs` `github` `google` `lsp` `obsidian` `subagent` `tavily` `telegram` `weather`
 
 Each module contributes typed tool namespaces, prompts, and scripts. They operate within the agent's declared policy — no module can exceed what the base agent is allowed to do.
 

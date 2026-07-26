@@ -1,0 +1,7 @@
+{
+  "moduleId": "github",
+  "version": "0.1.0",
+  "public": true,
+  "builtAt": "2026-06-25T17:44:35.305Z",
+  "description": "GitHub integration — repository navigation, issue triage, and pull request review. Provides repo.get/files/file/search, issues.list/get/create/comment/update/search, and prs.list/get/diff/files/commits/review/comment. Requires GITHUB_TOKEN."
+}

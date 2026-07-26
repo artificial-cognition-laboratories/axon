@@ -1,0 +1,7 @@
+{
+  "moduleId": "obsidian",
+  "version": "0.1.0",
+  "public": true,
+  "builtAt": "2026-06-25T17:55:49.109Z",
+  "description": "Obsidian vault integration — read, write, search, and surgically patch notes. Requires the Obsidian Local REST API plugin running locally."
+}
