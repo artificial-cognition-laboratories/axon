@@ -1,0 +1,15 @@
+{
+  "name": "@axon/eslint-specialist",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.102",
+    "@arcforge/engines": "2.0.102",
+    "h3": "^1.13.0",
+    "@arcforge/cognet": "2.0.102",
+    "@axon/zero": "^0.1.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "hash": "dce199ea3eff05cac97f46aa284ed8b47d61d7e8ae0c7e48d1e6359a3d97034f",
+  "measurements": [
+    {
+      "id": "resolved",
+      "label": "Resolved",
+      "description": "Has the agent resolved the bug?",
+      "value": {
+        "kind": "boolean"
+      },
+      "aggregate": "rate"
+    },
+    {
+      "id": "collateral",
+      "label": "Collateral",
+      "description": "Files edited beyond the target.",
+      "value": {
+        "kind": "number"
+      },
+      "aggregate": "mean",
+      "objective": "minimize"
+    }
+  ]
+}

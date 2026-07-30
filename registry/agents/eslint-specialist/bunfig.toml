@@ -1,0 +1,4 @@
+[test]
+preload = ["@axon/test"]
+[install.scopes]
+axon = { url = "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/-" }

@@ -1,0 +1,29 @@
+{
+  "name": "@arcforge/cognet",
+  "version": "2.0.104",
+  "description": "A cognitive engine",
+  "type": "module",
+  "private": false,
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ecs": "./src/ecs/index.ts",
+    "./air": "./src/air/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
+  },
+  "dependencies": {
+    "@arcforge/err": "workspace:*",
+    "@arcforge/types": "workspace:*",
+    "hookable": "^5.5.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@axon/example-bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/engines": "2.0.101"
+  },
+  "description": "Can the agent fix a real bug without collateral damage?"
+}

@@ -10,8 +10,11 @@
     "typescript": "^5"
   },
   "workspaces": [
-    "libs/*",
-    "registry/modules/*",
-    "registry/cognets/*"
+    "libs/axon/*",
+    "libs/axon/packages/*",
+    "registry/agents/*",
+    "registry/benches/*",
+    "registry/cognets/*",
+    "registry/modules/*"
   ]
 }

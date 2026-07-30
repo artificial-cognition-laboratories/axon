@@ -1,0 +1,12 @@
+{
+  "name": "@axon/fragcheck",
+  "version": "0.1.3",
+  "description": "A Linux gaming-readiness specialist — inspects your rig and tells you, straight, how ready it is to game, with a scored report and ranked fixes.",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.68",
+    "@arcforge/engines": "2.0.68",
+    "h3": "^1.13.0"
+  }
+}

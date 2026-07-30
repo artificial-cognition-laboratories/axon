@@ -1,0 +1,13 @@
+{
+  "name": "@axon/fleet",
+  "version": "0.1.0",
+  "description": "",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.100",
+    "@arcforge/engines": "2.0.100",
+    "@arcforge/cognet": "2.0.100",
+    "h3": "^1.13.0"
+  }
+}

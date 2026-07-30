@@ -1,0 +1,18 @@
+{
+  "name": "@axon/zero",
+  "version": "0.1.6",
+  "description": "The default Axon cognet — the cognitive loop every agent runs unless it selects another.",
+  "type": "module",
+  "private": false,
+  "files": [
+    "cognet.config.ts",
+    "src",
+    "plugins"
+  ],
+  "peerDependencies": {
+    "@arcforge/cognet": "*"
+  },
+  "devDependencies": {
+    "@arcforge/cognet": "^2.0.0"
+  }
+}

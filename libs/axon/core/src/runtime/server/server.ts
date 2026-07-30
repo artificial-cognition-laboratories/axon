@@ -1,0 +1,134 @@
+import { getResponseStatus } from "h3"
+import { Endpoints } from "./endpoints"
+import { H3 } from "./h3"
+import { Middleware } from "./middleware"
+import { Plugins } from "./plugins"
+import { Routes } from "./routes"
+import type { AxonBlueprint, AxonHandle } from "@arcforge/types"
+import { AxonBusT, AxonHooksT } from "../../platform"
+import type { AxonSessionT } from "@arcforge/session"
+
+type ServerOpts = {
+    blueprint: AxonBlueprint
+    hooks: AxonHooksT
+    /** The runtime handle, forwarded to each server plugin's fn — passed, never global. */
+    axon: AxonHandle
+    /**
+     * The raw event bus. Trusted-host-only and deliberately absent from
+     * AxonHandle — /_axon/events bridges it to SSE, which is the one place the
+     * server needs it. Passed explicitly rather than widening the handle.
+     */
+    bus: AxonBusT
+    /** Environmental — the request log commits here, same as every other runtime fact. */
+    session: AxonSessionT
+}
+
+/**
+ * Axon Server factory.
+ *
+ * Everything here is a pure applier — the blueprint arrives fully resolved
+ * (conflict resolution, ordering, discovery, and module merging all happened
+ * upstream in the CLI/manifest build step). There is no module-specific
+ * mounting step here — module routes are already merged into
+ * blueprint.server.routes. Order below matters:
+ *   env -> middleware -> plugins (pre-route hook) -> routes
+ *
+ * @orchestrator - this should not contain low level logic
+ * @behaviour - all error handling should exist in lower layers
+ */
+export async function AxonServer(opts: ServerOpts) {
+    const h3 = H3()
+
+    // framework-level hook point — ahead of user middleware, so request:before
+    // observes every request regardless of what user middleware does with it
+    h3.app.use((event) => opts.hooks.callHook("request:before", event))
+
+    const middleware = Middleware({
+        h3: h3.app,
+        entries: opts.blueprint.server.middleware,
+    })
+
+    // AxonServer() is rebuilt whole on every reload, and Plugins() reruns in
+    // full — reset first or a plugin's hook.hook() calls accumulate one extra
+    // registration per reload (same handler firing N times for one event).
+    opts.hooks.reset()
+
+    await Plugins({
+        entries: opts.blueprint.server.plugins,
+        axon: opts.axon,
+    })
+
+    // Framework-reserved /_axon/* surface — mounted BEFORE user routes so it
+    // is always present and can never be shadowed. This is the normalized wire
+    // contract AxonCloud.attach() speaks to, independent of authored routes.
+    const endpoints = Endpoints({
+        h3: h3,
+        axon: opts.axon,
+        bus: opts.bus,
+        blueprint: opts.blueprint,
+    })
+
+    const routes = Routes({
+        h3: h3,
+        entries: opts.blueprint.server.routes,
+    })
+
+    // request:after must run once the route handler has actually resolved —
+    // h3's layer stack is sequential, not onion-style, so this can't be a
+    // plain .use() registered before the router (that would fire alongside
+    // request:before, ahead of the route). Wrap the router's own handler instead.
+    //
+    // The same wrapper commits the request record: this is the one point that
+    // sees a request both arrive and settle, so it is the only honest place to
+    // measure it. Recorded as a single settled fact rather than a span — one
+    // line per request is what a server log wants, and a request has no
+    // interesting interior for a flame graph to nest inside.
+    h3.mount(async (event) => {
+        const started = Date.now()
+        const method = event.method
+        const path = event.path
+        try {
+            const response = await h3.router.handler(event)
+            await opts.hooks.callHook("request:after", event)
+            await commitRequest(method, path, getResponseStatus(event), started)
+            return response
+        } catch (cause) {
+            // h3 turns a thrown H3Error into a real response upstream of this
+            // wrapper, so the record must be written here or a failed request
+            // leaves no trace at all. The throw is re-raised untouched.
+            const status = (cause as { statusCode?: number }).statusCode ?? 500
+            await commitRequest(method, path, status, started)
+            throw cause
+        }
+    })
+
+    /**
+     * One durable line per request, whatever the outcome — except for the
+     * framework's own /_axon/* surface.
+     *
+     * That surface IS the observability plane (health polls, session
+     * hydration, the SSE event stream). Recording a request to /_axon/events
+     * into the very log /_axon/events serves is self-referential: a connected
+     * client generates log lines by observing, a health poll every second
+     * writes a line a second forever, and real application traffic drowns in
+     * it. The log exists to answer "what did my agent's HTTP surface do",
+     * and the devtools plane is not part of that answer.
+     */
+    async function commitRequest(method: string, path: string, status: number, started: number): Promise<void> {
+        if (path.startsWith("/_axon/")) return
+        await opts.session.commit("axon:server:request", {
+            method,
+            path,
+            status,
+            durationMs: Date.now() - started,
+        })
+    }
+
+    return {
+        middleware: middleware,
+        endpoints: endpoints,
+        routes: routes,
+        /** Web-standard fetch handler — bind it to a port with Bun.serve or any web-fetch runtime. */
+        handler: h3.toFetchHandler(),
+    }
+}

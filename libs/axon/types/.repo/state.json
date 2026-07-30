@@ -1,0 +1,9 @@
+{
+  "no-internal-dependencies": {
+    "status": "satisfied",
+    "at": "2026-07-29T13:40:00Z",
+    "revision": "2ca607a15",
+    "session": "abc123",
+    "summary": "No internal imports found across 14 files"
+  }
+}

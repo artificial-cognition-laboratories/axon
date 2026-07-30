@@ -1,0 +1,24 @@
+{
+    "name": "@arcforge/err",
+    "version": "2.0.104",
+    "description": "Structured Axon errors — the code map every user-facing failure is rendered from.",
+    "type": "module",
+    "private": false,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "files": [
+        "src"
+    ],
+    "scripts": {
+        "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
+    },
+    "dependencies": {
+        "@arcforge/types": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5"
+    }
+}

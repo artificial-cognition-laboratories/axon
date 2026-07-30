@@ -1,0 +1,8 @@
+{
+  "extends": "@arcforge/types/tsconfig.base.json",
+  "include": [
+    "./**/*.d.ts",
+    "../bench.config.ts",
+    "../tests/**/*.ts"
+  ]
+}

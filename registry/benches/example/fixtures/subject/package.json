@@ -1,0 +1,13 @@
+{
+  "name": "@cody/parser-fixer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.101",
+    "@arcforge/engines": "2.0.101",
+    "@arcforge/cognet": "2.0.101",
+    "h3": "^1.13.0",
+    "@axon/zero": "^0.1.5"
+  }
+}
