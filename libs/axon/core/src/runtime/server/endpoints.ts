@@ -1,4 +1,4 @@
-import { createError, defineEventHandler, getQuery, readBody } from "h3"
+import { createError, defineEventHandler, getQuery, readBody, setResponseStatus } from "h3"
 import type { AxonBlueprint, AxonHandle, AxonRequestInput } from "@arcforge/types"
 import type { AxonBusT } from "../../platform"
 import { ConnectAuth } from "./connect-auth"
@@ -60,7 +60,19 @@ export function Endpoints(opts: EndpointsOpts) {
     // health carries the instance's session id so a client's attach handshake
     // resolves "which instance am I bound to" up front (mirrors local session.id).
     // Never gated — the startup probe hits it before any caller is authorized.
-    router.get("/_axon/health", defineEventHandler(() => ({ ok: true, sessionId: axon.session.id })))
+    // Readiness, not liveness. `ok` used to be the literal `true`, so an agent
+    // whose brain failed to load answered 200 forever: the process was up, the
+    // routes served, the log filled with reload failures, and nothing outside
+    // could tell. A health check that cannot fail is not a health check.
+    //
+    // 503 is the honest status for "running but cannot serve its purpose" —
+    // it is what a load balancer needs to stop sending work, and what a human
+    // needs to stop trusting the green light.
+    router.get("/_axon/health", defineEventHandler(event => {
+        const ready = axon.ready
+        if (!ready) setResponseStatus(event, 503)
+        return { ok: ready, sessionId: axon.session.id, ...(ready ? {} : { reason: "no cognet loaded" }) }
+    }))
 
     // Body is parsed BEFORE the auth check, then the action runs only AFTER it.
     //

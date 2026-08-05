@@ -47,7 +47,50 @@ export function toScopeModule(tool: AxonTool): AxonScopeModule {
  * The blueprint's executable scope. Tools with no loadable entry are
  * excluded — declaring something the capsule cannot call would tell the
  * model to invoke a function that does not exist there.
+ *
+ * Flat members are then deduped by CALLABLE NAME, which is a different
+ * question from the one merge() answers. merge() resolves collisions between
+ * TOOL names (the filename): an agent's `weather.ts` shadowing a module's
+ * `weather.ts`. It cannot see two differently-named files whose exports
+ * collide — an agent's `weather.ts` and a module's `forecast.ts` both
+ * exporting `now()` are two distinct tools by its reckoning, so both survive.
+ *
+ * Both then install flat, and everything downstream silently picks a winner:
+ * the .d.ts and the model's <scope> each declare `function now()` twice, and
+ * the capsule builds its globals with Object.assign, so whichever tool loads
+ * last wins and the other export is unreachable with nothing reported. The
+ * agent always wins here, matching merge()'s precedence, and the loser is
+ * dropped from the scope rather than rendered as a duplicate declaration.
  */
 export function toScope(blueprint: AxonBlueprint): AxonScope {
-    return { modules: blueprint.tools.filter(isLoadable).map(toScopeModule) }
+    const loadable = blueprint.tools.filter(isLoadable)
+    const claimed = new Set<string>()
+    const modules: AxonScopeModule[] = []
+
+    // Agent-origin tools first so they claim contested names, regardless of the
+    // order modules happen to appear in the blueprint.
+    for (const tool of [...loadable].sort((a, b) => rank(a) - rank(b))) {
+        const module = toScopeModule(tool)
+        if (!module.flat) {
+            modules.push(module)
+            continue
+        }
+
+        const members = module.members.filter(member => !claimed.has(member.name))
+        for (const member of members) claimed.add(member.name)
+        if (members.length > 0) modules.push({ ...module, members })
+    }
+
+    // Restore blueprint order: the filtering above needs agent-first, but the
+    // rendered scope should read in the order the blueprint declares.
+    return { modules: modules.sort((a, b) => order(loadable, a) - order(loadable, b)) }
+}
+
+/** Agent-authored tools outrank module tools when both claim a callable name. */
+function rank(tool: AxonTool): number {
+    return tool.origin === "module" ? 1 : 0
+}
+
+function order(tools: AxonTool[], module: AxonScopeModule): number {
+    return tools.findIndex(tool => tool.name === module.name)
 }

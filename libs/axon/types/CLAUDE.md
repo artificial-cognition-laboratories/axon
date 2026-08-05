@@ -21,10 +21,19 @@ invariants. It defines every event the runtime can emit.
 
 A session is a single JSONL file. `Writer()` in `@arcforge/session` serializes
 every append, so **disk order IS commit order** and `time.seq` is authoritative
-ordering, immune to clock skew. The scheduler admits **one wake at a time**.
+ordering, immune to clock skew.
 
-These two facts are load-bearing for everything below. They are why distributed
-tracing is redundant here and why nesting can be recovered exactly.
+**Wakes are not serial.** An invocation cognet runs one at a time (it is one
+conversation), but a continuous cognet's wakes overlap by design: every tick
+wakes however long the last one is still taking, because stimuli are transient
+and a skipped tick is a tick that never heard. Deliberation that outlasts a
+tick keeps running while the next tick senses.
+
+One writer plus one total order still holds — that is what keeps the log
+coherent under overlap. What does NOT hold is one line of execution, so
+nesting is recovered per `context.runId` rather than globally (see Reading it
+back). Distributed tracing is still redundant: `runId` already separates the
+lines, and within one line containment is exact.
 
 ### The envelope
 
@@ -85,16 +94,28 @@ land in `log` despite the namespace.
 
 ### Durability
 
-Everything commits **except** the byte streams in `CAPSULE_TRANSIENT_EVENTS` —
-the one canonical list. A command's stdout already reaches the durable record
-folded into `cognet:action:result`.
+Everything commits **except** two canonical lists:
+
+- `CAPSULE_TRANSIENT_EVENTS` — the byte streams. A command's stdout already
+  reaches the durable record folded into `cognet:action:result`.
+- `STIMULUS_TRANSIENT_EVENTS` — dense sense streams (`audio`, `visual`).
+  Delivered to the cognet, never written. A stimulus is a sensation, and the
+  protocol always described it as one; a 30Hz sensor would otherwise commit
+  millions of entries a day whose bytes nobody replays. Text and field
+  readings stay durable — text is what someone said.
+
+Both say the same thing: durability is a property of the KIND, never a runtime
+mode, because whether a thing is worth remembering follows from what it is.
 
 ### Reading it back
 
 `readSession()` (`read.ts`) rebuilds the nested tree by bracket-matching within
-`seq` order: a span's parent is the innermost span still open when it started.
-Given one writer and one wake this is exact, not a heuristic — which is the
-whole reason no parent pointer is emitted. `formatSession()` renders it.
+`seq` order: a span's parent is the innermost span still open when it started
+**in the same run**. One open-span stack per `context.runId`, not one globally
+— overlapping wakes interleave in `seq` order without being nested at all, and
+a single stack read that interleaving as containment, hanging one wake's
+phases inside another's. Within a run it is exact, not a heuristic, which is
+still why no parent pointer is emitted. `formatSession()` renders it.
 
 ## Key Interfaces
 
@@ -115,9 +136,11 @@ foldChunks(entries)          // the chunk-assembly rule, one implementation
    emitter is a lie in the contract — delete it or wire it.
 3. Failure payloads are structured, never a bare string.
 4. `context` carries `runId` + `spanId`. Nothing else correlates.
-5. Hierarchy is bracket-matched, never a parent pointer.
-6. One stamping point for the envelope.
-7. Durable/transient derives from `CAPSULE_TRANSIENT_EVENTS`.
+5. Hierarchy is bracket-matched per `runId`, never a parent pointer.
+6. One stamping point for the envelope — including transient entries, which
+   are stamped and consume a seq so the record has no false adjacency.
+7. Durable/transient derives from `CAPSULE_TRANSIENT_EVENTS` and
+   `STIMULUS_TRANSIENT_EVENTS`.
 8. Classification derives from the type namespace via `classifyEvent`.
 
 `core/tests/integration/ontology/spans.test.ts` asserts 1, 3, 4 and 5 against a

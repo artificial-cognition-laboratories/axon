@@ -5,11 +5,11 @@
   "private": false,
   "type": "module",
   "dependencies": {
-    "@arcforge/engines": "2.0.102",
-    "@arcforge/types": "2.0.102",
+    "@arcforge/engines": "2.0.111",
+    "@arcforge/types": "2.0.111",
     "@faker-js/faker": "^10.5.0",
     "h3": "^1.13.0",
-    "@arcforge/cognet": "2.0.102",
-    "@axon/zero": "^0.1.5"
+    "@arcforge/cognet": "2.0.111",
+    "@axon/zero": "^0.1.6"
   }
 }

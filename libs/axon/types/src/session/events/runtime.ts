@@ -60,6 +60,17 @@ export type AxonRuntimeEvent =
         { name: string },
         { name: string; error: AxonError }
     >
+    // ── Model change (config edit, then a reload rides the hot-swap path) ───
+    //    The agent is the same agent; only the engine underneath it moved.
+    //    `dropped` names options the previous provider had that the new one
+    //    does not accept (e.g. Codex's `effort`), so the change is never a
+    //    silent loss of the author's configuration.
+    & AxonSpan<
+        "axon:model",
+        { name: string },
+        { name: string; changed: boolean; dropped: string[] },
+        { name: string; error: AxonError }
+    >
     // ── Module setup/teardown (boot-time defineModule() setup execution) ─────
     //    The determinism ledger: one start/complete (or failed) per module,
     //    in blueprint order, carrying the config content hash so two boots of

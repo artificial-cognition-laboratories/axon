@@ -1,0 +1,13 @@
+{
+    "name": "@axon/performance",
+    "version": "0.1.0",
+    "description": "Make something measurably faster — measure, profile, change one thing, re-measure.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

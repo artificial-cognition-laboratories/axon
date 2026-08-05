@@ -262,6 +262,20 @@ export async function Kernel(opts: KernelOpts) {
         // persistence surface — private cognitive state + read-only episodic
         // access, one mediated door like stream/run (see Store())
         store: store,
+
+        // The brain's own rhythm. Called from a cognet plugin, never from the
+        // body — see KernelAbi.wake for why the body must not drive this.
+        // Deliberately NOT awaited into the wake: admission is the contract,
+        // so a driver on an interval never serialises the overlap.
+        wake: () => scheduler.wake(),
+
+        clock: () => scheduler.clock(),
+
+        // Resolved at prepare and carried on the blueprint — the runtime only
+        // hands the paths over. Frozen so a brain cannot mutate the map it
+        // was given, and empty (never undefined) so a cognet reads it without
+        // branching.
+        models: Object.freeze({ ...(opts.blueprint.cognet.models ?? {}) }),
     }
 
     // exec(): the kernel is the only loader. ABI compatibility is checked
@@ -283,6 +297,19 @@ export async function Kernel(opts: KernelOpts) {
     scheduler.attach(cognet)
 
     return {
+        /**
+         * Whether a cognet is loaded and able to wake.
+         *
+         * False after a failed load or a reload whose new brain did not
+         * compile: the process is alive and serving HTTP, but there is
+         * nothing to think with. An agent in that state must not report
+         * itself healthy — it looks fine from outside while silently
+         * answering nothing.
+         */
+        get ready() {
+            return scheduler.loaded
+        },
+
         /** Invoke on a stimulus arrival — invocation-mode cognets only; throws for continuous-mode. */
         stream(input: KernelInput = {}) {
             return scheduler.stream(input)
@@ -296,6 +323,11 @@ export async function Kernel(opts: KernelOpts) {
             }
             return { ok: true, entries }
         },
+
+        // No tick() on the public surface. The brain drives its own rhythm
+        // through the ABI (KernelAbi.tick, called from a cognet plugin) —
+        // exposing it here would let the body wake a mind it knows nothing
+        // about, which is the coupling this split exists to remove.
 
         /** Abort the active wake, if any. Safe to call when idle. */
         interrupt(reason: "user" | "shutdown" = "user") {
@@ -337,14 +369,17 @@ export async function Kernel(opts: KernelOpts) {
         },
 
         /**
-         * Drain the mind: abort any wake, stop the scheduler's clock (if
-         * continuous), unload the brain, kill the userland. Session is not
-         * kernel's to close — AxonRuntime.shutdown() ends it after this
-         * resolves, so a failure here never skips flushing the log.
+         * Drain the mind: abort any wake, unload the brain, kill the
+         * userland. Session is not kernel's to close — AxonRuntime.shutdown()
+         * ends it after this resolves, so a failure here never skips flushing
+         * the log.
+         *
+         * No clock to stop: a continuous cognet is ticked by the body (a
+         * plugin driving `axon.tick()`), which tears its own interval down on
+         * `shutdown:before` — before this runs.
          */
         async shutdown() {
             scheduler.interrupt("shutdown")
-            scheduler.stop()
 
             // A failed unload must never strand the userland: the capsule is
             // a real OS process, and skipping its teardown leaks it for the
@@ -352,6 +387,10 @@ export async function Kernel(opts: KernelOpts) {
             // rethrown after the box is definitely gone.
             const unloadStarted = Date.now()
             await session.commit("cognet:unload:start", { name: cognet.name })
+            // Before the unload, not after: whether it succeeds or throws, a
+            // brain being torn down can no longer wake, and readiness must
+            // stop claiming otherwise the moment that becomes true.
+            scheduler.detach()
             let failure: ReturnType<typeof err> | null = null
             try {
                 await cognet.unload()

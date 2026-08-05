@@ -1,0 +1,13 @@
+{
+    "name": "@axon/handoff",
+    "version": "0.1.0",
+    "description": "Compact a session into a document another agent can resume the work from.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

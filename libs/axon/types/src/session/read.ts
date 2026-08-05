@@ -96,10 +96,35 @@ export function readSession<E extends ReadableEvent>(events: readonly E[]): Read
     const ordered = [...events].sort((a, b) => a.time.seq - b.time.seq)
 
     const roots: ReadNode<E>[] = []
-    const stack: SpanNode<E>[] = []
-    const siblings = () => (stack.length > 0 ? stack[stack.length - 1]!.children : roots)
+
+    /**
+     * One open-span stack PER RUN, not one globally.
+     *
+     * Time containment only implies nesting within a single line of
+     * execution. A continuous cognet's wakes overlap by design — deliberation
+     * that outlasts a tick keeps running while the next tick wakes — so their
+     * spans interleave in `seq` order without being nested at all. A single
+     * stack read that interleaving as containment and hung wake B's phases
+     * inside wake A's run, producing a flame graph that was not merely
+     * imprecise but describing a call structure that never happened.
+     *
+     * `context.runId` already separates them, which is why no parentSpanId is
+     * needed here either: within one run, innermost-still-open is still
+     * exact. Events with no runId (session lifecycle, boot) share one stack
+     * keyed on "" — they are genuinely one line of execution.
+     */
+    const stacks = new Map<string, SpanNode<E>[]>()
+    const stackFor = (event: E): SpanNode<E>[] => {
+        const runId = (event.context as { runId?: string } | undefined)?.runId ?? ""
+        let stack = stacks.get(runId)
+        if (!stack) stacks.set(runId, stack = [])
+        return stack
+    }
 
     for (const event of ordered) {
+        const stack = stackFor(event)
+        const siblings = () => (stack.length > 0 ? stack[stack.length - 1]!.children : roots)
+
         if (isSpanStart(event.type)) {
             const node: SpanNode<E> = {
                 stem: spanStem(event.type),

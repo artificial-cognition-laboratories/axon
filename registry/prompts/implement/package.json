@@ -1,0 +1,13 @@
+{
+    "name": "@axon/implement",
+    "version": "0.1.1",
+    "description": "Build from a spec in vertical slices, with tight feedback and honest reporting.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

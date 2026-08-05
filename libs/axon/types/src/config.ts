@@ -2,6 +2,7 @@ import { EngineConfig } from "./engine"
 import { CapsulePartialConfig } from "./capsule-config"
 import { DeployConfig } from "./deploy"
 import { ModuleEntry } from "./module"
+import { CognetConfig } from "./cognet/cognet"
 
 /**
  * Authoring configuration for an Axon agent.
@@ -31,6 +32,27 @@ export type AxonConfig<EventMap extends Record<string, unknown> = Record<string,
     /** Short human-readable summary shown in registries, docs, and generated manifests. */
     // description?: string // deprected. use package.json instead
 
+    /**
+     * Paths on this agent's own HTTP surface worth surfacing to whoever boots
+     * it — printed in the `axon dev` banner alongside the agent's URL.
+     *
+     * ```ts
+     * links: { viewer: "/api/sim", docs: "/api/help" }
+     * ```
+     *
+     * Values are PATHS, never absolute URLs: the runtime binds a port at boot
+     * (walking forward if the requested one is taken), so an agent that wrote
+     * `http://localhost:3010/...` here would advertise the wrong address the
+     * first time two agents ran side by side.
+     *
+     * The runtime attaches no meaning to a name. It does not know what a
+     * viewer is, only that the author wants this path shown — which is why
+     * this is a flat label→path map rather than a typed `ui:` field with a
+     * title and an icon. A shape that describes what the thing IS would be
+     * the runtime learning about kinds of page; this shape only says where.
+     */
+    links?: Record<string, string>
+
     /** Sandbox permissions enforced at the capsule boundary. */
     policy?: CapsulePartialConfig["policy"]
 
@@ -44,16 +66,29 @@ export type AxonConfig<EventMap extends Record<string, unknown> = Record<string,
     /**
      * Cognet selection — which brain this agent runs.
      *
-     * A scoped registry specifier, optionally version-pinned, exactly like a
-     * module: `"@axon/zero"`, `"@axon/zero@^0.2.0"`, `"@you/my-loop"`. It is
-     * installed as a package.json dependency at `axon prepare` and compiled
-     * into the agent, so versions resolve and lock through Bun like any other
-     * dependency. Defaults to `"@axon/zero"`.
+     * Two forms, exactly like a module:
+     *
+     * - `"@axon/zero"` — a scoped registry specifier, optionally
+     *   version-pinned (`"@axon/zero@^0.2.0"`). Installed as a package.json
+     *   dependency at `axon prepare` and compiled into the agent, so versions
+     *   resolve and lock through Bun like any other dependency.
+     * - `Vehicle` — a direct source import of a `cognet.config.ts`, compiled
+     *   from its own directory with no install step. The path comes from the
+     *   import statement, resolved statically at prepare.
+     *
+     * ```ts
+     * import Vehicle from "../../cognets/braitenberg-vehicle/cognet.config"
+     * export default defineAgent({ cognet: Vehicle })
+     * ```
+     *
+     * Omitted entirely, the agent tracks the registry's latest `@axon/zero`
+     * for this kernel ABI — choosing nothing is not the same as choosing the
+     * default.
      *
      * Exactly one per agent — an agent has one brain. The runtime never sees
      * this field; it reads the bundled blueprint.cognet.
      */
-    cognet?: string
+    cognet?: string | CognetConfig
 
 
 

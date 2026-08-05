@@ -1,6 +1,6 @@
 {
   "name": "@axon/zero",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "description": "The default Axon cognet — the cognitive loop every agent runs unless it selects another.",
   "type": "module",
   "private": false,

@@ -1,0 +1,13 @@
+{
+    "name": "@axon/document",
+    "version": "0.1.0",
+    "description": "Write documentation that answers the question the reader arrived with.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

@@ -3,6 +3,7 @@ import type { AxonKernelEventMap } from "./events/kernel"
 import type { AxonRuntimeEvent } from "./events/runtime"
 import type { CognetEventMap } from "./events/cognet"
 import type { CapsuleEventMap } from "./events/capsule"
+import type { BuildEventMap } from "./events/build"
 import type { AxonEntryEvent } from "./events/entries"
 
 /**
@@ -33,8 +34,17 @@ export type AxonSession = {
 
 // ── Registry maps ────────────────────────────────────────────────────────────
 
-/** Everything that can appear in a session's logs (and on the runtime bus). Telemetry (kernel/cognet/capsule) is durable like everything else; only the capsule byte streams (CAPSULE_TRANSIENT_EVENTS) stay bus-only. */
-export type AxonEventMap = AxonKernelEventMap & AxonRuntimeEvent & CognetEventMap & CapsuleEventMap
+/**
+ * Everything that can appear in a session's logs (and on the runtime bus).
+ * Telemetry (kernel/cognet/capsule) is durable like everything else; only
+ * the capsule byte streams (CAPSULE_TRANSIENT_EVENTS) stay bus-only.
+ *
+ * BuildEventMap is the one family emitted with no runtime present — the
+ * session is opened before the build so a failed one leaves a readable
+ * record. It is in this map because it reaches the same log and must
+ * satisfy the same envelope; nothing else about it is special.
+ */
+export type AxonEventMap = AxonKernelEventMap & AxonRuntimeEvent & CognetEventMap & CapsuleEventMap & BuildEventMap
 
 // ── Enveloped unions (what actually sits in the JSONL) ──────────────────────
 

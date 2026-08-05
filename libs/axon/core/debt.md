@@ -52,3 +52,43 @@ call and the cognet's `emit` cannot await) so a rejection genuinely has nowhere 
 - libs/axon/kernel/src/capsule.ts — onAny forwarder, both branches
 - libs/axon/kernel/src/kernel.ts — abi.emit
 - libs/axon/core/src/platform/boot.ts — console capture
+
+## [x] axon.tools was a boot snapshot — hot reload never rebuilt it
+**Severity:** high
+**Description:**
+`AxonHandle()` projected the tool map from the boot blueprint once and never
+rebuilt it, while exposing it as a plain property. After a hot reload the agent
+could call a newly added tool (its capsule had been reloaded) but a script
+calling the same tool through `axon.tools.*` got `undefined` — and a tool the
+author deleted stayed callable through the handle until restart. Verified
+directly: after `update()`, `blueprint.tools` held `["greeter","math"]` while
+`Object.keys(axon.tools)` still held `["greeter"]`. Found while building the
+host-side tool globals, not by any existing test.
+**Resolved.** `tools` is now swappable state behind a getter (the same manager
+pattern `Backend`/`AxonCapsule`/`AxonSession` use), re-projected inside
+`handle.update()` from the blueprint that just went live.
+**References:**
+- libs/axon/core/src/runtime/handle.ts — tools getter, update()
+- libs/axon/core/tests/integration/handle/tool-globals.test.ts
+
+## [x] tool-globals.d.ts declared globals that did not exist in host-side code
+**Severity:** high
+**Description:**
+`scopeToDts()` emitted every tool into a `declare global` block, and scripts are
+compiled against it — but globals were only ever installed inside the capsule
+sandbox (`capsule/process/scope.ts`). A script calling `kanban.list()`
+autocompleted, typechecked, and threw "kanban is not defined" at runtime. The
+docs (`api/tools.md`) described the globals as working everywhere, which is the
+behaviour we want; the runtime simply never implemented it. Same
+type-lies-about-runtime family as declaring a sync return type for a function
+the capsule wraps in a Promise.
+**Resolved.** `Inject().runtime()` now binds tool exports as host-side globals,
+delegating to the matching `axon.tools.*` proxy so policy, mediation and tracing
+cannot drift between the two surfaces. Placement follows `flat` exactly as the
+capsule installs it. A name already owned by the host (`fetch`, `axon`, `args`)
+is never clobbered — the tool stays reachable explicitly. Globals are retracted
+and rebound on reload.
+**References:**
+- libs/axon/core/src/platform/inject.ts — installToolGlobals(), define()
+- libs/axon/kernel/src/scope-dts.ts — doc comment
+- apps/axon.arclabs.it/content/docs/v2/api/tools.md

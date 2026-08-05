@@ -205,7 +205,7 @@ export const errorMap = {
     COGNET_NOT_FOUND: {
         code: "AX-COGNET-013",
         title: "Cognet Not Found",
-        description: "The cognet this agent selects isn't installed — check the `cognet` specifier in axon.config.ts and run `axon prepare` to install it from the registry.",
+        description: "The cognet named by `cognet:` in axon.config.ts could not be located. The detail says where it was looked for — a registry that answered 404, or a node_modules tree it was missing from. Check the specifier for a typo, and check which registry the CLI is pointed at (AXON_API_BASE).",
         source: "cognet",
         severity: "fatal",
     },
@@ -222,6 +222,13 @@ export const errorMap = {
         code: "AX-PROJECT-006",
         title: "Could Not Edit axon.config.ts",
         description: "The install succeeded but the module entry could not be written into the config's modules array automatically — add or remove it by hand.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    CONFIG_ENGINE_UNPARSEABLE: {
+        code: "AX-PROJECT-033",
+        title: "Could Not Edit The Engine In axon.config.ts",
+        description: "The agent's `engine: X({ ... })` declaration could not be located or rewritten automatically — set the model by hand.",
         source: "manifest",
         severity: "fatal",
     },
@@ -249,9 +256,16 @@ export const errorMap = {
         severity: "fatal",
     },
     CORRUPT_JSON: {
-        code: "AX-PROJECT-004",
+        code: "AX-PROJECT-016",
         title: "Corrupt JSON File",
         description: "A stored JSON file failed to parse — it may have been hand-edited into an invalid state, or a write was interrupted mid-flight.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    FILE_UNREADABLE: {
+        code: "AX-PROJECT-032",
+        title: "File Could Not Be Read",
+        description: "A file exists but could not be read — most often a permissions problem, a directory where a file was expected, or a disk error. Distinct from a missing file, which is an ordinary absent-surface state.",
         source: "manifest",
         severity: "fatal",
     },
@@ -279,7 +293,7 @@ export const errorMap = {
 
     // ── Project (build/project/*.ts) ────────────────────────────────────────
     PROJECT_NOT_FOUND: {
-        code: "AX-PROJECT-005",
+        code: "AX-PROJECT-017",
         title: "Project Not Found",
         description: "No axon.config.ts, module.config.ts, cognet.config.ts, bench.config.ts, or prompt.config.ts was found at this path — it isn't a recognized project directory.",
         source: "manifest",
@@ -293,7 +307,7 @@ export const errorMap = {
         severity: "fatal",
     },
     PROJECT_EXISTS: {
-        code: "AX-PROJECT-006",
+        code: "AX-PROJECT-018",
         title: "Project Already Exists",
         description: "Scaffolding refused to overwrite a directory that already exists — remove it or pick a different name first.",
         source: "manifest",
@@ -317,6 +331,48 @@ export const errorMap = {
         code: "AX-PROJECT-009",
         title: "This Project Kind Cannot Publish Yet",
         description: "Only agents and modules publish to the registry today. Cognets and benches become first-class registry artifacts in the unified artifact work — until then, publishing one would register it under the wrong kind and claim its name in the shared namespace.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    MODEL_SPECIFIER_INVALID: {
+        code: "AX-MODEL-001",
+        title: "Malformed Model Specifier",
+        description: "A `models:` entry in cognet.config.ts could not be parsed. The short form is `hf:owner/repo/path/to/file` — a repo alone is ambiguous, since one repo holds many weights.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    MODEL_FETCH_FAILED: {
+        code: "AX-MODEL-002",
+        title: "Model Weights Could Not Be Fetched",
+        description: "A declared model could not be downloaded. Check the repo, file path and revision, and that the machine can reach the registry. A brain without its weights is broken rather than degraded, so this fails at prepare instead of at first inference.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    MODEL_HASH_MISMATCH: {
+        code: "AX-MODEL-003",
+        title: "Model Weights Failed Verification",
+        description: "Downloaded bytes did not hash to the expected value — the upstream file changed, or the download was corrupted. Nothing is cached: storing unverified weights would make every later run trust them.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    MODEL_NOT_CACHED: {
+        code: "AX-MODEL-004",
+        title: "Declared Model Is Not Cached",
+        description: "`--frozen` asserts the machine is already provisioned, so it will not fetch. Run `axon prepare` without --frozen to populate the model cache.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    PREPARE_FROZEN_DRIFT: {
+        code: "AX-PROJECT-014",
+        title: "Dependencies Drifted From The Lockfile",
+        description: "`--frozen` asserts that package.json, the lockfile and node_modules already agree. Something did not: a dependency is missing, at a version outside its declared range, or declared but no longer selected. Run `axon prepare` without --frozen to reconcile, and commit the result.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    PUBLISH_VERIFY_FAILED: {
+        code: "AX-PROJECT-013",
+        title: "Artifact Does Not Compile",
+        description: "The package was built, but compiling it the way a consumer would failed — so publishing it would ship something nobody can install. Usually a file the source imports was left out of the package. Published versions are immutable, so this is caught before upload rather than after.",
         source: "manifest",
         severity: "fatal",
     },
@@ -349,7 +405,7 @@ export const errorMap = {
         severity: "fatal",
     },
     BUNDLE_MODULE_COLLISION: {
-        code: "AX-PROJECT-009",
+        code: "AX-PROJECT-019",
         title: "Module Name Collision",
         description: "A hard-imported source module's name collides with an already-installed registry module of the same name.",
         source: "manifest",
@@ -363,14 +419,14 @@ export const errorMap = {
         severity: "fatal",
     },
     BUNDLE_TAR_MISSING: {
-        code: "AX-PROJECT-011",
+        code: "AX-PROJECT-020",
         title: "tar Not Found",
         description: "Bundling shells out to the system's tar binary, which isn't on PATH — install Git for Windows or use WSL on that platform.",
         source: "manifest",
         severity: "fatal",
     },
     BUNDLE_TAR_FAILED: {
-        code: "AX-PROJECT-012",
+        code: "AX-PROJECT-021",
         title: "tar Failed",
         description: "The tar subprocess exited non-zero while building a bundle archive.",
         source: "manifest",
@@ -611,6 +667,41 @@ export const errorMap = {
         source: "manifest",
         severity: "fatal",
     },
+    ROUTE_LOAD_FAILED: {
+        code: "AX-BLUEPRINT-007",
+        title: "Route Load Failed",
+        description: "A file in server/api/ could not be imported. The agent would serve an endpoint set that is not the declared one — a caller gets a 404 for a route whose file exists.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    SCRIPT_LOAD_FAILED: {
+        code: "AX-BLUEPRINT-008",
+        title: "Script Load Failed",
+        description: "A file in src/scripts/ could not be processed. `axon run <name>` would report the script as not found while its file sits in the project.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    PLUGIN_LOAD_FAILED: {
+        code: "AX-BLUEPRINT-009",
+        title: "Plugin Load Failed",
+        description: "A plugin could not be imported. Plugins wire server behaviour at boot; one silently missing means the agent runs without behaviour its author declared.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    MIDDLEWARE_LOAD_FAILED: {
+        code: "AX-BLUEPRINT-010",
+        title: "Middleware Load Failed",
+        description: "A middleware file could not be imported. Middleware commonly carries auth and validation, so a silently skipped one is a request path running without the checks its author wrote.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    PROMPT_INTROSPECT_FAILED: {
+        code: "AX-BLUEPRINT-011",
+        title: "Prompt Introspection Failed",
+        description: "A .vue prompt could not be introspected for its props. The prompt would render without the inputs it declares, or not at all.",
+        source: "manifest",
+        severity: "fatal",
+    },
     CONFIG_NOT_FOUND: {
         code: "AX-BLUEPRINT-003",
         title: "Config Not Found",
@@ -700,14 +791,7 @@ export const errorMap = {
     SCHEDULER_MODE_MISMATCH: {
         code: "AX-KERNEL-010",
         title: "Scheduler Mode Mismatch",
-        description: "A caller invoked stream() on a continuous-mode cognet — continuous cognets are invoked by the scheduler's own clock, never by an external stimulus-driven call.",
-        source: "kernel",
-        severity: "fatal",
-    },
-    SCHEDULER_CONTINUOUS_NOT_IMPLEMENTED: {
-        code: "AX-KERNEL-011",
-        title: "Continuous Scheduling Not Implemented",
-        description: "The cognet declared continuous mode, but the scheduler's clock-driven trigger is a stubbed shape only — no cognet may select it yet.",
+        description: "A caller used the wrong wake verb for the cognet's mode: continuous cognets advance via tick(), driven by the body's clock; invocation cognets wake on a stimulus via request()/stream().",
         source: "kernel",
         severity: "fatal",
     },
@@ -741,6 +825,46 @@ export const errorMap = {
         title: "No Cognet Declared",
         description: "The blueprint carries no cognet definition — an agent cannot run without a brain. The CLI or test harness must construct and pass one.",
         source: "runtime",
+        severity: "fatal",
+    },
+
+    // ── Control channel ───────────────────────────────────────────────────────
+    // The local socket between a running TUI and the Fleet extension. Both
+    // ends dispatch by walking a property path against the handle the peer
+    // exposed, so a bad path is the channel's characteristic failure.
+    CONTROL_PATH_NOT_FOUND: {
+        code: "AX-CONTROL-001",
+        title: "Control Path Not Found",
+        description: "A control-channel call named a method the peer does not expose. The two ends disagree about the surface — usually a TUI and an extension built from different versions.",
+        source: "server",
+        severity: "fatal",
+    },
+    CONTROL_PATH_NOT_CALLABLE: {
+        code: "AX-CONTROL-002",
+        title: "Control Path Not Callable",
+        description: "A control-channel call resolved to a value on the peer's handle that is not a function.",
+        source: "server",
+        severity: "fatal",
+    },
+    CONTROL_CALL_FAILED: {
+        code: "AX-CONTROL-003",
+        title: "Control Call Failed",
+        description: "The peer served a control-channel call and it threw. The remote message is carried here — the failure surfaces at the local call site rather than being returned as a falsy value.",
+        source: "server",
+        severity: "fatal",
+    },
+    CONTROL_CLOSED: {
+        code: "AX-CONTROL-004",
+        title: "Control Channel Closed",
+        description: "A control-channel call was made, or was still in flight, when the channel closed. In-flight calls reject on close rather than hanging forever on an answer that is no longer coming.",
+        source: "server",
+        severity: "fatal",
+    },
+    CONTROL_UNAUTHORIZED: {
+        code: "AX-CONTROL-005",
+        title: "Control Handshake Rejected",
+        description: "A connection to the control socket presented a missing or incorrect token. The token lives in the instance record, which is readable only by the owning user — a mismatch means the caller is not the local Fleet extension.",
+        source: "server",
         severity: "fatal",
     },
 
@@ -923,7 +1047,7 @@ export const errorMap = {
         severity: "degraded",
     },
 
-    // ── TUI (useAgents.ts / platform/build/agent / platform/store / platform/services/cloud) ──
+    // ── TUI (useAgents.ts / platform/build/runtime / platform/store / platform/services/cloud) ──
     NOT_BOOTED: {
         code: "AX-TUI-001",
         title: "No Agent Running",
@@ -973,6 +1097,13 @@ export const errorMap = {
         source: "tui",
         severity: "fatal",
     },
+    MODEL_IMMUTABLE_DEPLOYED: {
+        code: "AX-TUI-006",
+        title: "Cannot Change A Deployment's Model",
+        description: "A deployed agent's config lives in the cloud, not on this machine — its model is fixed at deploy time. Change it in the local project and deploy again.",
+        source: "tui",
+        severity: "fatal",
+    },
     MODULE_INSTALL_FAILED: {
         code: "AX-TUI-018",
         title: "Module Install Failed",
@@ -984,20 +1115,6 @@ export const errorMap = {
         code: "AX-TUI-019",
         title: "No Modules Installed",
         description: "The :uninstall command was opened with no modules resolved into the focused instance's blueprint.",
-        source: "tui",
-        severity: "fatal",
-    },
-    BASE_UNMANAGED: {
-        code: "AX-TUI-006",
-        title: "Base Config Not Platform-Managed",
-        description: "The managed base workspace's config exists on disk but carries no platform manifest — it wasn't created by the platform and won't be overwritten automatically.",
-        source: "tui",
-        severity: "fatal",
-    },
-    BASE_CONFIG_MODIFIED: {
-        code: "AX-TUI-007",
-        title: "Base Config Edited By Hand",
-        description: "The managed base workspace's config no longer matches the hash the platform recorded — someone edited it directly, so the platform refuses to overwrite it.",
         source: "tui",
         severity: "fatal",
     },
@@ -1134,6 +1251,221 @@ export const errorMap = {
         title: "Module Policy Is Immutable At Boot",
         description: "A module's setup() called ctx.policy.update(). The resolved agent policy is authoritative and cannot be mutated at boot — declare policy needs statically in module.config.ts so the CLI reconciles them at install.",
         source: "runtime",
+        severity: "fatal",
+    },
+
+    // ── Registry retrieval (build/registry.ts) ──────────────────────────────
+    CLONE_REF_REQUIRED: {
+        code: "AX-PROJECT-022",
+        title: "No Artifact Named",
+        description: "`axon clone` was run without an artifact to clone. Name one, for example: axon clone @axon/arxiv",
+        source: "cli",
+        severity: "fatal",
+    },
+    FORK_REF_REQUIRED: {
+        code: "AX-PROJECT-023",
+        title: "No Artifact Named",
+        description: "`axon fork` was run without an artifact to fork. Name one, for example: axon fork @axon/arxiv --as @you/arxiv",
+        source: "cli",
+        severity: "fatal",
+    },
+    FORK_NAME_REQUIRED: {
+        code: "AX-PROJECT-024",
+        title: "Fork Needs A New Name",
+        description: "A fork is published under your own namespace, so it needs a name: pass --as <package-name>, for example: axon fork @axon/arxiv --as @you/arxiv",
+        source: "cli",
+        severity: "fatal",
+    },
+    CLONE_TARGET_EXISTS: {
+        code: "AX-PROJECT-025",
+        title: "Clone Target Not Empty",
+        description: "The directory the artifact would be cloned into already has files in it. Clone into a new directory, or clear this one first.",
+        source: "cli",
+        severity: "fatal",
+    },
+    ARTIFACT_DOWNLOAD_FAILED: {
+        code: "AX-PROJECT-026",
+        title: "Artifact Download Failed",
+        description: "The registry did not serve the artifact's source archive. The version may have been unpublished, or the network request failed.",
+        source: "cli",
+        severity: "fatal",
+    },
+    ARTIFACT_EXTRACT_FAILED: {
+        code: "AX-PROJECT-027",
+        title: "Artifact Extract Failed",
+        description: "The downloaded archive could not be unpacked. It may be truncated, or `tar` is unavailable on this machine.",
+        source: "cli",
+        severity: "fatal",
+    },
+
+    // ── Project frame (build/project/) ──────────────────────────────────────
+    VERSION_INVALID: {
+        code: "AX-PROJECT-028",
+        title: "Invalid Version",
+        description: "The project's package.json version is not valid semver, so the next version cannot be derived from it. Fix the version field by hand.",
+        source: "cli",
+        severity: "fatal",
+    },
+    FRAMEWORK_NOT_INSTALLED: {
+        code: "AX-PROJECT-029",
+        title: "Framework Packages Not Installed",
+        description: "The generated type frame references @arcforge/types, @arcforge/engines and h3, none of which resolve from this project. Run `bun install` before `axon prepare`.",
+        source: "cli",
+        severity: "fatal",
+    },
+    CONFIG_EVALUATION_ESCAPED: {
+        code: "AX-PROJECT-030",
+        title: "defineAgent() Called Outside Config Evaluation",
+        description: "defineAgent() ran outside the loader that evaluates axon.config.ts — it is a declaration helper, not a runtime function, and cannot be called from application code.",
+        source: "cli",
+        severity: "fatal",
+    },
+    PORT_UNAVAILABLE: {
+        code: "AX-PROJECT-031",
+        title: "No Free Port",
+        description: "Every port in the range the agent scanned is already in use. Stop whatever is holding them, or start the agent on a different port.",
+        source: "cli",
+        severity: "fatal",
+    },
+
+    // ── Subagents (build/agent/agents.ts) ───────────────────────────────────
+    PARENT_INSTANCE_NOT_RUNNING: {
+        code: "AX-RUNTIME-005",
+        title: "Parent Agent Not Running",
+        description: "A subagent was requested against a parent session that is no longer live — the parent shut down, crashed, or was never booted by this process.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    SUBAGENT_DEPTH_EXCEEDED: {
+        code: "AX-RUNTIME-006",
+        title: "Subagent Depth Limit Reached",
+        description: "An agent tried to spawn a subagent beyond the maximum nesting depth. The limit exists so a recursive delegation cannot spawn processes without bound.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    SUBAGENT_CHILD_LIMIT_EXCEEDED: {
+        code: "AX-RUNTIME-007",
+        title: "Subagent Child Limit Reached",
+        description: "One agent tried to hold more live children than the limit allows. Existing children must finish before more can be spawned.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    SUBAGENT_DESCENDANT_LIMIT_EXCEEDED: {
+        code: "AX-RUNTIME-008",
+        title: "Subagent Descendant Limit Reached",
+        description: "The whole subagent tree beneath one root exceeded its live-descendant budget. The limit bounds total concurrent processes, not just direct children.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    SUBAGENT_REQUEST_INVALID: {
+        code: "AX-RUNTIME-009",
+        title: "Malformed Subagent Request",
+        description: "A subagent request did not carry a usable prompt. It must be an object with `prompt` as a string or an array of strings.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    INSTANCE_NOT_LOCAL: {
+        code: "AX-RUNTIME-010",
+        title: "Agent Instance Is Not Local",
+        description: "An operation that only works against a locally booted agent was given a remote one. Subagent spawning and the managed base workspace both require a local process.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    HOST_METHOD_UNKNOWN: {
+        code: "AX-RUNTIME-011",
+        title: "Unknown Host Method",
+        description: "A booted agent called a host method this platform does not implement. The agent's framework version is likely newer than the CLI running it.",
+        source: "runtime",
+        severity: "fatal",
+    },
+
+    // ── Self-update (update/) ───────────────────────────────────────────────
+    UPDATE_CURRENT_VERSION_INVALID: {
+        code: "AX-TUI-029",
+        title: "Running Version Is Not Semver",
+        description: "The version this app reports for itself is not valid semver, so it cannot be compared against the latest release.",
+        source: "cli",
+        severity: "fatal",
+    },
+    UPDATE_RELEASE_INVALID: {
+        code: "AX-TUI-030",
+        title: "Malformed Release Record",
+        description: "The backend's release record did not describe a valid @arcforge/axon `latest` version, so there is nothing safe to update to.",
+        source: "cli",
+        severity: "fatal",
+    },
+    UPDATE_UNAVAILABLE_IN_DEVELOPMENT: {
+        code: "AX-TUI-031",
+        title: "Update Not Available Here",
+        description: "Self-update needs the packaged update helper and a supervisor request path, neither of which exists in a source checkout. Update the installed app instead.",
+        source: "cli",
+        severity: "fatal",
+    },
+    UPDATE_SUPERVISOR_UNAVAILABLE: {
+        code: "AX-TUI-032",
+        title: "Update Supervisor Unavailable",
+        description: "The running app has no supervisor request path, so it cannot hand an update off to be applied after exit.",
+        source: "cli",
+        severity: "fatal",
+    },
+    UPDATE_HELPER_ARGS_INVALID: {
+        code: "AX-TUI-033",
+        title: "Malformed Update Helper Arguments",
+        description: "The update helper was invoked without the --from/--to/--bun/--axon/--state arguments it requires. It is spawned by the app, not run by hand.",
+        source: "cli",
+        severity: "fatal",
+    },
+    UPDATE_HELPER_VERSION_INVALID: {
+        code: "AX-TUI-034",
+        title: "Update Helper Given Bad Versions",
+        description: "The update helper received a --from or --to value that is not valid semver, so it refused to install anything.",
+        source: "cli",
+        severity: "fatal",
+    },
+
+    // ── Test runner (test/) ─────────────────────────────────────────────────
+    TEST_FILES_NOT_FOUND: {
+        code: "AX-TUI-035",
+        title: "No Test Files Matched",
+        description: "No files matched the requested test patterns, so there was nothing to run. Check the pattern, or the directory it was resolved against.",
+        source: "cli",
+        severity: "fatal",
+    },
+    // ── Ollama (services/ollama/) ───────────────────────────────────────────
+    OLLAMA_UNAVAILABLE: {
+        code: "AX-TUI-037",
+        title: "Ollama Is Not Running",
+        description: "No Ollama daemon answered on this machine. Start it with `ollama serve`, or install Ollama from https://ollama.com to run models locally.",
+        source: "cli",
+        severity: "fatal",
+    },
+    OLLAMA_REQUEST_FAILED: {
+        code: "AX-TUI-038",
+        title: "Ollama Request Failed",
+        description: "The local Ollama daemon is running but refused a request — most often an unknown model name. The daemon's own message is included.",
+        source: "cli",
+        severity: "fatal",
+    },
+    OLLAMA_REGISTRY_UNREACHABLE: {
+        code: "AX-TUI-039",
+        title: "Ollama Registry Unreachable",
+        description: "Could not reach the Ollama model registry to look a model up. Downloading needs a network connection; models already on disk still work offline.",
+        source: "cli",
+        severity: "fatal",
+    },
+    OLLAMA_PULL_FAILED: {
+        code: "AX-TUI-040",
+        title: "Model Download Failed",
+        description: "Ollama could not finish downloading the model. The name may not exist in the registry, or the transfer was interrupted — a retry resumes from whatever was already fetched.",
+        source: "cli",
+        severity: "fatal",
+    },
+
+    TEST_PRELOAD_MISSING: {
+        code: "AX-TUI-036",
+        title: "Test API Loaded Without Its Preload",
+        description: "The instrumented test API was imported without the preload that installs it. Tests must run through `axon test`, which wires the preload.",
+        source: "cli",
         severity: "fatal",
     },
 } as const satisfies Record<string, AxonErrorMapEntry>

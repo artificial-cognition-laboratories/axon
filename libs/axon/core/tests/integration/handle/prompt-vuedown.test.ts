@@ -95,6 +95,88 @@ describe("axon.prompt: Vuedown (.vue)", () => {
         await rm(dir, { recursive: true, force: true })
     })
 
+    it("wraps a malformed SFC as PROMPT_RENDER_FAILED, not a raw vstr Error", async () => {
+        // vstr is a generic tool with no @arcforge/err dependency, so it throws
+        // a plain Error. The try/catch in render() exists solely to turn that
+        // into a structured code — without this test the wrapper could be
+        // deleted and every symptom would still look the same in a stack trace,
+        // while chat rendered a bare string instead of an AxonError.
+        const dir = await promptDir()
+        const filePath = path.join(dir, "broken.vue")
+        await writeFile(filePath, `<template><p>unclosed`)
+
+        const runtime = await Axon({
+            blueprint: { prompts: [{ name: "broken", kind: "dynamic", filePath }] },
+        })
+
+        await expect(runtime.axon.prompt("broken")).rejects.toMatchObject({ code: "AX-PROMPT-003" })
+
+        await runtime.shutdown()
+        await rm(dir, { recursive: true, force: true })
+    })
+
+    it("wraps a throwing <script setup> as PROMPT_RENDER_FAILED", async () => {
+        // The other half of the boundary: a well-formed component whose setup
+        // throws at render time. Same wrapper, different failure mode — a
+        // template that calls a tool that rejects lands here.
+        const dir = await promptDir()
+        const filePath = path.join(dir, "throws.vue")
+        await writeFile(filePath, `
+            <script setup lang="ts">
+            throw new Error("boom from setup")
+            </script>
+            <template><p>never rendered</p></template>
+        `)
+
+        const runtime = await Axon({
+            blueprint: { prompts: [{ name: "throws", kind: "dynamic", filePath }] },
+        })
+
+        // The underlying vstr error is preserved as `cause` — without it the
+        // structured code says "render failed" and nothing says why.
+        await expect(runtime.axon.prompt("throws")).rejects.toMatchObject({
+            code: "AX-PROMPT-003",
+            cause: expect.objectContaining({ message: expect.stringContaining("boom from setup") }),
+        })
+
+        await runtime.shutdown()
+        await rm(dir, { recursive: true, force: true })
+    })
+
+    it("renders with the agent's own env, never the host process's", async () => {
+        // promptContext() shims `process` down to { env: blueprint.env } on
+        // purpose: a template reaching process.env reads the agent's resolved
+        // environment, not whatever is in the shell that launched the TUI.
+        // That is a confidentiality boundary, so it is asserted in both
+        // directions — the agent's value present, the host's absent.
+        const dir = await promptDir()
+        const filePath = path.join(dir, "env.vue")
+        await writeFile(filePath, `
+            <template><p>{{ process.env.AGENT_ONLY }}|{{ process.env.HOST_ONLY ?? "absent" }}</p></template>
+        `)
+
+        process.env.HOST_ONLY = "leaked-from-host"
+        try {
+            const runtime = await Axon({
+                blueprint: {
+                    env: { AGENT_ONLY: "from-blueprint" },
+                    prompts: [{ name: "env", kind: "dynamic", filePath }],
+                },
+            })
+
+            const rendered = await runtime.axon.prompt("env")
+
+            expect(rendered).toContain("from-blueprint")
+            expect(rendered).toContain("absent")
+            expect(rendered).not.toContain("leaked-from-host")
+
+            await runtime.shutdown()
+        } finally {
+            delete process.env.HOST_ONLY
+            await rm(dir, { recursive: true, force: true })
+        }
+    })
+
     it("re-renders with fresh props on each call — no stale cached output", async () => {
         const dir = await promptDir()
         const filePath = path.join(dir, "echo.vue")

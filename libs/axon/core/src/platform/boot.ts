@@ -1,8 +1,25 @@
-import { vstr } from "@axon/vstr"
+import type { vstr as Vstr } from "@axon/vstr"
 import { err } from "@arcforge/err"
 import { promptContext } from "../runtime/source/context"
 import type { AxonBlueprint } from "@arcforge/types"
 import type { AxonSessionT } from "@arcforge/session"
+
+/**
+ * `@axon/vstr` carries the whole Vue toolchain (@vue/compiler-sfc,
+ * runtime-core, server-renderer, turndown) — ~280ms of module evaluation, paid
+ * at IMPORT time by anything that reached the runtime. Only .vue prompts need
+ * it, so an agent with none, and every request that renders a static prompt,
+ * was paying for a compiler it never called.
+ *
+ * Loaded on first render and memoised: the cost moves to the first .vue
+ * render and is never paid twice.
+ */
+let vstrModule: Promise<{ vstr: typeof Vstr }> | null = null
+function loadVstr(): Promise<{ vstr: typeof Vstr }> {
+    vstrModule ??= import("@axon/vstr")
+    return vstrModule
+}
+
 
 type BootOpts = {
     blueprint: AxonBlueprint
@@ -71,7 +88,7 @@ export function Boot(opts: BootOpts) {
 
         const restore = captureConsole()
         try {
-            return await vstr(blueprint.bootFilePath, {
+            return await (await loadVstr()).vstr(blueprint.bootFilePath, {
                 context: promptContext(blueprint),
                 noCache: true,
             }).render()

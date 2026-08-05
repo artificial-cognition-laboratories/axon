@@ -9,6 +9,12 @@ import type { AxonScope } from "@arcforge/types"
  * calls in the author's own src/tools, src/scripts, hooks, and routes
  * typecheck against exactly what the capsule will provide.
  *
+ * These globals are real in host-side code, not only inside the capsule:
+ * Inject().runtime() binds each one to the matching axon.tools.* proxy when
+ * the runtime comes up (see core/src/platform/inject.ts). That is what makes
+ * this file honest — for a while it declared globals a script could not
+ * actually call, so `kanban.list()` typechecked and then threw at runtime.
+ *
  * These two must never disagree about WHAT is in scope. They cannot,
  * because neither decides it — toScope() does, once, and both render its
  * result. This file only chooses how to spell it for `tsc`:

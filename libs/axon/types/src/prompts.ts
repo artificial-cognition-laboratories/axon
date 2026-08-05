@@ -13,6 +13,19 @@ export type AxonPrompt = {
      * Present for agent-owned and module prompts; absent for inline prompts.
      */
     filePath?: string
+    /**
+     * Components this prompt may compose, as PascalCase name → absolute path.
+     *
+     * Resolved at scan time rather than at render: the renderer would
+     * otherwise have to re-derive the owning root from filePath and hit the
+     * filesystem on every call, and a prompt package's components sit at a
+     * different depth from an agent's. Scanning already knows both.
+     *
+     * Components are not prompts — they are never invokable, and exist only
+     * to be inlined into one at render time.
+     */
+    components?: Record<string, string>
+
     /** Props required by a dynamic prompt. Present only for dynamic prompts. */
     props?: Array<{
         /** Prop name. */

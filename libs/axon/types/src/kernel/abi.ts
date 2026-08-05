@@ -23,7 +23,7 @@ import type { AxonScope } from "../scope"
  * the rule is the enforcement. (Additive changes — new event types, new
  * optional fields — are compatible, like new syscalls.)
  */
-export const KERNEL_ABI_VERSION = "9"
+export const KERNEL_ABI_VERSION = "10"
 
 /**
  * The cognet's own store schema — EMPTY here by design. A cognet declares
@@ -217,6 +217,90 @@ export type KernelAbi = {
      * tomorrow, invisible either way).
      */
     store: KernelStore
+
+    /**
+     * Wake the brain — the mind's own rhythm, driven from inside it.
+     *
+     * THE BODY DOES NOT DRIVE THE BRAIN. This used to be `axon.tick()` on the
+     * agent handle, so a plugin in the body decided how often the mind ran.
+     * That is the body asserting a fact about cognition it cannot know: how
+     * fast frames arrive is a property of a sensor, how often it is worth
+     * thinking about them is a property of a mind. It also broke the swap
+     * test — a body that drives a specific brain has to be rewritten when the
+     * brain changes, which is exactly the coupling the split exists to
+     * prevent. And it has no answer under composition: two sensors at 31Hz
+     * and 60Hz cannot both be "the" tick rate.
+     *
+     * So the body only ever emits stimuli, and the brain decides when to
+     * look. A cognet plugin owns the clock:
+     *
+     * ```ts
+     * // plugins/clock.ts
+     * export default definePlugin(({ hooks }) => {
+     *     hooks.on("boot", () => {
+     *         setInterval(() => void kernel.wake(), 1000 / 30)
+     *     })
+     * })
+     * ```
+     *
+     * Resolves with this wake's ordinal AS SOON AS IT IS ADMITTED — never
+     * when it completes. A driver that awaited completion would serialise the
+     * overlap that continuous mode exists to allow, turning `await tick()`
+     * into skip-on-overlap by the back door.
+     *
+     * Continuous cognets only. An invocation cognet is woken by a stimulus
+     * arriving, and waking itself would be a second, contradictory trigger.
+     *
+     * Named `wake`, not `tick`, because that is what it does: it invokes the
+     * loop. A tick is one ITERATION inside a wake — the counter `phase()`
+     * telemetry stamps against (`cognet:tick:*`). Two scales, two words.
+     */
+    wake(): Promise<number>
+
+    /**
+     * A snapshot of the scheduler's clock. A function, not a live getter:
+     * with wakes overlapping, the count moves between reads, and a value read
+     * at a moment is honest where a live reference is not.
+     */
+    clock(): KernelClock
+
+    /**
+     * Absolute paths to the weights this cognet declared, by the name it gave
+     * them. Empty when none were declared.
+     *
+     * ```ts
+     * const session = await ort.InferenceSession.create(kernel.models.vad)
+     * ```
+     *
+     * Handed over at load rather than read from the cognet's own config,
+     * because a filesystem path is ENVIRONMENTAL: the same brain gets a
+     * different absolute path on every machine, and must never learn that.
+     * The config says which weights are needed; this says where they landed.
+     *
+     * Whether they were fetched from a registry, restored from a shared
+     * cache, or baked into a deployment image is invisible here — the kernel
+     * guarantees the file exists and was verified, nothing more.
+     */
+    models: Readonly<Record<string, string>>
+}
+
+/**
+ * What the brain can know about its own rhythm.
+ *
+ * Deliberately thin. `ticks` is what a multi-rate mind needs to schedule
+ * itself against — "every fourth tick, do the slow thing" — and nothing more
+ * has earned a place here yet.
+ */
+export type KernelClock = {
+    /**
+     * Wakes admitted since boot. Process-lifetime and monotonic.
+     *
+     * NOT the per-wake tick counter that `phase()` telemetry stamps against
+     * (see Clock in @arcforge/cognet, which resets every wake). Two different
+     * numbers at two scales: this counts how many times the brain has been
+     * woken, that counts how far the current wake has got.
+     */
+    wakes: number
 }
 
 /**

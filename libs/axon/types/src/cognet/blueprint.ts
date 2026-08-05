@@ -24,6 +24,18 @@ export type CognetBlueprint = {
     abi: string
     /** Declarative wake mask — overrides the definition's own default. */
     wakeOn?: Array<keyof AxonEntryEvent>
+
+    /**
+     * Resolved model weights — the cognet's local name → an absolute path on
+     * THIS machine, already fetched and verified.
+     *
+     * Carried on the blueprint rather than resolved by the kernel because
+     * acquisition is a build-time concern (it downloads, it verifies, it can
+     * fail loudly at prepare); the runtime only hands the paths over. That
+     * also keeps the seam where a deployment image bakes weights in at build
+     * time and the runtime cannot tell the difference.
+     */
+    models?: Readonly<Record<string, string>>
 } & (
     | {
         /** Absolute path to the compiled bundle — <agent>/.agent/cognet/cognet.mjs. */

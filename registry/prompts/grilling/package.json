@@ -1,0 +1,13 @@
+{
+    "name": "@axon/grilling",
+    "version": "0.1.0",
+    "description": "Stress-test a plan through a relentless one-question-at-a-time interview.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

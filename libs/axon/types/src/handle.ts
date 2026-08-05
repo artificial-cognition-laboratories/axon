@@ -1,4 +1,5 @@
-import type { AxonEntry, AxonKernelEvent, AxonSessionEvent } from "./session"
+import type { AxonEntry, AxonKernelEvent, AxonSessionEvent, AxonStimulusEvent, AxonStimulusType } from "./session"
+import type { AxonOutputEvent } from "./session/events/stdio/output"
 import type { AxonScript } from "./scripts"
 import type { AxonPrompt } from "./prompts"
 import type { AxonPartialBlueprint } from "./blueprint"
@@ -128,6 +129,17 @@ export type AxonHooksSurface = {
  * a host-level (TUI) concern this handle has no opinion on.
  */
 export type AxonHandle = {
+    /**
+     * Whether the agent can currently think — a cognet is loaded and wakeable.
+     *
+     * False when the brain failed to load, or a hot reload replaced it with
+     * one that would not compile. The process stays up and keeps serving in
+     * that state (routes and plugins are unaffected), which is why this is
+     * exposed rather than inferred from liveness: an agent with no mind
+     * answers every health check happily and every request with nothing.
+     */
+    readonly ready: boolean
+
     /** Render a prompt by name. Static .md returns as-is; dynamic .vue renders with props. */
     prompt(name: string, props?: Record<string, unknown>): Promise<string>
 
@@ -141,6 +153,82 @@ export type AxonHandle = {
 
     /** Streaming agent invocation — yields entries as they happen. */
     stream(input: AxonRequestInput | string): AxonRun
+
+    /**
+     * Deliver a stimulus — the agent's sense door, and the only way the
+     * environment reaches cognition.
+     *
+     * ```ts
+     * axon.stim("cognet:stimulus:field", {
+     *     source: { channel: "light:left" },
+     *     reading: { value: 0.42, unit: "lux" },
+     * })
+     * ```
+     *
+     * The stimulus lands on the delivery buffer and is handed to the cognet
+     * at its next wake, then dropped — a stimulus is a transient sensation,
+     * not a record. A cognet gets ONE chance to attend to it; anything it
+     * wants to keep, it keeps in its own resident state. Nothing here judges
+     * what is worth delivering (see stimuli.ts — zero cognition upstream of
+     * the brain), so a producer emits what its sensor produced and lets the
+     * mind decide what matters.
+     *
+     * Mirrors `kernel.output(type, data)` on the far side of the boundary:
+     * sense in, act out, same shape.
+     */
+    stim<K extends AxonStimulusType>(type: K, data: AxonStimulusEvent[K]): Promise<AxonEntry>
+
+    /**
+     * Observe what the brain emits — the counterpart to `stim()`.
+     *
+     * ```ts
+     * // server/plugins/speaker.ts
+     * axon.on("cognet:output:audio", async ({ ref }) => play(ref))
+     * ```
+     *
+     * A body could always send sensations IN and never see what came OUT. The
+     * asymmetry was invisible while every effect was a tool call — those reach
+     * the body through the capsule — but `kernel.output()` is the unmediated
+     * door, and nothing downstream could listen at it. A cognet that speaks
+     * had no way to be heard.
+     *
+     * Typed against the OUTPUT protocol only, not the whole entry vocabulary.
+     * Stimuli are the body's own input and it does not need to observe what it
+     * sent; actions already arrive as tool calls. What was missing is exactly
+     * this: the four kinds a mind emits.
+     *
+     * The brain is never told whether anyone listened, and must not be. That
+     * is what lets the same cognet run in a body with a speaker, a body with a
+     * WebRTC track, and a body with neither — emitting identically in all
+     * three. A handler that throws is logged and swallowed for the same
+     * reason: a broken speaker is not the mind's problem, and an emission that
+     * already committed cannot be un-emitted.
+     *
+     * Returns an unsubscribe.
+     */
+    on<K extends keyof AxonOutputEvent>(
+        type: K,
+        handler: (data: AxonOutputEvent[K]) => void | Promise<void>,
+    ): () => void
+
+    // There is deliberately no tick()/wake() here. A body emits stimuli and
+    // never decides when the brain looks at them:
+    //
+    //   ```ts
+    //   // server/plugins/body.ts — sense, unconditionally
+    //   setInterval(async () => {
+    //       world.step(dt)
+    //       await axon.stim("cognet:stimulus:field", { ... })
+    //   }, 16)
+    //   ```
+    //
+    // How fast frames arrive is a property of a sensor. How often it is worth
+    // thinking about them is a property of a mind — so the brain drives its
+    // own rhythm through `kernel.wake()`, from a cognet plugin. That keeps
+    // bodies swappable (one that drove a specific brain had to be rewritten
+    // whenever the brain changed) and is the only answer that survives
+    // composition, where two sensors at different rates have equal claim to
+    // being "the" tick.
 
     scripts: {
         request(name: string, args?: Record<string, unknown>): Promise<unknown>

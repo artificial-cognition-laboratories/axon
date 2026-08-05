@@ -1,0 +1,14 @@
+{
+  "name": "@axon/zeno",
+  "description": "A general purpose coding agent.",
+  "version": "0.1.1",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.111",
+    "@arcforge/engines": "2.0.111",
+    "h3": "^1.13.0",
+    "@arcforge/cognet": "2.0.111",
+    "@axon/zero": "^0.1.6"
+  }
+}

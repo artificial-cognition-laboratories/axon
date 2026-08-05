@@ -106,9 +106,14 @@ export async function Axon(opts?: AxonOpts) {
                 hooks: hooks,
                 cloud: cloud,
                 inject: inject,
+                bus: bus,
             })
 
-            inject.runtime(axon) // inject before [middleware, plugins, hooks]
+            // inject before [middleware, plugins, hooks]. The blueprint rides
+            // along because tool globals follow its `flat` placement — the
+            // agent's own src/tools land as top-level globals, a module's under
+            // its namespace, exactly as the capsule installs them.
+            inject.runtime(axon, blueprint)
 
             // Run declared modules' setup() against the live handle, in
             // blueprint order, before the runtime finishes booting — so a

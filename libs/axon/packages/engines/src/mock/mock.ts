@@ -72,8 +72,8 @@ export function Mock(input?: MockInput, tokenms?: number): AxonEngineDef {
                     const text = wrap(step, isLast)
 
                     const words = text.split(" ")
-                    for (let i = 0; i < words.length; i++) {
-                        const chunk = i === 0 ? words[i] : " " + words[i]
+                    for (const [i, word] of words.entries()) {
+                        const chunk = i === 0 ? word : " " + word
                         const event = collect.feed({ type: "text:delta", content: chunk })
                         if (event) yield event
                         await sleep(tokenms ?? 1)

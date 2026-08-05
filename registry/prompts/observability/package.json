@@ -1,0 +1,13 @@
+{
+    "name": "@axon/observability",
+    "version": "0.1.0",
+    "description": "Instrument the questions you'll ask at 3am, not the code you happen to be in.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

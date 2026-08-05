@@ -1,0 +1,13 @@
+{
+    "name": "@axon/type-modelling",
+    "version": "0.1.0",
+    "description": "Make invalid states unrepresentable so bugs become compile errors.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

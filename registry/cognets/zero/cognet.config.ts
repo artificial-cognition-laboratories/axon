@@ -3,7 +3,7 @@
 export default defineCognet({
     name: "zero",
     version: "0.1.2",
-    abi: "9",
+    abi: "10",
 
     mode: { kind: "invocation" },
 

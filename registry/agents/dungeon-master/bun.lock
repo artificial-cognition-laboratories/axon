@@ -5,25 +5,25 @@
     "": {
       "name": "dungeon-master",
       "dependencies": {
-        "@arcforge/cognet": "2.0.102",
-        "@arcforge/engines": "2.0.102",
-        "@arcforge/types": "2.0.102",
-        "@axon/zero": "^0.1.5",
+        "@arcforge/cognet": "2.0.111",
+        "@arcforge/engines": "2.0.111",
+        "@arcforge/types": "2.0.111",
+        "@axon/zero": "^0.1.6",
         "@faker-js/faker": "^10.5.0",
         "h3": "^1.13.0",
       },
     },
   },
   "packages": {
-    "@arcforge/cognet": ["@arcforge/cognet@2.0.102", "", { "dependencies": { "@arcforge/err": "2.0.102", "@arcforge/types": "2.0.102", "hookable": "^5.5.3" } }, "sha512-9BQCh1HltPzTEvD2coJA7K0rRfnka0Iju8uloZPq3TZLdsxZQtZq0T5FZnfmIBictI8DW8fSfgSDM9RfpqKBgg=="],
+    "@arcforge/cognet": ["@arcforge/cognet@2.0.111", "", { "dependencies": { "@arcforge/err": "2.0.111", "@arcforge/types": "2.0.111", "hookable": "^5.5.3" } }, "sha512-tJ/k3ProW01gST9wpA7qiS+4YLfFFPO4G6x/Mnh7Yj9PZ7DkByP6QNlq/C+0DabO9DrMB5fxluB7d74vmgDciA=="],
 
-    "@arcforge/engines": ["@arcforge/engines@2.0.102", "", { "dependencies": { "@arcforge/types": "2.0.102" } }, "sha512-qMpv3AvWDSefpNWROMisK+adG70icautEp+QzIz10DnUxFX+hTDe0Q1r3eIS6n8+8PP3ey5GoqioU5B7AT+JCQ=="],
+    "@arcforge/engines": ["@arcforge/engines@2.0.111", "", { "dependencies": { "@arcforge/types": "2.0.111" } }, "sha512-WeOKxn4aVyUWG9HfXBP2jkw7gPIEYMK3UE+eZhR0Ql12W71BGkM89yMFz5Yc80GyxliyEcL6GqNj2M+spgoEKw=="],
 
-    "@arcforge/err": ["@arcforge/err@2.0.102", "", { "dependencies": { "@arcforge/types": "2.0.102" } }, "sha512-ugu6aP8uIC3xwvhjSZmlSFCrxtWqNEEjicN0MS8oicnxDt/bU05yFkCZeXp2JUFb1FnJAOFmVmFflm3EtHlsRw=="],
+    "@arcforge/err": ["@arcforge/err@2.0.111", "", { "dependencies": { "@arcforge/types": "2.0.111" } }, "sha512-CMcAMMTMz3kd5vLXGB8eor1/zxMwtlbEiVnSDhzvCc0CxAhYKF+ikpAZd4s8j6HVpbkXlETXGSxdV96a1rltgg=="],
 
-    "@arcforge/types": ["@arcforge/types@2.0.102", "", { "dependencies": { "h3": "^1.13.0" } }, "sha512-ZnEv/+99ZEqmeerE51NS6MyhYPGH4Zy/or5GO7Rm7+/FN4fpEkCO9X1v7JfiPb8GKuKxD2QD1N52wenKqTSDtg=="],
+    "@arcforge/types": ["@arcforge/types@2.0.111", "", { "dependencies": { "h3": "^1.13.0" } }, "sha512-xKmqvkDvdfiiDXC+qSNxiD/1RKhkBHYTHqTvIRw6kJ9ocnLqmhCYkN8vw65EnyCxCb6LS6C5/wR8sO32ycuudw=="],
 
-    "@axon/zero": ["@axon/zero@0.1.5", "http://127.0.0.1:3099/api/registry/npm/@axon/zero/-/zero-0.1.5.tgz", { "dependencies": { "@arcforge/cognet": "2.0.99" } }, "sha512-Rgz/RKiikh7jsqWOcQ9FQm1RSouUZ0DbEAD5ejfqpMoNysJo3DVCc+heUjoIShDrfK0GWrtYMl190DmSsIxUTw=="],
+    "@axon/zero": ["@axon/zero@0.1.6", "http://127.0.0.1:3099/api/registry/npm/@axon/zero/-/zero-0.1.6.tgz", { "peerDependencies": { "@arcforge/cognet": "*" } }, "sha512-/9Wrim007OVtX9d3aItNaPwrV9ibVzgUpYjaHPoKzN6ihO8kLb06mxzSbHySudSCVkA88hVLhmwBx/olaI2AMA=="],
 
     "@faker-js/faker": ["@faker-js/faker@10.5.0", "", {}, "sha512-bsxD8WLS5lIj7aaoCx1YJkktqYj5vlBUE6HWzu2Q51ksrGJ0H737ECCKlFU7Yf8Br45z9t99frBp/J7kzbMPAg=="],
 
@@ -48,11 +48,5 @@
     "ufo": ["ufo@1.6.4", "", {}, "sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA=="],
 
     "uncrypto": ["uncrypto@0.1.3", "", {}, "sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q=="],
-
-    "@axon/zero/@arcforge/cognet": ["@arcforge/cognet@2.0.99", "", { "dependencies": { "@arcforge/err": "2.0.99", "@arcforge/types": "2.0.99", "hookable": "^5.5.3" } }, "sha512-R/+0oTqx9DlrLFbtcJPLMqHeS8r6xqqzkM/sFppL2vV0MzpcBFoxDJ1Qjmoxf/6DKuguTv3LyaZJsk0K5x0BXw=="],
-
-    "@axon/zero/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.99", "", { "dependencies": { "@arcforge/types": "2.0.99" } }, "sha512-2KdiEMEYBNicy9M4nm8ycmMuONKjj/9ThvMLAjrDipF+CYDhomznwE2VdB93vlqoR/rFmAZlrRmyvSuCcRhtTg=="],
-
-    "@axon/zero/@arcforge/cognet/@arcforge/types": ["@arcforge/types@2.0.99", "", { "dependencies": { "h3": "^1.13.0" } }, "sha512-K54+epJwh8Vo4yRO9cWWF+RKUIA4kchtB8USvBoV3LT+fDVuMWHEVTADvIBUHW3ecogghTOmFr6vUdeGp2OUIA=="],
   }
 }

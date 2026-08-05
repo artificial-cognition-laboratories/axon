@@ -1,0 +1,13 @@
+{
+    "name": "@axon/error-handling",
+    "version": "0.1.0",
+    "description": "Decide what can fail, where it's caught, and what must never be swallowed.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

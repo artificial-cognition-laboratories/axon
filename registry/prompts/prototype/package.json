@@ -1,0 +1,13 @@
+{
+    "name": "@axon/prototype",
+    "version": "0.1.0",
+    "description": "Build throwaway code that answers one design question, then capture the answer.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

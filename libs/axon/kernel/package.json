@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/kernel",
-    "version": "2.0.104",
+    "version": "2.0.112",
     "description": "The Axon kernel — ring 0. Owns resources and execution, enforces policy, and is the only constructor of the unprivileged capsule.",
     "type": "module",
     "private": false,

@@ -1,5 +1,5 @@
 import { errScope } from "@arcforge/err"
-import { isEntryEvent, isKernelEvent } from "@arcforge/types"
+import { isBuildEvent, isEntryEvent, isKernelEvent, STIMULUS_TRANSIENT_EVENTS } from "@arcforge/types"
 import type {
     AxonBlueprint,
     AxonEntry,
@@ -104,14 +104,16 @@ function ErrorQueue() {
 // ── Stimuli ──────────────────────────────────────────────────────────────────
 
 /**
- * The stimuli buffer — NOT the entry log. The committed stimulus:* entries
- * are the permanent, replayable record of what reached the agent, same as
- * every other entry; this is a separate, ephemeral delivery queue that
- * answers a different question ("what's new since the scheduler last
- * checked"), the way a process's stdin fd is not the same object as the
- * audit log recording that data arrived. ingest() writes to both in one
- * call; drain() only ever touches this queue — draining never mutates or
- * shortens the durable record.
+ * The stimuli buffer — NOT the entry log. This is an ephemeral delivery
+ * queue answering "what's new since the scheduler last checked", the way a
+ * process's stdin fd is not the same object as the audit log recording that
+ * data arrived. drain() only ever touches this queue.
+ *
+ * Whether a stimulus ALSO reaches the durable record depends on its kind
+ * (STIMULUS_TRANSIENT_EVENTS): text and field readings are sparse and worth
+ * remembering, audio and visual frames are a live sensor's firehose and are
+ * delivered only. Either way this queue behaves identically — a cognet
+ * cannot tell which kind it received, and should not need to.
  *
  * One queue, not keyed — one cognet instance is always exactly one
  * continuous stream, so there is nothing to address by id.
@@ -267,11 +269,22 @@ async function SessionState(opts: SessionStateOpts) {
         data: AxonStimulusEvent[K],
         ctx?: CommitContext,
     ): Promise<AxonEntry> {
+        // A transient stimulus is STAMPED but never written: it gets a real
+        // envelope (id, seq, context) so the cognet receives an entry
+        // indistinguishable from any other, and the log never sees it. See
+        // STIMULUS_TRANSIENT_EVENTS for why durability belongs to the kind.
+        //
+        // Note the seq is still consumed. The stimulus is a real event that
+        // really happened, and skipping the counter would make two durable
+        // entries look adjacent when a sensation occurred between them.
+        //
         // AxonEntryEvent is an intersection that CONTAINS AxonStimulusEvent,
         // so for any K in AxonStimulusType the two payload types are the same
         // type — TS just can't prove it through the intersection for a generic
         // K. Narrowed to this one key rather than the old union-wide cast.
-        const entry = await commitEntry(type, data as AxonEntryEvent[K], ctx)
+        const entry = STIMULUS_TRANSIENT_EVENTS.has(type)
+            ? envelope(type, data, ctx) as AxonEntry
+            : await commitEntry(type, data as AxonEntryEvent[K], ctx)
         // commitEntry returns the general AxonEntry shape (shared machinery
         // for every commit); K constrained to AxonStimulusType guarantees
         // this specific entry is stimulus-shaped.
@@ -279,14 +292,27 @@ async function SessionState(opts: SessionStateOpts) {
         return entry
     }
 
+    /**
+     * The next sequence number. Read by a BuildRecorder still writing into
+     * this same file — the build's closing events land after the runtime
+     * has opened, and two counters issuing the same values would corrupt
+     * the order every reader sorts on.
+     */
+    function nextSeq(): number {
+        return seq
+    }
+
     // ── load ─────────────────────────────────────────────────────────────────
 
-    const resuming = await home.data.sessions.exists(opts.root, opts.sessionId)
+    const existing = await home.data.sessions.exists(opts.root, opts.sessionId)
 
-    if (resuming) {
+    const prior = existing
+        ? (await home.data.sessions.read(opts.root, opts.sessionId)) as (AxonSessionEvent | AxonKernelEvent | AxonEntry)[]
+        : []
+
+    if (existing) {
         // one file, one total order — classify each event into its read view
         // from its own type namespace, the same rule the write path uses
-        const prior = (await home.data.sessions.read(opts.root, opts.sessionId)) as (AxonSessionEvent | AxonKernelEvent | AxonEntry)[]
         for (const event of prior) {
             if (isEntryEvent(event.type)) entries.push(event as AxonEntry)
             else if (isKernelEvent(event.type)) kernelLog.push(event as AxonKernelEvent)
@@ -295,11 +321,22 @@ async function SessionState(opts: SessionStateOpts) {
 
         // restore the seq high-water mark before the first commit
         seq = prior.reduce((max, e) => Math.max(max, e.time.seq + 1), 0)
-
-        await commit("axon:session:restored", {})
-    } else {
-        await commit("axon:session:opened", {})
     }
+
+    /**
+     * A file holding ONLY build events is not a prior conversation — it is
+     * this session's own build, written before the runtime existed (see
+     * BuildRecorder). Opening onto it is still an open.
+     *
+     * Without this distinction every first boot reported itself as a
+     * resume, because the build had already created the file. The seq
+     * high-water mark above is still restored either way: the build's
+     * events are real entries in the same total order, and continuing from
+     * them is what keeps disk order authoritative.
+     */
+    const resuming = prior.some(event => !isBuildEvent(event.type))
+
+    await commit(resuming ? "axon:session:restored" : "axon:session:opened", {})
 
     return {
         id: opts.sessionId,
@@ -308,6 +345,8 @@ async function SessionState(opts: SessionStateOpts) {
         kernelLog: kernelLog as readonly AxonKernelEvent[],
         /** the session's one entry log */
         entries: entries as readonly AxonEntry[],
+        /** The next sequence number — see nextSeq(). */
+        get seq() { return nextSeq() },
         commit,
 
         /** append a typed entry to the session's one log — durable, then announced on the bus */
@@ -373,6 +412,9 @@ export async function AxonSession(opts: AxonSessionOpts) {
 
     return {
         get id() { return current.id },
+
+        /** The next sequence number — a build recorder writing into the same file continues above it. */
+        get seq() { return current.seq },
 
         /** the session lifecycle log — runtime/continuity facts */
         get log() { return current.log },

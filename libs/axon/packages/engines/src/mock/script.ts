@@ -44,7 +44,14 @@ function buildResolver(input: MockInput | undefined): (req: AxonEngineRequest) =
             // call — drivers are stateless request→response.
             const step = countPriorSteps(req)
             const index = Math.min(step, sequence.length - 1)
-            return { step: sequence[index], isLast: index >= sequence.length - 1 }
+            const resolved = sequence[index]
+            // `sequence` is non-empty (it came from a matched pattern, and
+            // needsTerminal only ever appends), so `index` is in bounds —
+            // but under noUncheckedIndexedAccess only a real check narrows it,
+            // and an empty array here would otherwise stream `undefined` as
+            // a step and fail somewhere far less obvious.
+            if (resolved === undefined) throw new Error(`[mock] empty step sequence for a matched pattern`)
+            return { step: resolved, isLast: index >= sequence.length - 1 }
         }
 
         return { step: extractUserText(req), isLast: true }
@@ -84,15 +91,17 @@ function countPriorSteps(req: AxonEngineRequest): number {
  */
 export function extractUserText(req: AxonEngineRequest): string {
     for (let i = req.messages.length - 1; i >= 0; i--) {
-        if (req.messages[i].role === "user") {
-            // AIR format: the last user role message is the full <timeline> block.
-            // The user's actual text is in the last <user ...>...</user> turn —
-            // subsequent entries (agent, capsule) may follow it in the timeline.
-            const match = req.messages[i].content.match(/.*<user[^>]*>([\s\S]*?)<\/user>/s)
-            if (match) return match[1].trim()
-            // Not AIR format — return raw content (e.g. in unit tests)
-            return req.messages[i].content
-        }
+        const message = req.messages[i]
+        if (message?.role !== "user") continue
+
+        // AIR format: the last user role message is the full <timeline> block.
+        // The user's actual text is in the last <user ...>...</user> turn —
+        // subsequent entries (agent, capsule) may follow it in the timeline.
+        const match = message.content.match(/.*<user[^>]*>([\s\S]*?)<\/user>/s)
+        // Group 1 is present whenever the pattern matched at all.
+        if (match?.[1] !== undefined) return match[1].trim()
+        // Not AIR format — return raw content (e.g. in unit tests)
+        return message.content
     }
     return ""
 }

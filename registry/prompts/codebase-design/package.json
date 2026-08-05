@@ -1,0 +1,13 @@
+{
+    "name": "@axon/codebase-design",
+    "version": "0.1.0",
+    "description": "Design deep modules — small interfaces, clean seams, testable through them.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

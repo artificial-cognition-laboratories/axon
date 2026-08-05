@@ -47,7 +47,6 @@ type LoopBody = (ctx: LoopCtx) => Promise<void>
 
 let registered: LoopBody | null = null
 let boundKernel: KernelAbi | null = null
-let currentClock: ReturnType<typeof Clock> | null = null
 let loaded = false
 
 type CognetAmbientScope = {
@@ -55,6 +54,20 @@ type CognetAmbientScope = {
     loop(body: LoopBody): void
     phase<T>(name: string, fn: () => Promise<T>): Promise<T>
     system<T>(name: string, fn: () => Promise<T>): Promise<T>
+    /**
+     * The clock of the wake this async context belongs to.
+     *
+     * Carried in the scope rather than a module-level `currentClock`, because
+     * that single mutable assumed one wake existed at a time. A continuous
+     * cognet ticks whether or not the previous wake finished, so two bodies
+     * overlap routinely: the second assigned `currentClock`, the first's
+     * phase() then timed against the wrong clock, and whichever finished
+     * first set it null — leaving the other to throw mid-flight. Every
+     * symptom silent, and all of it invisible until a wake outlived a tick.
+     *
+     * Null outside a wake (load, shutdown), where phase() is illegal anyway.
+     */
+    clock: ReturnType<typeof Clock> | null
 }
 
 // Every compiled cognet carries an inlined copy of this module, but all of
@@ -84,8 +97,9 @@ function kernelOrThrow(): KernelAbi {
 }
 
 function clockOrThrow(): ReturnType<typeof Clock> {
-    if (!currentClock) throw err("COGNET_ACCESSED_BEFORE_LOAD", { detail: "phase()/system() are wake-scoped — call them inside the loop body" })
-    return currentClock
+    const clock = ambientStorage.getStore()?.clock
+    if (!clock) throw err("COGNET_ACCESSED_BEFORE_LOAD", { detail: "phase()/system() are wake-scoped — call them inside the loop body" })
+    return clock
 }
 
 // ── ambient globals ──────────────────────────────────────────────────────────
@@ -136,14 +150,34 @@ const localKernel = {
         get: (key: never) => kernelOrThrow().store.get(key),
         set: (key: never, value: never) => kernelOrThrow().store.set(key, value),
     },
+    wake: () => kernelOrThrow().wake(),
+    clock: () => kernelOrThrow().clock(),
+    // A getter, not a captured value: the bound kernel arrives at load(), and
+    // capturing this at module scope would freeze an empty map from before
+    // the brain was given anything.
+    get models() { return kernelOrThrow().models },
 } satisfies KernelAbi
 
-const localScope: CognetAmbientScope = {
-    kernel: localKernel,
-    loop: registerLoop,
-    phase: <T>(name: string, fn: () => Promise<T>) => clockOrThrow().runPhase(name, fn),
-    system: <T>(name: string, fn: () => Promise<T>) => clockOrThrow().runSystem(name, fn),
+/**
+ * The ambient scope for one execution. Everything in it is shared except the
+ * clock, which belongs to the wake that created it — see CognetAmbientScope.
+ *
+ * A function rather than a singleton: concurrent wakes each need their own
+ * store, and `ambientStorage.run(sharedObject, ...)` would have given them
+ * one object to fight over.
+ */
+function scopeFor(clock: ReturnType<typeof Clock> | null): CognetAmbientScope {
+    return {
+        kernel: localKernel,
+        loop: registerLoop,
+        phase: <T>(name: string, fn: () => Promise<T>) => clockOrThrow().runPhase(name, fn),
+        system: <T>(name: string, fn: () => Promise<T>) => clockOrThrow().runSystem(name, fn),
+        clock,
+    }
 }
+
+/** Load, boot and shutdown run outside any wake, so they carry no clock. */
+const localScope: CognetAmbientScope = scopeFor(null)
 
 // Stable process-wide facades. They never capture one cognet instance; every
 // operation resolves the current async scope at the moment it is performed.
@@ -160,6 +194,13 @@ globals.kernel = {
         get: (key: never) => ambientOrThrow().kernel.store.get(key),
         set: (key: never, value: never) => ambientOrThrow().kernel.store.set(key, value),
     },
+    // Resolved through kernelOrThrow(), not ambientOrThrow(): a plugin's
+    // clock lives in a setInterval registered during boot, and that callback
+    // fires outside every ambient scope. The bound kernel is module state
+    // that outlives each wake, which is exactly what a driver needs.
+    wake: () => kernelOrThrow().wake(),
+    clock: () => kernelOrThrow().clock(),
+    get models() { return kernelOrThrow().models },
 } satisfies KernelAbi
 
 globals.phase = <T>(name: string, fn: () => Promise<T>) => ambientOrThrow().phase(name, fn)
@@ -202,16 +243,20 @@ export function CognetHost(config: CognetConfig, main: () => Promise<void>): Cog
         },
 
         async wake(wake) {
-            return ambientStorage.run(localScope, async () => {
             const body = registered
             if (!body) throw err("COGNET_NO_LOOP", { detail: `${config.name} woken before load()`, context: { name: config.name } })
 
+            // Built BEFORE entering the scope, because the scope carries it.
+            // Two overlapping wakes get two clocks and two stores, so each
+            // body's phase() resolves its own no matter how the awaits
+            // interleave. `emit` is bound through kernelOrThrow(), which
+            // reads module state that outlives every wake — safe to close
+            // over here.
             const clock = Clock({ emit: (type, data) => kernelOrThrow().emit(type, data), signal: wake.signal })
-            currentClock = clock
 
-            await hooks.callHook("wake", wake)
+            return ambientStorage.run(scopeFor(clock), async () => {
+                await hooks.callHook("wake", wake)
 
-            try {
                 let stopped = false
                 const ctx: LoopCtx = { ...wake, stop: () => { stopped = true } }
                 const maxTicks = config.maxTicksPerWake ?? Infinity
@@ -228,9 +273,6 @@ export function CognetHost(config: CognetConfig, main: () => Promise<void>): Cog
                         await body(ctx)
                     })
                 }
-            } finally {
-                currentClock = null
-            }
             })
         },
 
