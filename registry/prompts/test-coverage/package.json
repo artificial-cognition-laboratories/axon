@@ -1,0 +1,13 @@
+{
+    "name": "@axon/test-coverage",
+    "version": "0.1.0",
+    "description": "Find the untested code that matters and close the gaps worth closing.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

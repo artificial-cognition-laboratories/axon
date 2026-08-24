@@ -1,0 +1,13 @@
+{
+    "name": "@axon/commit",
+    "version": "0.1.0",
+    "description": "Turn working changes into commits whose messages explain why.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

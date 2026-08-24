@@ -1,0 +1,13 @@
+{
+    "name": "@axon/resolving-merge-conflicts",
+    "version": "0.1.0",
+    "description": "Resolve a merge or rebase by understanding both intents before picking.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

@@ -1,0 +1,13 @@
+{
+    "name": "@axon/tdd",
+    "version": "0.1.1",
+    "description": "Build a feature or fix a bug test-first, one vertical slice at a time.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

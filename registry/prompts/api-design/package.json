@@ -1,0 +1,13 @@
+{
+    "name": "@axon/api-design",
+    "version": "0.1.0",
+    "description": "Design an interface from the call site, then stress-test it against known futures.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

@@ -14,7 +14,7 @@
 // start — stimuli, its own outputs, and action results all arrive back
 // through that one door, which is why the wake's `stimuli` arg goes
 // unused here: for a log-derived mind the log tail IS the diff.
-import { Air } from "../../../../core/src/platform/air" // TODO(kit): @axon/cognet
+import { Air } from "@arcforge/cognet/air"
 import { state, sync } from "./state"
 
 const air = Air()

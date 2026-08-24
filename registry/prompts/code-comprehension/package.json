@@ -1,0 +1,13 @@
+{
+    "name": "@axon/code-comprehension",
+    "version": "0.1.0",
+    "description": "Understand a specific piece of code well enough to change it, and say what you're unsure of.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

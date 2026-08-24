@@ -1,0 +1,13 @@
+{
+    "name": "@axon/config",
+    "version": "0.1.0",
+    "description": "Handle configuration and secrets so misconfiguration fails loudly at startup.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

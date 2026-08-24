@@ -1,0 +1,13 @@
+{
+    "name": "@axon/refactor",
+    "version": "0.1.0",
+    "description": "Improve structure without changing behaviour, in small reversible steps.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

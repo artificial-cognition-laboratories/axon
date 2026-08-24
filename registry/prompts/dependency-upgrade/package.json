@@ -1,0 +1,13 @@
+{
+    "name": "@axon/dependency-upgrade",
+    "version": "0.1.0",
+    "description": "Move dependencies forward safely, reading changelogs before bumping.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

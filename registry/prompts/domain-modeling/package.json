@@ -1,0 +1,13 @@
+{
+    "name": "@axon/domain-modeling",
+    "version": "0.1.0",
+    "description": "Sharpen a project's domain language and record the decisions worth keeping.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

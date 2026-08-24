@@ -1,0 +1,13 @@
+{
+    "name": "@axon/accessibility",
+    "version": "0.1.0",
+    "description": "Make an interface work by keyboard, screen reader, and at high zoom.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

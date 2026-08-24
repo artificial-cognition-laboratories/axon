@@ -1,0 +1,13 @@
+{
+    "name": "@axon/pull-request",
+    "version": "0.1.0",
+    "description": "Open a PR a reviewer can evaluate without reconstructing your reasoning.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

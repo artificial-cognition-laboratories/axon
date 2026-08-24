@@ -1,0 +1,13 @@
+{
+    "name": "@axon/diagnosing-bugs",
+    "version": "0.1.0",
+    "description": "Six-phase discipline for hard bugs — build a red-capable loop before theorising.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

@@ -1,0 +1,13 @@
+{
+    "name": "@axon/rollback",
+    "version": "0.1.0",
+    "description": "Undo a change safely, accounting for the state that doesn't revert.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

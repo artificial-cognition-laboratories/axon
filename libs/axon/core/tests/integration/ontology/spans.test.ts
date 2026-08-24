@@ -1,0 +1,163 @@
+import { Axon } from "../../setup/axon"
+import { Mock } from "@arcforge/engines/mock"
+import { isSpanEnd, isSpanStart, spanStem } from "@arcforge/types"
+import type { AxonEvent } from "@arcforge/types"
+
+/**
+ * The ontology's regression guard.
+ *
+ * Every convergence rule the event system was rebuilt around is asserted
+ * here against a REAL runtime driven through its public API — not against
+ * the type declarations, which can agree with themselves while the emitters
+ * drift. If a future change opens a span it never closes, ships a
+ * completion with no duration, or invents a bespoke verb, this fails.
+ *
+ * Reads only observables: session.log, session.kernelLog, session.entries.
+ */
+
+type AnyEvent = { type: string; time: { seq: number }; data: Record<string, unknown>; context: { runId?: string } }
+
+/** Boot a runtime, drive one full wake through it, tear it down. */
+async function fullLifecycle() {
+    const runtime = await Axon({
+        blueprint: {
+            config: {
+                engine: Mock({
+                    hello: "<typescript>1 + 1</typescript>",
+                }),
+            },
+        },
+    })
+
+    await runtime.kernel.request({ content: "hello" })
+    await runtime.shutdown()
+
+    const all = [
+        ...runtime.session.log,
+        ...runtime.session.kernelLog,
+        ...runtime.session.entries,
+    ] as unknown as AnyEvent[]
+
+    // One writer, one total order — sorting by seq reconstructs exactly the
+    // order things happened, which is what every rule below relies on.
+    return all.sort((a, b) => a.time.seq - b.time.seq)
+}
+
+describe("Event ontology", () => {
+    it("closes every span it opens", async () => {
+        const events = await fullLifecycle()
+
+        // A span's identity is its stem plus whatever names this particular
+        // bracket among its siblings (tick number, phase name, command id).
+        const open = new Map<string, number>()
+        for (const event of events) {
+            const key = `${spanStem(event.type)}|${identity(event)}`
+            if (isSpanStart(event.type)) open.set(key, (open.get(key) ?? 0) + 1)
+            else if (isSpanEnd(event.type)) open.set(key, (open.get(key) ?? 0) - 1)
+        }
+
+        const unbalanced = [...open.entries()].filter(([, depth]) => depth !== 0)
+        expect(unbalanced).toEqual([])
+    })
+
+    it("opens at least the spans a full lifecycle must produce", async () => {
+        const events = await fullLifecycle()
+        const types = new Set(events.map(e => e.type))
+
+        // Not an exhaustive list — a floor. These are the brackets that must
+        // exist for boot, cognition, execution and teardown to be traceable
+        // at all; each was a real gap at some point in this convergence.
+        for (const required of [
+            "axon:boot:start", "axon:boot:complete",
+            "cognet:load:start", "cognet:load:complete",
+            "kernel:run:start", "kernel:run:complete",
+            "kernel:engine:start", "kernel:engine:complete",
+            "cognet:tick:start", "cognet:tick:complete",
+            "cognet:phase:start", "cognet:phase:complete",
+            "cognet:unload:start", "cognet:unload:complete",
+            "axon:shutdown:start", "axon:shutdown:complete",
+        ]) {
+            expect(types).toContain(required)
+        }
+    })
+
+    it("carries durationMs on every span end that settled", async () => {
+        const events = await fullLifecycle()
+
+        // :interrupted is exempt by design — cancellation is a settled
+        // outcome, and several interrupt payloads carry no timing.
+        const settled = events.filter(e =>
+            e.type.endsWith(":complete") || e.type.endsWith(":failed"))
+        expect(settled.length).toBeGreaterThan(0)
+
+        const missing = settled
+            .filter(e => typeof e.data.durationMs !== "number")
+            .map(e => e.type)
+        expect(missing).toEqual([])
+    })
+
+    it("uses only the span vocabulary — no bespoke lifecycle verbs", async () => {
+        const events = await fullLifecycle()
+
+        // The flame graph pairs bars by suffix alone, so a family that
+        // invents `loaded`/`spawned`/`restarting` is invisible to it. Catch
+        // the shapes that have actually appeared here before.
+        const bespoke = [...new Set(events.map(e => e.type))].filter(type =>
+            /:(loaded|unloaded|spawned|restarting|restarted|exit|created|updated|ended)$/.test(type)
+            // capsule:tool:unloaded and capsule:exit are deliberate: a
+            // synchronous delete and a process-death fact, neither bracketed.
+            && type !== "capsule:tool:unloaded"
+            && type !== "capsule:exit")
+        expect(bespoke).toEqual([])
+    })
+
+    it("stamps every event a wake produced with the run that caused it", async () => {
+        const events = await fullLifecycle()
+
+        const runStart = events.find(e => e.type === "kernel:run:start")
+        const runEnd = events.find(e => e.type === "kernel:run:complete")
+        expect(runStart?.context.runId).toBeTruthy()
+
+        // Everything between the run's brackets belongs to that run — this
+        // is what makes bracket-matching work without a parent pointer.
+        const inside = events.filter(e =>
+            e.time.seq > runStart!.time.seq && e.time.seq < runEnd!.time.seq)
+        expect(inside.length).toBeGreaterThan(0)
+
+        const orphaned = inside
+            .filter(e => e.context.runId !== runStart!.context.runId)
+            .map(e => e.type)
+        expect(orphaned).toEqual([])
+    })
+
+    it("keeps failure payloads structured, never a bare string", async () => {
+        const events = await fullLifecycle()
+
+        const withError = events.filter(e => "error" in e.data && e.data.error !== undefined)
+        for (const event of withError) {
+            // envelope rule 4 — the full AxonError (or its serialized shape
+            // across the capsule's process boundary), never a message.
+            expect(typeof event.data.error).toBe("object")
+            expect((event.data.error as { isAxonError?: boolean }).isAxonError).toBe(true)
+        }
+    })
+})
+
+/** What distinguishes this bracket from its siblings of the same stem. */
+function identity(event: AnyEvent): string {
+    const d = event.data
+    const parts: string[] = []
+    if (typeof d.tick === "number") parts.push(`t${d.tick}`)
+    if (typeof d.phase === "string") parts.push(`p${d.phase}`)
+    if (typeof d.system === "string") parts.push(`s${d.system}`)
+    if (typeof d.id === "string") parts.push(`i${d.id}`)
+    if (typeof d.procId === "string") parts.push(`i${d.procId}`)
+    if (typeof d.namespace === "string") parts.push(`n${d.namespace}`)
+    if (typeof d.name === "string") parts.push(`n${d.name}`)
+    if (typeof d.fn === "string") parts.push(`f${d.fn}`)
+    // engine calls interleave only with a concurrent sibling; their span id
+    // is the discriminator when one exists.
+    const spanId = (event as unknown as AxonEvent<never>).context && (event.context as { spanId?: string }).spanId
+    if (spanId) parts.push(`x${spanId}`)
+    return parts.join("|")
+}

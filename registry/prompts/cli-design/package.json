@@ -1,0 +1,13 @@
+{
+    "name": "@axon/cli-design",
+    "version": "0.1.0",
+    "description": "Design a command-line interface for both a human and a script.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

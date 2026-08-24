@@ -1,0 +1,13 @@
+{
+    "name": "@axon/cleanup",
+    "version": "0.1.0",
+    "description": "Remove debug instrumentation, dead code, and stale comments before shipping.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

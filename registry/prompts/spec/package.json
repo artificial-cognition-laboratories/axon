@@ -1,0 +1,13 @@
+{
+    "name": "@axon/spec",
+    "version": "0.1.0",
+    "description": "Turn a discussion into a written spec, without inventing what wasn't decided.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

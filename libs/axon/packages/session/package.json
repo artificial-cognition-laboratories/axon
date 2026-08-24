@@ -1,0 +1,25 @@
+{
+    "name": "@arcforge/session",
+    "version": "2.0.112",
+    "description": "The Axon session — the durable event log every layer of the stack reads and writes through.",
+    "type": "module",
+    "private": false,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "files": [
+        "src"
+    ],
+    "scripts": {
+        "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
+    },
+    "dependencies": {
+        "@arcforge/err": "workspace:*",
+        "@arcforge/types": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5"
+    }
+}

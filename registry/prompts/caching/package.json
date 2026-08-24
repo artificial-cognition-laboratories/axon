@@ -1,0 +1,13 @@
+{
+    "name": "@axon/caching",
+    "version": "0.1.0",
+    "description": "Add a cache without introducing a correctness bug.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

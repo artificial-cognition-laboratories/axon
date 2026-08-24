@@ -2,8 +2,8 @@
 // manifest the compile step composes it with.
 export default defineCognet({
     name: "zero",
-    version: "0.1.0",
-    abi: "9",
+    version: "0.1.2",
+    abi: "10",
 
     mode: { kind: "invocation" },
 

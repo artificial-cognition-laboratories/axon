@@ -1,0 +1,13 @@
+{
+    "name": "@axon/research",
+    "version": "0.1.0",
+    "description": "Investigate against primary sources and write cited findings to a durable file.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

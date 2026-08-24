@@ -1,0 +1,13 @@
+{
+    "name": "@axon/incident",
+    "version": "0.1.0",
+    "description": "Respond to a live production problem — stabilise first, diagnose after.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

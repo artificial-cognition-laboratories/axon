@@ -1,0 +1,13 @@
+{
+    "name": "@axon/concurrency",
+    "version": "0.1.0",
+    "description": "Reason about code where more than one thing happens at once.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

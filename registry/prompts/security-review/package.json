@@ -1,0 +1,13 @@
+{
+    "name": "@axon/security-review",
+    "version": "0.1.0",
+    "description": "Review a diff for security defects, with a reachable path for every finding.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

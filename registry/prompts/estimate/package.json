@@ -1,0 +1,13 @@
+{
+    "name": "@axon/estimate",
+    "version": "0.1.0",
+    "description": "Break work into pieces and state the uncertainty instead of hiding it.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}

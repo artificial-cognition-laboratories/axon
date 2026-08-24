@@ -1,0 +1,13 @@
+{
+    "name": "@axon/triage-issue",
+    "version": "0.1.0",
+    "description": "Turn a reported issue into something actionable, or close it honestly.",
+    "type": "module",
+    "private": false,
+    "files": [
+        "prompt.config.ts",
+        "*.vue",
+        "*.md",
+        "components"
+    ]
+}
