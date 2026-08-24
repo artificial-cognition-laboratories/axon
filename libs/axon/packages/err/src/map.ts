@@ -33,6 +33,25 @@ export type AxonErrorMapEntry = {
     description: string
     source: AxonErrorSource
     severity: AxonErrorSeverity
+    /**
+     * Is this a failure the USER caused and can fix, rather than a fault in
+     * our code?
+     *
+     * `axon publish` outside a project directory is a typo, not a bug — the
+     * title and description already say everything actionable, so a renderer
+     * showing eighty lines of our internals underneath is telling the user to
+     * debug software they did not write. Marking it `expected` renders the
+     * headline alone.
+     *
+     * Deliberately NOT `severity`, which answers a different question:
+     * PROJECT_NOT_FOUND is genuinely `fatal` (the command cannot continue) AND
+     * genuinely expected. Recoverability and blame are independent axes.
+     *
+     * Absent means unexpected — the safe default. An unclassified failure gets
+     * the full trace, which is what makes it debuggable; the only cost of
+     * forgetting this flag is a noisier message, never a hidden bug.
+     */
+    expected?: true
 }
 
 /**
@@ -49,9 +68,10 @@ export const errorMap = {
     PROMPT_NOT_FOUND: {
         code: "AX-PROMPT-001",
         title: "Prompt Not Found",
-        description: "The requested prompt was not found in the agent's blueprint. It may not be declared, or the agent needs to be re-prepared.",
+        description: "The requested prompt could not be resolved — it is not declared by the agent, or the published package it names ships no prompt by that name.",
         source: "runtime",
         severity: "fatal",
+        expected: true,
     },
     PROMPT_FILE_NOT_FOUND: {
         code: "AX-PROMPT-002",
@@ -59,6 +79,7 @@ export const errorMap = {
         description: "The prompt is declared but its source file no longer exists on disk.",
         source: "runtime",
         severity: "fatal",
+        expected: true,
     },
     PROMPT_RENDER_FAILED: {
         code: "AX-PROMPT-003",
@@ -67,12 +88,35 @@ export const errorMap = {
         source: "runtime",
         severity: "fatal",
     },
+    OUTPUT_INVALID: {
+        code: "AX-OUTPUT-001",
+        title: "Invalid Output Type",
+        description: "The `output` type passed to request() is not valid TypeScript, or references a type that does not exist. Checked before the model is called, so no inference was spent — fix the type string at the call site.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    OUTPUT_UNSATISFIED: {
+        code: "AX-OUTPUT-002",
+        title: "Output Type Not Satisfied",
+        description: "The model could not produce a response matching the declared `output` type within its retry budget. The accumulated TypeScript diagnostics describe what it got wrong on each attempt.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    OUTPUT_EMPTY: {
+        code: "AX-OUTPUT-003",
+        title: "Model Produced No Output Block",
+        description: "Every reply must wrap its content in a <text> or <script> block — text outside a block is discarded by the parser. The model replied with none, on every attempt in its retry budget, so there was nothing to render or run. Usually means the model is not following the block protocol rather than that anything is misconfigured: the reply itself is often correct, just unwrapped. Try a different model, or check that the protocol the cognet renders matches the one it parses with.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
     SCRIPT_NOT_FOUND: {
         code: "AX-SCRIPT-001",
         title: "Script Not Found",
         description: "The requested script was not found in the agent's blueprint. It may not be declared, or the agent needs to be re-prepared.",
         source: "runtime",
         severity: "fatal",
+        expected: true,
     },
     SCRIPT_FILE_NOT_FOUND: {
         code: "AX-SCRIPT-002",
@@ -80,6 +124,7 @@ export const errorMap = {
         description: "The script is declared but its source file no longer exists on disk.",
         source: "runtime",
         severity: "fatal",
+        expected: true,
     },
     ENGINE_MISSING: {
         code: "AX-ENGINE-001",
@@ -87,6 +132,37 @@ export const errorMap = {
         description: "The agent's blueprint has no engine — it cannot dispatch to a model. Set `engine` in axon.config.ts.",
         source: "runtime",
         severity: "fatal",
+    },
+    ENGINE_ROLE_UNBOUND: {
+        code: "AX-ENGINE-002",
+        title: "Engine Role Not Bound",
+        description: "The cognet asked for an engine role that resolution did not fill. A required role stops the boot, so reaching this means an OPTIONAL role was used without checking `kernel.engine.has()` first — or the role was never declared in the cognet's `engines:` block.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    RESOURCES_EXHAUSTED: {
+        code: "AX-RES-001",
+        title: "Not Enough Memory",
+        description: "A local model does not fit in what is left of this machine's video memory. Nothing was evicted: another agent is using it, and taking memory out from under a running agent would slow it down invisibly. Stop an agent that is holding a model, or raise the ceiling in your profile's `resources`.",
+        source: "runtime",
+        severity: "degraded",
+        expected: true,
+    },
+    ENGINE_PIN_UNAVAILABLE: {
+        code: "AX-ENGINE-004",
+        title: "Model Not Available",
+        description: "The agent pins a model no declared provider can supply. The agent still runs — resolution picked the best available model instead — but it is NOT the one that was asked for. Declare the provider that supplies it in your profile, or pick a model from a provider you have.",
+        source: "runtime",
+        severity: "degraded",
+        expected: true,
+    },
+    ENGINE_REQUIREMENTS_UNMET: {
+        code: "AX-ENGINE-003",
+        title: "Inference Requirements Unmet",
+        description: "This cognet declares engine roles that nothing among the user's providers can fill. Add a provider that supplies what is missing, or run a cognet whose requirements this machine meets.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
     },
     INJECT_OUTSIDE_RUNTIME: {
         code: "AX-RUNTIME-001",
@@ -202,12 +278,27 @@ export const errorMap = {
         source: "cognet",
         severity: "fatal",
     },
+    COGNET_RUNTIME_UNAVAILABLE: {
+        code: "AX-COGNET-014",
+        title: "Cognet Runtime Temporarily Unavailable",
+        description: "The cognet runtime is declared but not present on disk — the dependency tree is mid-rewrite. Transient: the reload keeps the previous blueprint and picks the change up on the next watch event.",
+        source: "cognet",
+        severity: "recovered",
+    },
+    COGNET_AMBIGUOUS: {
+        code: "AX-COGNET-015",
+        title: "Two Cognets Declared",
+        description: "The agent both declares `cognet:` in axon.config.ts and holds an inline cognet at `cognet/`. An agent has exactly one brain, and choosing between them silently would either ignore a directory of source or overrule what the author wrote. Keep one.",
+        source: "cognet",
+        severity: "fatal",
+    },
     COGNET_NOT_FOUND: {
         code: "AX-COGNET-013",
         title: "Cognet Not Found",
         description: "The cognet named by `cognet:` in axon.config.ts could not be located. The detail says where it was looked for — a registry that answered 404, or a node_modules tree it was missing from. Check the specifier for a typo, and check which registry the CLI is pointed at (AXON_API_BASE).",
         source: "cognet",
         severity: "fatal",
+        expected: true,
     },
 
     // ── Project (build/project/) ────────────────────────────────────────────
@@ -225,12 +316,23 @@ export const errorMap = {
         source: "manifest",
         severity: "fatal",
     },
-    CONFIG_ENGINE_UNPARSEABLE: {
+    /**
+     * Replaced CONFIG_ENGINE_UNPARSEABLE, which described AST-editing an
+     * `engine: X({ ... })` call — a field that no longer exists. Warning
+     * rather than fatal for the deprecation window: an agent carrying
+     * `engine:` still boots (on the profile pool, which is what it was
+     * silently doing already), and the author gets told once per load what
+     * to write instead. It becomes fatal when the field is removed.
+     */
+    CONFIG_ENGINE_DEPRECATED: {
         code: "AX-PROJECT-033",
-        title: "Could Not Edit The Engine In axon.config.ts",
-        description: "The agent's `engine: X({ ... })` declaration could not be located or rewritten automatically — set the model by hand.",
+        title: "`engine:` Is Deprecated And Ignored",
+        description: "This agent's axon.config.ts declares `engine:`, which the runtime no longer reads — inference is resolving against the profile's providers instead. Use `model: \"codex:gpt-5.6-terra\"` for a cortex pin, and `providers: [...]` for a source the user would not otherwise have.",
         source: "manifest",
-        severity: "fatal",
+        // DEGRADED, not fatal: the agent boots and runs, but not on the
+        // inference its config names. That is exactly what degraded means,
+        // and it is the honest label for the deprecation window.
+        severity: "degraded",
     },
     MODULE_DEPENDENCY_INSTALL_FAILED: {
         code: "AX-PROJECT-004",
@@ -275,6 +377,7 @@ export const errorMap = {
         description: "The selected model routes through a provider (OpenRouter, Codex) that isn't connected yet — connect it before picking a model on that route.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     PALETTE_INPUT_REQUIRED: {
         code: "AX-TUI-012",
@@ -282,6 +385,7 @@ export const errorMap = {
         description: "A palette command needs a value for this field before it can run.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     BENCH_NO_CASES: {
         code: "AX-TUI-013",
@@ -298,6 +402,7 @@ export const errorMap = {
         description: "No axon.config.ts, module.config.ts, cognet.config.ts, bench.config.ts, or prompt.config.ts was found at this path — it isn't a recognized project directory.",
         source: "manifest",
         severity: "fatal",
+        expected: true,
     },
     PROJECT_WRONG_KIND: {
         code: "AX-PROJECT-011",
@@ -305,6 +410,7 @@ export const errorMap = {
         description: "This command targets one project kind, and the directory holds another — run the command that matches what is actually here.",
         source: "manifest",
         severity: "fatal",
+        expected: true,
     },
     PROJECT_EXISTS: {
         code: "AX-PROJECT-018",
@@ -329,8 +435,8 @@ export const errorMap = {
     },
     PUBLISH_UNSUPPORTED_KIND: {
         code: "AX-PROJECT-009",
-        title: "This Project Kind Cannot Publish Yet",
-        description: "Only agents and modules publish to the registry today. Cognets and benches become first-class registry artifacts in the unified artifact work — until then, publishing one would register it under the wrong kind and claim its name in the shared namespace.",
+        title: "This Project Kind Cannot Publish",
+        description: "The registry accepts agents, modules, cognets, benches and prompts. Extensions are not accepted yet — the `registry_artifact_kind` enum needs the value first, and publishing before then would register under the wrong kind and claim the name in the shared namespace. A profile is never publishable: it holds one person's credentials, history and agents. See KINDS[kind].publishable.",
         source: "manifest",
         severity: "fatal",
     },
@@ -384,14 +490,14 @@ export const errorMap = {
         severity: "fatal",
     },
     DEPLOY_RUNTIME_FAILED: {
-        code: "AX-PROJECT-013",
+        code: "AX-PROJECT-035",
         title: "Agent Failed To Start",
         description: "Cloud infrastructure was provisioned, but the agent process failed during boot. The reported runtime diagnostic identifies the immediate cause.",
         source: "runtime",
         severity: "fatal",
     },
     DEPLOY_ENV_RESERVED: {
-        code: "AX-PROJECT-014",
+        code: "AX-PROJECT-036",
         title: "Reserved Deployment Variable",
         description: "The production .env file attempts to override a variable owned by the Axon runtime or Cloud Run.",
         source: "manifest",
@@ -440,6 +546,7 @@ export const errorMap = {
         description: "No recorded bench run exists with this id.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_NOT_FOUND: {
         code: "AX-BENCH-002",
@@ -447,6 +554,7 @@ export const errorMap = {
         description: "No bench.config.ts was found at this path — it isn't a recognized bench project.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_TESTS_NOT_FOUND: {
         code: "AX-BENCH-003",
@@ -454,6 +562,7 @@ export const errorMap = {
         description: "The bench config declares test files that don't exist on disk.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_LOCAL_REF_NOT_FOUND: {
         code: "AX-BENCH-004",
@@ -461,6 +570,7 @@ export const errorMap = {
         description: "A factor variable references a local file/directory that doesn't exist.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_CONFIG_INVALID: {
         code: "AX-BENCH-005",
@@ -475,6 +585,7 @@ export const errorMap = {
         description: "No package.json exists at the bench root — every bench project needs one for identity.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_PACKAGE_NAME_REQUIRED: {
         code: "AX-BENCH-007",
@@ -482,6 +593,7 @@ export const errorMap = {
         description: "The bench's package.json has no name field.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_PACKAGE_VERSION_REQUIRED: {
         code: "AX-BENCH-008",
@@ -489,6 +601,7 @@ export const errorMap = {
         description: "The bench's package.json has no version field.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_CONTEXT_MISSING: {
         code: "AX-BENCH-009",
@@ -608,6 +721,7 @@ export const errorMap = {
         description: "The bench config's matrix has no axis with this key.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_AXIS_VALUE_NOT_FOUND: {
         code: "AX-BENCH-022",
@@ -615,6 +729,7 @@ export const errorMap = {
         description: "The bench config's matrix axis has no declared value with this id.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_WORKSPACE_ESCAPE: {
         code: "AX-BENCH-023",
@@ -643,6 +758,7 @@ export const errorMap = {
         description: "A workspace template's declared source path isn't a real directory.",
         source: "bench",
         severity: "fatal",
+        expected: true,
     },
     BENCH_LOG_INVALID: {
         code: "AX-BENCH-027",
@@ -708,6 +824,7 @@ export const errorMap = {
         description: "No axon.config.ts exists at this path.",
         source: "manifest",
         severity: "fatal",
+        expected: true,
     },
     CONFIG_LOAD_FAILED: {
         code: "AX-BLUEPRINT-004",
@@ -732,6 +849,84 @@ export const errorMap = {
         source: "kernel",
         severity: "fatal",
     },
+    /**
+     * ── Engine failures the USER can act on ─────────────────────────────────
+     *
+     * Every one of these was previously a single `ENGINE_STREAM_FAILED`, which
+     * put an internal code and a stack trace in front of someone whose real
+     * problem was an expired key or a spent subscription. The drivers already
+     * classify the fault precisely (AxonEngineFaultCode) and already write a
+     * provider-specific sentence about it — that work was being thrown away one
+     * layer up.
+     *
+     * These are `expected: true`, so they render as headline + description with
+     * no frames: the user did not write the code that failed, and eighty lines
+     * of our stack tells them to debug software they do not own. The driver's
+     * own message rides in as `detail` and is the most specific thing on
+     * screen ("Codex: usage limit reached. Check your ChatGPT subscription.").
+     *
+     * The split is one question: CAN THE USER FIX IT? If yes it belongs here.
+     * If the model or the driver misbehaved, it stays ENGINE_STREAM_FAILED and
+     * keeps the full report, because that one is ours to debug.
+     */
+    ENGINE_NOT_CONNECTED: {
+        code: "AX-KERNEL-015",
+        title: "Provider Not Connected",
+        description: "This model's route is not connected to your account yet — run `:provider <name> connect` for the provider named below, or pick a model on a route you are already signed in to.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    ENGINE_AUTH_FAILED: {
+        code: "AX-KERNEL-016",
+        title: "Provider Rejected Your Credentials",
+        description: "The provider refused the credential this agent is using — it has expired, been revoked, or is for a different account. Reconnect the provider, or pick a model on a route you are signed in to.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    ENGINE_RATE_LIMITED: {
+        code: "AX-KERNEL-017",
+        title: "Provider Rate Limit Reached",
+        description: "The provider is refusing further calls right now — either too many requests in a short window, or a subscription whose allowance is spent. Waiting usually clears the first; the second needs a plan change or a different model.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    ENGINE_QUOTA_EXHAUSTED: {
+        code: "AX-KERNEL-018",
+        title: "Provider Credits Exhausted",
+        description: "This route has no credit left to spend. Top it up, or switch to a model on a route that does — the conversation is intact either way.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    ENGINE_REQUEST_REJECTED: {
+        code: "AX-KERNEL-019",
+        title: "Provider Rejected The Request",
+        description: "The provider refused this call as malformed or unsupported — commonly a model id it does not serve, a context window this conversation has outgrown, or a parameter that route does not accept.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    ENGINE_UNREACHABLE: {
+        code: "AX-KERNEL-020",
+        title: "Could Not Reach The Provider",
+        description: "The provider could not be reached, or kept failing, across every retry — usually a network problem on this machine or an outage on their side. Nothing about this agent needs changing; try again.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+
+    /**
+     * The engine failure that is OURS.
+     *
+     * Deliberately NOT `expected`: what is left here after the classified
+     * failures above is a model that returned nothing, a driver that broke the
+     * wire protocol, or a fault nothing recognised. The user cannot act on any
+     * of those, and the full report — frames, snippets, cause chain — is what
+     * makes it debuggable from a pasted log.
+     */
     ENGINE_STREAM_FAILED: {
         code: "AX-KERNEL-008",
         title: "Engine Stream Failed",
@@ -739,12 +934,27 @@ export const errorMap = {
         source: "kernel",
         severity: "fatal",
     },
+    /**
+     * RETIRED — superseded by ENGINE_NOT_CONNECTED (AX-KERNEL-015).
+     *
+     * This was the one hand-written special case in the kernel's failure path:
+     * `AUTH_NOT_CONNECTED` AND `provider === "codex"`. Every other provider hit
+     * the generic internal error for the identical condition, and each new
+     * route would have needed its own branch and its own code.
+     *
+     * ENGINE_NOT_CONNECTED says the same thing for any provider, with the
+     * driver's own message naming which one. Kept as a definition rather than
+     * deleted so AX-KERNEL-012 is never handed to a different failure — a code
+     * that appears in an old session log, a support thread or a screenshot must
+     * keep meaning what it meant when it was written.
+     */
     CODEX_NOT_CONNECTED: {
         code: "AX-KERNEL-012",
         title: "Codex Subscription Not Connected",
         description: "This agent uses a Codex model, but your Axon account is not connected to ChatGPT — run :provider codex connect and try again.",
         source: "kernel",
         severity: "fatal",
+        expected: true,
     },
     RUN_IN_PROGRESS: {
         code: "AX-KERNEL-002",
@@ -788,6 +998,41 @@ export const errorMap = {
         source: "kernel",
         severity: "fatal",
     },
+    KNOWLEDGE_NOT_FOUND: {
+        code: "AX-KERNEL-011",
+        title: "Knowledge Entry Not Found",
+        description: "A cognet read a knowledge entry that does not exist. The knowledge store is not a cache — a brain reading something the catalogue advertised has hit a real inconsistency, so this is loud rather than an empty result.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    KNOWLEDGE_READONLY: {
+        code: "AX-KERNEL-013",
+        title: "Knowledge Entry Is Read-Only",
+        description: "A cognet tried to write or remove knowledge contributed by a module. Module material lives inside its own package and the next install would destroy any change — so this fails loudly rather than succeeding and vanishing later. An agent's own data/knowledge/ is writable.",
+        source: "kernel",
+        severity: "fatal",
+        expected: true,
+    },
+    KNOWLEDGE_RECORD_FAILED: {
+        code: "AX-KERNEL-014",
+        title: "Knowledge Mutation Went Unrecorded",
+        description: "A knowledge write or remove succeeded on disk, but the session record of it could not be committed. The mutation is real and already visible to the agent; only its audit trail is missing, so this is reported rather than thrown — the caller cannot undo a completed write. It matters because 'the agent rewrote its own memory' is the fact you want weeks later when behaviour drifts, and here the ledger and the filesystem disagree.",
+        source: "kernel",
+        severity: "degraded",
+    },
+    KNOWLEDGE_ESCAPE: {
+        // Was AX-KERNEL-012, which CODEX_NOT_CONNECTED already holds and which
+        // is deliberately retained retired so that code keeps its original
+        // meaning. Two entries sharing a code is exactly what that comment
+        // warns against — a support thread quoting AX-KERNEL-012 could have
+        // meant either a disconnected provider or a path traversal.
+        code: "AX-KERNEL-021",
+        title: "Knowledge Path Escapes Store",
+        description: "A knowledge name resolved outside the store root. Names are identifiers, not paths — traversal is refused at the boundary rather than trusted not to happen.",
+        source: "kernel",
+        severity: "fatal",
+    },
     SCHEDULER_MODE_MISMATCH: {
         code: "AX-KERNEL-010",
         title: "Scheduler Mode Mismatch",
@@ -810,6 +1055,7 @@ export const errorMap = {
         description: "The requested thread id isn't registered in this session.",
         source: "thread",
         severity: "fatal",
+        expected: true,
     },
     THREAD_BRANCH_UNKNOWN: {
         code: "AX-SESSION-003",
@@ -817,6 +1063,13 @@ export const errorMap = {
         description: "A branch was requested from a parent thread id that isn't registered in this session.",
         source: "thread",
         severity: "fatal",
+    },
+    SENSORY_WRITE_FAILED: {
+        code: "AX-SESSION-004",
+        title: "Sensory Ring Write Failed",
+        description: "A dense sense entry (audio or visual) could not be written to the session's sensory ring — usually a full or read-only data directory. Delivery to the cognet is unaffected; the debug window for this session will have a gap.",
+        source: "runtime",
+        severity: "degraded",
     },
 
     // ── Blueprint ─────────────────────────────────────────────────────────────
@@ -838,6 +1091,7 @@ export const errorMap = {
         description: "A control-channel call named a method the peer does not expose. The two ends disagree about the surface — usually a TUI and an extension built from different versions.",
         source: "server",
         severity: "fatal",
+        expected: true,
     },
     CONTROL_PATH_NOT_CALLABLE: {
         code: "AX-CONTROL-002",
@@ -1061,6 +1315,7 @@ export const errorMap = {
         description: "The action needs an active profile, but none is logged in yet.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     PROFILE_NOT_AUTHENTICATED: {
         code: "AX-TUI-003",
@@ -1068,6 +1323,15 @@ export const errorMap = {
         description: "The target profile exists but has no stored session — it has never logged in, or its session was cleared.",
         source: "tui",
         severity: "fatal",
+        expected: true,
+    },
+    BACKEND_UNREACHABLE: {
+        code: "AX-TUI-044",
+        title: "Backend Unreachable",
+        description: "A stored credential could not be verified because the backend could not be reached. The credential is NOT discarded — it may be perfectly valid — but it cannot be trusted until it is checked, so the action is refused rather than proceeding unverified.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
     },
     PROFILE_UNKNOWN: {
         code: "AX-TUI-004",
@@ -1075,6 +1339,23 @@ export const errorMap = {
         description: "The requested profile id isn't one of the profiles stored on this machine.",
         source: "tui",
         severity: "fatal",
+        expected: true,
+    },
+    SESSION_NOT_FOUND: {
+        code: "AX-SESSION-005",
+        title: "Session Not Found",
+        description: "No session log exists at that path. A session is a .jsonl file under the agent's frame (`.agent/data/sessions/`); it may have been deleted, or belong to an agent that has since been removed.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
+    SESSION_UNREADABLE: {
+        code: "AX-SESSION-006",
+        title: "Session Log Unreadable",
+        description: "The session log does not begin with a `session:header` line, so it cannot be forked or renamed. Either the file is truncated, or it was written by a version predating the header — an older log can still be read and resumed, just not copied.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
     },
     SESSION_ALREADY_RUNNING: {
         code: "AX-TUI-005",
@@ -1082,6 +1363,7 @@ export const errorMap = {
         description: "spawn() was asked to resume a session that already has a live instance. Focus the running instance instead of booting a second runtime over the same log.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     SESSION_NOT_RUNNING: {
         code: "AX-TUI-016",
@@ -1089,6 +1371,23 @@ export const errorMap = {
         description: "focus() was pointed at a sessionId with no live instance behind it. Spawn (or resume) it first — focus is pure selection over running instances.",
         source: "tui",
         severity: "fatal",
+        expected: true,
+    },
+    NO_ACTIVE_AGENT: {
+        code: "AX-TUI-045",
+        title: "No Active Agent",
+        description: "The action needs a running agent, but none is active — start one first.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    NO_LOCAL_PROJECT: {
+        code: "AX-TUI-050",
+        title: "No Local Project",
+        description: "This agent has no project directory on this machine — it was attached over the network, so its source lives wherever it is running. Opening its config, or any other file verb, has to happen there. Focus a local agent instead.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
     },
     NO_FOCUSED_INSTANCE: {
         code: "AX-TUI-017",
@@ -1096,6 +1395,15 @@ export const errorMap = {
         description: "A module install/uninstall was requested with no running agent instance focused — spawn or focus one first.",
         source: "tui",
         severity: "fatal",
+        expected: true,
+    },
+    MODEL_UNAVAILABLE: {
+        code: "AX-TUI-051",
+        title: "Model Not Available From Any Declared Provider",
+        description: "The picked model was saved to the agent's config, but no provider this profile declares can supply it — so the running agent still uses its previous model. Connect the provider that serves it, or pick a model from the offered list.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
     },
     MODEL_IMMUTABLE_DEPLOYED: {
         code: "AX-TUI-006",
@@ -1103,6 +1411,7 @@ export const errorMap = {
         description: "A deployed agent's config lives in the cloud, not on this machine — its model is fixed at deploy time. Change it in the local project and deploy again.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     MODULE_INSTALL_FAILED: {
         code: "AX-TUI-018",
@@ -1114,7 +1423,45 @@ export const errorMap = {
     NO_MODULES_INSTALLED: {
         code: "AX-TUI-019",
         title: "No Modules Installed",
-        description: "The :uninstall command was opened with no modules resolved into the focused instance's blueprint.",
+        description: "The `:module uninstall` command was opened with no modules resolved into the focused instance's blueprint.",
+        source: "tui",
+        severity: "fatal",
+    },
+    SETTINGS_NOT_WRITABLE: {
+        code: "AX-EXT-027",
+        title: "Settings Cannot Be Written",
+        description: "A settings change was requested on a store with no profile config behind it — nobody is logged in, or this Store was built without one (tests). Settings live in `profile.config.ts`, so there is nowhere to write them; the change was refused rather than saved somewhere nothing reads back.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    REGISTRY_EMPTY: {
+        code: "AX-TUI-047",
+        title: "Nothing To Install",
+        description: "The install palette was opened with no rows to show — the catalogue is still loading, the registry could not be reached, or everything published for that kind is already installed. The row itself says which.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    NO_EXTENSIONS_INSTALLED: {
+        code: "AX-TUI-046",
+        title: "No Extensions Installed",
+        description: "The `:ext uninstall` command was opened with no extensions declared in the active profile's profile.config.ts.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    ATTACH_URL_REQUIRED: {
+        code: "AX-TUI-048",
+        title: "Attach URL Required",
+        description: "`:attach` needs the address of a running agent — e.g. `:attach http://localhost:3010`. The agent must already be serving; attach binds to it and never boots anything.",
+        source: "tui",
+        severity: "fatal",
+    },
+    ATTACH_URL_INVALID: {
+        code: "AX-TUI-049",
+        title: "Attach URL Invalid",
+        description: "The address is not a usable agent URL. An agent is reached over http or https and the scheme is required — `localhost:3010` is a path, `http://localhost:3010` is an address. Checked before anything connects, so a typo fails immediately rather than as a transport error.",
         source: "tui",
         severity: "fatal",
     },
@@ -1180,6 +1527,7 @@ export const errorMap = {
         description: "`axon watch`/`axon unwatch` need a directory argument.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     WATCH_PATH_NOT_FOUND: {
         code: "AX-TUI-022",
@@ -1187,6 +1535,7 @@ export const errorMap = {
         description: "`axon watch` was given a directory that doesn't exist on disk.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
     EDITOR_NOT_SET: {
         code: "AX-TUI-023",
@@ -1208,6 +1557,7 @@ export const errorMap = {
         description: "The init palette's \"watch a new directory\" entry needs both a directory path and an agent name, space-separated.",
         source: "tui",
         severity: "fatal",
+        expected: true,
     },
 
     // ── Module boot-time execution (core runs defineModule setup) ────────────
@@ -1215,6 +1565,20 @@ export const errorMap = {
         code: "AX-MODULE-001",
         title: "Module Config Failed To Load",
         description: "The runtime could not import a module's module.config.ts at boot — the file is missing at its resolved path, or importing it threw. A module that cannot load contributes nothing, so boot fails rather than run a partially-wired agent.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    MODULE_SOURCE_DECLARED: {
+        code: "AX-MODULE-008",
+        title: "Module Declared As Source",
+        description: "Uninstall was asked to remove a module that axon.config.ts declares as an IMPORT rather than by registry name. The import statement is the author's own code, so uninstall does not rewrite it — and removing the dependency alone would leave the config importing a package that is no longer declared, with the agent still loading it. Nothing was changed: delete the import and its entry in modules: [...] by hand.",
+        source: "cli",
+        severity: "fatal",
+    },
+    MODULE_NOT_INSTALLED: {
+        code: "AX-MODULE-003",
+        title: "Module Not Installed",
+        description: "A plugin asked for the options of a module this agent does not have installed — almost always a name mismatch between the plugin and the module that ships it. Reported rather than defaulted: handing back an empty options bag would let a hardware module open the wrong device and never say so.",
         source: "runtime",
         severity: "fatal",
     },
@@ -1226,7 +1590,7 @@ export const errorMap = {
         severity: "fatal",
     },
     MODULE_SETUP_FAILED: {
-        code: "AX-MODULE-003",
+        code: "AX-MODULE-007",
         title: "Module Setup Failed",
         description: "A module's setup() threw during agent boot. Setup runs sequentially in blueprint order and a failure is total — no later module is wired, and the agent does not boot half-configured.",
         source: "runtime",
@@ -1245,6 +1609,7 @@ export const errorMap = {
         description: "A module's setup() called ctx.env.require() for a variable the agent's resolved environment does not provide. The module declares required env in module.config.ts; the agent must supply it (e.g. in .env).",
         source: "runtime",
         severity: "fatal",
+        expected: true,
     },
     MODULE_POLICY_IMMUTABLE: {
         code: "AX-MODULE-006",
@@ -1252,6 +1617,7 @@ export const errorMap = {
         description: "A module's setup() called ctx.policy.update(). The resolved agent policy is authoritative and cannot be mutated at boot — declare policy needs statically in module.config.ts so the CLI reconciles them at install.",
         source: "runtime",
         severity: "fatal",
+        expected: true,
     },
 
     // ── Registry retrieval (build/registry.ts) ──────────────────────────────
@@ -1261,6 +1627,7 @@ export const errorMap = {
         description: "`axon clone` was run without an artifact to clone. Name one, for example: axon clone @axon/arxiv",
         source: "cli",
         severity: "fatal",
+        expected: true,
     },
     FORK_REF_REQUIRED: {
         code: "AX-PROJECT-023",
@@ -1313,12 +1680,67 @@ export const errorMap = {
         source: "cli",
         severity: "fatal",
     },
+    FRAME_MIGRATION_CONFLICT: {
+        code: "AX-PROJECT-034",
+        title: "Frame Migration Cannot Proceed Safely",
+        description: "Runtime output exists in BOTH the old location and the new one, so migrating would have to merge or overwrite two sets of session history. Nothing was moved. Inspect both directories and remove or merge them by hand.",
+        source: "cli",
+        severity: "fatal",
+    },
     CONFIG_EVALUATION_ESCAPED: {
         code: "AX-PROJECT-030",
         title: "defineAgent() Called Outside Config Evaluation",
         description: "defineAgent() ran outside the loader that evaluates axon.config.ts — it is a declaration helper, not a runtime function, and cannot be called from application code.",
         source: "cli",
         severity: "fatal",
+    },
+    PROMPT_NOT_INSTALLABLE: {
+        code: "AX-PROJECT-037",
+        title: "Prompts Are Not Installed Into Agents",
+        description: "A prompt is content, not a capability: it resolves from the global cache and renders on demand, so every agent can already use it without declaring anything. Installing one into an agent would put content through the code path — an ABI check, a node_modules link, an agent reload — for something that needs none of it.",
+        source: "manifest",
+        severity: "fatal",
+    },
+    // ── README assets (build/project/bundle/assets.ts) ──────────────────────
+    ASSET_TYPE_REFUSED: {
+        code: "AX-PROJECT-038",
+        title: "Unsupported Asset Type",
+        description: "A file in assets/ is not a type the registry serves. Images (png, jpg, jpeg, webp, gif) and video (mp4, webm, mov) are accepted. SVG is deliberately refused: it is an executable document that would be served from our own storage origin, so a published SVG is a script-injection surface for every visitor reading that README.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    ASSET_TOO_LARGE: {
+        code: "AX-PROJECT-039",
+        title: "Asset Exceeds Size Limit",
+        description: "A single file in assets/ is over the per-asset limit. Assets exist to illustrate a README, not to distribute media — compress the file or link to it externally.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    ASSETS_BUDGET_EXCEEDED: {
+        code: "AX-PROJECT-040",
+        title: "Assets Exceed Total Budget",
+        description: "The assets/ folder as a whole is over budget for one published version. Every version stores its own copy of every asset, so the total is what determines how much a package costs to host forever.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    ASSET_PATH_INVALID: {
+        code: "AX-PROJECT-041",
+        title: "Unsafe Asset Path",
+        description: "An entry under assets/ is a symlink, or its name escapes the assets directory. Both are refused: a published asset must be a real file that lands where its name says it does, or extraction on the server could write outside the target directory.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    ASSET_UNREADABLE: {
+        code: "AX-PROJECT-042",
+        title: "Asset Could Not Be Processed",
+        description: "A file in assets/ has an image extension but could not be decoded, so it is either corrupt or not the format its name claims. Publishing it would ship a broken image into a README.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
     },
     PORT_UNAVAILABLE: {
         code: "AX-PROJECT-031",
@@ -1453,6 +1875,27 @@ export const errorMap = {
         source: "cli",
         severity: "fatal",
     },
+    NO_EDITOR_ATTACHED: {
+        code: "AX-TUI-042",
+        title: "No Editor Attached",
+        description: "Opening a pane hands it to a connected editor, and none is listening. Open this project in an editor running the Axon Fleet extension — it dials each running TUI itself, so the connection appears on its own once the window is up.",
+        source: "tui",
+        severity: "fatal",
+    },
+    NO_SESSION_TO_OPEN: {
+        code: "AX-TUI-043",
+        title: "No Session To Open",
+        description: "A runtime pane is a view of one conversation, and no agent is focused yet — so there is nothing to point it at. Start or focus an agent first.",
+        source: "tui",
+        severity: "fatal",
+    },
+    CLEAR_IMMUTABLE_DEPLOYED: {
+        code: "AX-TUI-041",
+        title: "Cannot Clear A Deployment's Conversation",
+        description: "A deployed agent owns its own session in the cloud — the TUI attaches to whatever session it is already running, so there is no fresh one to start from here. Use `:close` to detach, or clear it on a local instance of the same agent.",
+        source: "tui",
+        severity: "fatal",
+    },
     OLLAMA_PULL_FAILED: {
         code: "AX-TUI-040",
         title: "Model Download Failed",
@@ -1467,6 +1910,279 @@ export const errorMap = {
         description: "The instrumented test API was imported without the preload that installs it. Tests must run through `axon test`, which wires the preload.",
         source: "cli",
         severity: "fatal",
+    },
+
+    // ── Extensions ──────────────────────────────────────────────────────────
+    //
+    // The TUI config surface: a profile's main.ts and plugins/, and the
+    // extensions it loads. Almost every entry here is `expected` and
+    // `degraded`, and both flags are deliberate.
+    //
+    // EXPECTED, because this is code the USER wrote. A stack trace through our
+    // loader tells someone to debug software they did not write; the file and
+    // the reason are the entire actionable content.
+    //
+    // DEGRADED, because a broken config must never cost someone their
+    // terminal. One bad file disables itself and everything else still loads —
+    // a user whose plugin has a typo needs a working Axon to go fix it in.
+    // The one FATAL entry is PROFILE_CONFIG_INVALID, and only because it is
+    // thrown by the CLI verbs that edit that file, where continuing would mean
+    // writing over a config we could not read.
+
+    PROFILE_CONFIG_INVALID: {
+        code: "AX-EXT-001",
+        title: "profile.config.ts Did Not Call defineProfile()",
+        description: "A profile's config must default-export defineProfile({ ... }). Without it there is no extension list to read, so nothing can be installed, enabled or disabled. The rest of the profile — main.ts and plugins/ — still loads.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    PROFILE_CONFIG_FAILED: {
+        code: "AX-EXT-002",
+        title: "profile.config.ts Failed to Load",
+        description: "The file threw while being evaluated, so its extension list could not be read and no extensions were loaded. The profile's own main.ts and plugins/ are unaffected — a typo in an extension list must not cost you the config you already had working.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_ENTRY_INVALID: {
+        code: "AX-EXT-003",
+        title: "Malformed Extension Entry",
+        description: "An entry in profile.config.ts's `extensions` array is neither a string nor an object with a `source`. Accepted forms are \"@scope/name\" for a registry extension and \"./extensions/name\" for a local one.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_NOT_FOUND: {
+        code: "AX-EXT-004",
+        title: "Extension Not Found",
+        description: "An extension listed in profile.config.ts is not on disk. A local path may have moved or been deleted; a registry name may never have been installed. Everything else in the list still loads.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_INSTALL_FAILED: {
+        code: "AX-EXT-005",
+        title: "Extension Install Failed",
+        description: "A registry extension could not be fetched or prepared — most often no network, or a name that does not exist in the registry. It is skipped for this session and retried on the next launch.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_UNINSTALL_FAILED: {
+        code: "AX-EXT-028",
+        title: "Extension Uninstall Failed",
+        description: "An extension could not be removed from profile.config.ts — most often the file is unreadable or has been edited into a shape the editor cannot find the extensions list in. The extension is still declared and will load on the next launch.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_NOT_AN_EXTENSION: {
+        code: "AX-EXT-006",
+        title: "Not an Extension",
+        description: "The directory has no extension.config.ts, which is the file that marks a directory as an extension. A path pointing at an agent, a module, or an ordinary folder is not loadable as one.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_LOAD_FAILED: {
+        code: "AX-EXT-007",
+        title: "Extension Failed to Load",
+        description: "An extension's main.ts threw while it was being loaded, so whatever it had not yet registered is missing. Its commands, keys and palettes are removed and the rest of your config loads normally.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    PROFILE_MAIN_FAILED: {
+        code: "AX-EXT-008",
+        title: "main.ts Failed to Load",
+        description: "Your profile's main.ts threw while being evaluated. Anything it registered before the error survives; everything after it did not run. Plugins and extensions still load.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    PLUGIN_FAILED: {
+        code: "AX-EXT-009",
+        title: "Plugin Failed to Load",
+        description: "A file in plugins/ threw while being imported, so its hooks were not registered. Other plugins in the same folder are unaffected — each file is loaded independently.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    HOOK_FAILED: {
+        code: "AX-EXT-010",
+        title: "Lifecycle Hook Failed",
+        description: "A tui.hook() handler threw while the event it listens for was firing. For a notification hook nothing else is affected; for a gating hook (tui:boot, tui:shutdown) the operation continues anyway rather than leaving the terminal stuck.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    HOOK_TIMED_OUT: {
+        code: "AX-EXT-011",
+        title: "Hook Blocked Too Long",
+        description: "A gating hook (tui:boot or tui:shutdown) did not finish within its budget, so the TUI continued without waiting. A config must never be able to hang the terminal silently — whatever the handler was doing may not have completed.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    COMMAND_NOT_FOUND: {
+        code: "AX-EXT-012",
+        title: "No Such Command",
+        description: "commands.run() was given a path that resolves to nothing in the command tree. The path must name a leaf, spelled exactly as it appears in the `:` palette.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    PALETTE_NOT_FOUND: {
+        code: "AX-EXT-013",
+        title: "No Such Palette",
+        description: "palette.open() was given a name no palette was registered under. Palettes are created with palette.create(name, ...) — a name is only openable once its registration has run.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    PALETTE_NAME_TAKEN: {
+        code: "AX-EXT-014",
+        title: "Palette Name Already Registered",
+        description: "Two palettes tried to claim the same name. Names are how palette.open() addresses one, so they have to be unique — silently replacing the first would make whichever loaded last win, invisibly.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    PALETTE_ALREADY_OPEN: {
+        code: "AX-EXT-015",
+        title: "A Palette Is Already Open",
+        description: "Something tried to open a palette, or ask a question, while the user was already navigating one. Stealing it mid-navigation would drop whatever they were doing, so the call fails instead — check palette.isOpen first.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    KEY_CHORD_UNBOUND: {
+        code: "AX-EXT-022",
+        title: "No Such Key Binding",
+        description: "keys.send() was given a chord nothing is bound to — neither a mode key nor a registered binding. Sending it would do nothing at all, which is indistinguishable from a binding that ran and had no effect.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    AGENT_SPAWN_NO_INSTANCE: {
+        code: "AX-EXT-023",
+        title: "Agent Started but No Instance Appeared",
+        description: "A spawn reported success without producing a focused instance, so there is no id to hand back. This is a fault in Axon rather than in your config — the agent may or may not be running.",
+        source: "tui",
+        severity: "fatal",
+    },
+    PROFILE_CONFIG_MISSING: {
+        code: "AX-EXT-025",
+        title: "No profile.config.ts",
+        description: "The profile has no config file to record the extension in. It is normally created on first launch — starting Axon once will scaffold it.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    PROFILE_CONFIG_UNEDITABLE: {
+        code: "AX-EXT-026",
+        title: "profile.config.ts Could Not Be Edited",
+        description: "The `defineProfile({ ... })` call could not be located, or editing it would have produced invalid TypeScript. Nothing was written — this file is yours, and a botched edit costs your whole TUI config. Add or remove the entry by hand.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    COMMAND_INVALID: {
+        code: "AX-EXT-029",
+        title: "Command Is Not Registerable",
+        description: "A command was registered with no path, or with no `run` to call. Both are caught here rather than when someone presses Enter on it — a command that registers cleanly and then does nothing reads as a broken terminal instead of a config mistake, and gives no clue which file to open. Use `commands.register(path, fn)` or `commands.register(path, { run })`.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    COMPONENT_NAME_TAKEN: {
+        code: "AX-EXT-030",
+        title: "Component Already Registered",
+        description: "Two sources registered the same line component name. The first one loaded keeps it — your own config beats any extension. A silently shadowed component would render someone else's value under your name, so the second registration fails instead. Component names are `provider:name`; pick a prefix of your own.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    COMPONENT_UNKNOWN: {
+        code: "AX-EXT-031",
+        title: "No Such Component",
+        description: "A line named a component that is not registered. Caught when the line is created rather than when it paints, because a missing component renders as an empty gap — which reads as a layout bug instead of a typo, and gives no clue which name was wrong. components.list() returns everything available.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    LINE_NAME_TAKEN: {
+        code: "AX-EXT-032",
+        title: "Line Already Registered",
+        description: "Two sources registered the same line name. The first one loaded keeps it, the same rule commands and key chords follow.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    LINE_UNKNOWN: {
+        code: "AX-EXT-033",
+        title: "No Such Line",
+        description: "lines.set(), move(), show(), hide() or toggle() named a line that is not registered. Doing nothing would be indistinguishable from a line that registered and then rendered empty, so this fails instead. lines.list() returns what exists.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    COMMAND_PATH_TAKEN: {
+        code: "AX-EXT-020",
+        title: "Command Already Registered",
+        description: "Two sources registered the same command path. The first one loaded keeps it — your own config beats any extension, and between extensions the one listed earlier in profile.config.ts wins. Rename one of them.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    KEY_CHORD_TAKEN: {
+        code: "AX-EXT-021",
+        title: "Key Chord Already Bound",
+        description: "Two sources bound the same key chord. The first one loaded keeps it. A silently shadowed binding is unbearable to debug in someone else's config, so the second registration fails instead of replacing it.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    MODE_KEY_TAKEN: {
+        code: "AX-EXT-016",
+        title: "Mode Key Already Bound",
+        description: "A palette asked for a mode key that is already in use — either by a built-in mode or by another extension. A silently shadowed key is unbearable to debug in someone else's config, so the registration fails loudly instead.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    MODE_UNKNOWN: {
+        code: "AX-EXT-017",
+        title: "No Such Mode",
+        description: "mode.set() was given a name that is neither a built-in mode nor a registered palette. Doing nothing would look identical to a mode that simply does not render, so this fails instead.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    NO_FOCUSED_AGENT: {
+        code: "AX-EXT-018",
+        title: "No Agent Focused",
+        description: "A verb that acts on the focused agent — send, stop, reboot — was called while nothing was running. Start one with agents.spawn(name) or tui.nav(name) first.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    INSTANCE_NOT_RUNNING: {
+        code: "AX-EXT-019",
+        title: "Instance Not Running",
+        description: "An instance id was given for a conversation that is not live — it may already have been stopped, or it belongs to an earlier session. agents.list() returns what is currently running.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
+    },
+    CONNECT_REJECTED: {
+        code: "AX-EXT-020",
+        title: "Connector Credential Rejected",
+        description: "The platform refused the credential pasted during `:connect`. Verification runs before the value is written, so nothing was stored — the detail carries the platform's own reason, and the most common cause is copying the wrong secret from the developer portal.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
     },
 } as const satisfies Record<string, AxonErrorMapEntry>
 

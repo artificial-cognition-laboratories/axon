@@ -1,5 +1,20 @@
+// The compiler options every Axon project kind inherits, resolved out of the
+// project's own node_modules (see platform/build/project/typegen/tsconfig.ts).
 {
     "compilerOptions": {
+        // Axon projects are Bun runtime end to end — agents call Bun.file,
+        // Bun.spawn and bun:test — so the globals are part of the baseline,
+        // not something each author wires up. Naming "bun" here is only half
+        // of it: an explicit `types` field disables automatic @types
+        // inclusion, so @types/bun is a real DEPENDENCY of this package
+        // rather than a devDependency. The package that makes the claim is
+        // the one that guarantees it resolves, and every kind that installs
+        // already pins @arcforge/types — so this reaches projects
+        // transitively, including ones scaffolded before it existed.
+        //
+        // The one frame that must NOT copy this is the standalone frame for
+        // prompt packages: they install nothing, so "bun" would name a
+        // package provably absent from disk and degrade every symbol to any.
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "bundler",
@@ -7,6 +22,7 @@
         "strict": true,
         "noUncheckedIndexedAccess": true,
         "lib": ["ESNext"],
+        "types": ["bun"],
         "skipLibCheck": true,
         "allowImportingTsExtensions": true,
         "noEmit": true

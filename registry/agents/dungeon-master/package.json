@@ -5,11 +5,17 @@
   "private": false,
   "type": "module",
   "dependencies": {
-    "@arcforge/engines": "2.0.111",
-    "@arcforge/types": "2.0.111",
+    "@arcforge/engines": "2.0.144",
+    "@arcforge/types": "2.0.144",
     "@faker-js/faker": "^10.5.0",
     "h3": "^1.13.0",
-    "@arcforge/cognet": "2.0.111",
-    "@axon/zero": "^0.1.6"
+    "@arcforge/cognet": "2.0.144",
+    "@axon/zero": "^1.0.10",
+    "@arcforge/air": "2.0.144"
+  },
+  "axon": {
+    "trackedFrom": {
+      "@axon/zero": "https://axon-api-t53zrgvpga-ew.a.run.app"
+    }
   }
 }

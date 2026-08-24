@@ -1,4 +1,4 @@
-import type { CapsulePolicy, EscalationCall } from "./policy"
+import type { CapsulePolicy, EscalationCall, PolicyBucket, PolicyRule } from "./policy"
 import type { AxonScopeModule } from "./scope"
 
 export type CapsuleHostRequest = {
@@ -95,7 +95,14 @@ export type CapsuleBlueprint = {
  * care about; CapsuleBlueprint()/mergeCapsuleConfig() fill in the rest.
  */
 export type CapsulePartialConfig = Partial<Omit<CapsuleBlueprint, "policy">> & {
-    policy?: Partial<Omit<CapsulePolicy, "process">> & {
-        process?: Partial<CapsulePolicy["process"]>
+    /**
+     * As AUTHORED — every enforcement surface also accepts one bare rule
+     * covering the whole surface (`tools: "escalate"`), which `Blueprint()`
+     * normalises into the keyed shape the capsule enforces. See `PolicyBucket`.
+     */
+    policy?: Partial<Omit<CapsulePolicy, "process" | "tools" | "network">> & {
+        process?: Partial<CapsulePolicy["process"]> | PolicyRule
+        tools?: PolicyBucket
+        network?: PolicyBucket
     }
 }

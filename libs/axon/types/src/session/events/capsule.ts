@@ -22,6 +22,7 @@
 import type { Activity } from "./activity"
 import type { AxonErrorJSON } from "../../error"
 import type { AxonCancellableSpan, AxonSpan } from "./span"
+import type { CapsuleScope } from "../../capsule-scope"
 
 /**
  * Capsule failures carry AxonErrorJSON, not AxonError.
@@ -38,6 +39,15 @@ import type { AxonCancellableSpan, AxonSpan } from "./span"
  * captured frames with source snippets, and the cause chain. Only the
  * behavior is lost, which is exactly what the JSON shape describes.
  */
+
+/**
+ * Who asked for a capsule command to run — see the capsule:cmd span below.
+ *
+ * Declared here rather than in @axon/capsule for the same reason the event
+ * map is: every type that can reach a session log lives in this package's
+ * registry, and @axon/capsule re-exports from here rather than owning it.
+ */
+export type CapsuleCommandOrigin = "cognet" | "host"
 
 export type CapsuleEventMap =
     // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -68,10 +78,17 @@ export type CapsuleEventMap =
         { restartCount: number; error: AxonErrorJSON }
     >
     // ── Command execution (one run() = one command id) ──────────────────────
+    //    `origin` is provenance, never privilege: a "host" command (a
+    //    developer typing into Fleet's capsule input) travels the identical
+    //    path under the identical policy gate as the cognet's own code. It
+    //    is recorded because this log is a record of what the AGENT did,
+    //    and an unmarked human command would make that record lie.
+    //    Absent means "cognet" — every command predating this field, and
+    //    every command the runtime itself issues.
     & AxonCancellableSpan<
         "capsule:cmd",
-        { id: string },
-        { id: string; result: unknown },
+        { id: string; origin?: CapsuleCommandOrigin },
+        { id: string; result: unknown; scope: CapsuleScope },
         { id: string; error: AxonErrorJSON },
         { id: string; durationMs: number }
     >

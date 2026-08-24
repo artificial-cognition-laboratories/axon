@@ -41,7 +41,14 @@ async function moduleGraphProbe(body: string): Promise<string> {
             proc.exited,
         ])
         if (code !== 0) throw new Error(`probe failed (${code}): ${stderr || stdout}`)
-        return stdout.trim().split("\n").at(-1) ?? ""
+
+        // The LAST NUMERIC line, not simply the last: booting a runtime can
+        // print after the measurement (a warning, a reload notice), and
+        // reading the final line blindly returns NaN for a probe that
+        // actually worked.
+        const numeric = stdout.trim().split("\n").map(line => line.trim()).filter(line => Number.isFinite(Number(line)))
+        if (numeric.length === 0) throw new Error(`probe printed no measurement:\n${stdout}\n${stderr}`)
+        return numeric.at(-1)!
     } finally {
         await rm(dir, { recursive: true, force: true })
     }
@@ -56,6 +63,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
             const { Axon } = await import("@axon/core")
             const { KERNEL_ABI_VERSION } = await import("@arcforge/types")
             const { TestCognet } = await import("${path.join(import.meta.dir, "..", "..", "setup", "cognet.ts")}")
+            const { Mock } = await import("@arcforge/engines")
             const { writeFile, mkdtemp } = await import("node:fs/promises")
             const { tmpdir } = await import("node:os")
             const path = await import("node:path")
@@ -67,6 +75,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
             const runtime = await Axon({
                 blueprint: {
                     cognet: { name: "test", version: "1.0.0", abi: KERNEL_ABI_VERSION, definition: TestCognet() },
+                    config: { providers: [Mock()] },
                     prompts: [{ name: "hello", kind: "static", filePath }],
                 },
             })
@@ -87,6 +96,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
             const { Axon } = await import("@axon/core")
             const { KERNEL_ABI_VERSION } = await import("@arcforge/types")
             const { TestCognet } = await import("${path.join(import.meta.dir, "..", "..", "setup", "cognet.ts")}")
+            const { Mock } = await import("@arcforge/engines")
             const { writeFile, mkdtemp } = await import("node:fs/promises")
             const { tmpdir } = await import("node:os")
             const path = await import("node:path")
@@ -98,6 +108,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
             const runtime = await Axon({
                 blueprint: {
                     cognet: { name: "test", version: "1.0.0", abi: KERNEL_ABI_VERSION, definition: TestCognet() },
+                    config: { providers: [Mock()] },
                     prompts: [{ name: "hello", kind: "dynamic", filePath }],
                 },
             })

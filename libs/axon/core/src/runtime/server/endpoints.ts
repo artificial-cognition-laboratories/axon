@@ -1,5 +1,6 @@
 import { createError, defineEventHandler, getQuery, readBody, setResponseStatus } from "h3"
 import type { AxonBlueprint, AxonHandle, AxonRequestInput } from "@arcforge/types"
+import type { EnginesT } from "@arcforge/engines/catalogue"
 import type { AxonBusT } from "../../platform"
 import { ConnectAuth } from "./connect-auth"
 import { H3T } from "./h3"
@@ -12,6 +13,11 @@ type EndpointsOpts = {
     /** Raw bus — /_axon/events bridges it to SSE. Trusted-host-only, never on AxonHandle. */
     bus: AxonBusT
     blueprint: AxonBlueprint
+    /**
+     * The agent's resolved inference roles, for the health endpoint's
+     * `engine` field. Absent when the cognet declared none.
+     */
+    engines?: EnginesT
 }
 
 /**
@@ -42,6 +48,40 @@ type EndpointsOpts = {
  * Routing only. The projection each endpoint returns lives in session-view.ts,
  * the two live wires in streams.ts, the SSE mechanics in sse.ts.
  */
+/**
+ * The engine an agent declares, flattened for the wire.
+ *
+ * Two shapes reach here and mean the same thing: an EngineRef
+ * (`{ provider, model }`) and a constructed AxonEngineDef, whose provider is
+ * `name`. A client rendering them differently would make the model row's
+ * meaning depend on which form the author's config happened to use, so they
+ * are collapsed at this seam rather than downstream.
+ *
+ * Null when the agent declares nothing — distinct from a provider with no
+ * model, which is a real state (`{ provider: "mock" }`).
+ */
+/**
+ * What the agent's PRIMARY role actually resolved to.
+ *
+ * Reports the binding rather than a declaration, because nothing is declared
+ * any more: a user supplies providers, a cognet names roles, and which model
+ * serves the cortex is decided at boot. A client rendering "the model this
+ * agent is on" wants that answer, and there is no other place to get it.
+ *
+ * Null when the cognet declares no roles, or none is primary — a pure control
+ * loop genuinely has no model, and inventing one would put a dead row in
+ * every client's header.
+ */
+function engineIdentity(engines: EnginesT | undefined): { provider: string; model: string | null } | null {
+    const bound = engines?.resolution.bound
+    if (!bound?.length) return null
+
+    const primary = bound.find(entry => entry.requirement.primary) ?? bound.find(entry => entry.role === "main")
+    if (!primary) return null
+
+    return { provider: primary.capability.provider, model: primary.capability.id }
+}
+
 export function Endpoints(opts: EndpointsOpts) {
     const { h3, axon } = opts
     const router = h3.router
@@ -68,10 +108,52 @@ export function Endpoints(opts: EndpointsOpts) {
     // 503 is the honest status for "running but cannot serve its purpose" —
     // it is what a load balancer needs to stop sending work, and what a human
     // needs to stop trusting the green light.
+    // `agent` is the identity a client shows for what it attached TO. A caller
+    // that typed a URL has nothing else to render — "localhost:3010" in the
+    // slot where an agent name belongs is a hostname pretending to be an
+    // identity. A deployment already knows the name from its record; a bare
+    // URL can only learn it here, and the handshake is the one round trip
+    // every attach already makes.
     router.get("/_axon/health", defineEventHandler(event => {
         const ready = axon.ready
         if (!ready) setResponseStatus(event, 503)
-        return { ok: ready, sessionId: axon.session.id, ...(ready ? {} : { reason: "no cognet loaded" }) }
+        return {
+            ok: ready,
+            sessionId: axon.session.id,
+            agent: opts.blueprint.agent.name,
+            // What this agent is carrying. A client that attached over the
+            // wire has no blueprint to read — it never built this agent and
+            // never will — so the counts have to come from the agent itself
+            // or not exist. No duration: how long the build took is a fact
+            // about the process that ran it, and claiming it for a caller
+            // that only watched would be someone else's number.
+            modules: opts.blueprint.modules?.length ?? 0,
+            tools: opts.blueprint.tools?.length ?? 0,
+            // The primary role's RESOLVED binding — see engineIdentity.
+            engine: engineIdentity(opts.engines),
+            // The AUDIENCE a caller must mint a connect token for, when this
+            // agent enforces one.
+            //
+            // Without it a client had to be TOLD the agent id out of band, so
+            // `:attach <url>` — which has only a URL — sent no token at all and
+            // got a bare 401 from any gated route. The assumption underneath
+            // was "local means open", which stopped being true the moment
+            // local staging started deploying through the real pipeline: those
+            // agents are local AND enforcing.
+            //
+            // Not a secret. It is the id in the owner's own dashboard, and it
+            // grants nothing: the backend still decides whether the caller may
+            // have a token for it, and the token it mints is scoped by `aud`
+            // to this one agent for minutes. Publishing it turns an
+            // unactionable 401 into "ask for a token for this".
+            //
+            // Absent when the gate is open, which is the honest signal that no
+            // token is needed rather than one the client must guess at.
+            ...(auth.enforcing && opts.blueprint.env.AGENT_ID
+                ? { agentId: opts.blueprint.env.AGENT_ID }
+                : {}),
+            ...(ready ? {} : { reason: "no cognet loaded" }),
+        }
     }))
 
     // Body is parsed BEFORE the auth check, then the action runs only AFTER it.

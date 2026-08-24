@@ -3,11 +3,17 @@
 export default defineCognet({
     name: "zero",
     version: "0.1.2",
-    abi: "10",
-
+    abi: "11",
     mode: { kind: "invocation" },
 
-    // runaway guard: a wake that hasn't converged in this many
-    // render→infer→act ticks is a loop bug or a stuck model, not progress
-    maxTicksPerWake: 32,
+    engines: {
+        main: {
+            type: "generate",
+            in: "text",
+            out: "text",
+            context: 100_000,
+            structured: true,
+            primary: true,
+        },
+    },
 })

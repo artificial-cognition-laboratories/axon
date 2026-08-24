@@ -1,4 +1,4 @@
-import { Axon } from "../../../setup/axon"
+import { Axon, driver } from "../../../setup/axon"
 import type { AxonEngineDef, AxonEngineRawEvent } from "@arcforge/types"
 
 /** An engine whose stream() only resolves once `release()` is called — full control over timing. */
@@ -11,9 +11,12 @@ function slowEngine() {
         create: () => ({
             async *stream(): AsyncGenerator<AxonEngineRawEvent> {
                 await gate
-                // Real AIR-tagged text — a bare delta with no <done/> would
-                // never signal the loop's stop condition (the parser only
-                // sees literal grammar tags, not response.text).
+                // Real AIR-tagged text. Two things matter: <done/> signals
+                // the loop's stop condition (the parser only sees literal
+                // grammar tags, not response.text), and the content must sit
+                // inside a REAL block tag. This said <text> for a long time,
+                // which is not one — so every reply here parsed to nothing and
+                // these tests passed on a response the parser was discarding.
                 const text = "<text>done</text><done/>"
                 yield { type: "text:delta", content: text }
                 yield {
@@ -34,7 +37,7 @@ function slowEngine() {
 describe("kernel concurrency: single run", () => {
     it("a second stream() while one is in-flight throws RUN_IN_PROGRESS", async () => {
         const { def, release } = slowEngine()
-        const runtime = await Axon({ blueprint: { config: { engine: def } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [driver(def)] } } })
 
         const first = runtime.kernel.request({ content: "one" }) // in-flight, gated on release()
 
@@ -47,7 +50,7 @@ describe("kernel concurrency: single run", () => {
 
     it("the lock releases once the run completes — a fresh run is accepted afterward", async () => {
         const { def, release } = slowEngine()
-        const runtime = await Axon({ blueprint: { config: { engine: def } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [driver(def)] } } })
 
         const first = runtime.kernel.request({ content: "one" })
         release()
@@ -60,7 +63,7 @@ describe("kernel concurrency: single run", () => {
 
     it("an abandoned, never-iterated stream() still holds the reservation until drained", async () => {
         const { def, release } = slowEngine()
-        const runtime = await Axon({ blueprint: { config: { engine: def } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [driver(def)] } } })
 
         // mint the wire but never iterate it — the lock reserves synchronously at call time
         const abandoned = runtime.kernel.stream({ content: "one" })

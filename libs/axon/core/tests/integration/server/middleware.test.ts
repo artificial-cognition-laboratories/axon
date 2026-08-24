@@ -1,7 +1,7 @@
 import { createError, defineEventHandler } from "h3"
 import type { AxonMiddleware, AxonRoute } from "@arcforge/types"
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * Server middleware — the Nitro contract, asserted.
@@ -39,7 +39,7 @@ describe("Server middleware", () => {
     }
 
     function runtimeWith(middleware: AxonMiddleware[], routes: AxonRoute[] = []) {
-        return Axon({ blueprint: { config: { engine: Mock() }, server: { middleware, routes } } })
+        return Axon({ blueprint: { config: { providers: [Mock()] }, server: { middleware, routes } } })
     }
 
     it("runs every middleware in order, then the route", async () => {

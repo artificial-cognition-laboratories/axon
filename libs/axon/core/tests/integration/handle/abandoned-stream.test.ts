@@ -1,5 +1,5 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * An abandoned stream must not wedge the runtime.
@@ -17,7 +17,7 @@ import { Mock } from "@arcforge/engines/mock"
  */
 describe("Abandoned stream", () => {
     it("frees the scheduler when the caller interrupts without consuming", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
 
         // Reserve a wire and abandon it — never iterated.
         const wire = runtime.kernel.stream({ content: "one" })
@@ -31,7 +31,7 @@ describe("Abandoned stream", () => {
     })
 
     it("still serves normal sequential requests", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
 
         // The abandonment guard must not interfere with the ordinary path.
         const first = await runtime.kernel.request({ content: "one" })
@@ -44,7 +44,7 @@ describe("Abandoned stream", () => {
     })
 
     it("still serves a fully consumed stream", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
 
         const wire = runtime.kernel.stream({ content: "one" })
         for await (const _entry of wire.stream) { /* drain */ }
@@ -57,7 +57,7 @@ describe("Abandoned stream", () => {
     })
 
     it("interrupting a consumed stream still aborts its wake", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
 
         // The interrupt path aborts BEFORE releasing, so a running wake is
         // genuinely cancelled rather than the abort silently missing.

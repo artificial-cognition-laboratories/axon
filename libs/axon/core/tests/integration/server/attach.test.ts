@@ -1,6 +1,6 @@
 import { Agents, RemoteAgent } from "@arclabs/cloud"
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * End-to-end transport-transparency: a real Axon() runtime served on a real
@@ -17,7 +17,7 @@ describe("attach → deployed agent (local)", () => {
     }
 
     it("attach handshake resolves the instance's session id", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
         const { url, stop } = await serve(runtime)
 
         try {
@@ -31,7 +31,7 @@ describe("attach → deployed agent (local)", () => {
     })
 
     it("remote request() returns the same AxonResult a local request would", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
         const { url, stop } = await serve(runtime)
 
         try {
@@ -46,7 +46,7 @@ describe("attach → deployed agent (local)", () => {
     })
 
     it("remote stream() yields entries and completes cleanly", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
         const { url, stop } = await serve(runtime)
 
         try {
@@ -64,7 +64,7 @@ describe("attach → deployed agent (local)", () => {
     })
 
     it("a bare string and a { prompt } object behave identically over the wire", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
         const { url, stop } = await serve(runtime)
 
         try {

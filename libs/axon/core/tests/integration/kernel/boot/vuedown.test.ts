@@ -1,7 +1,7 @@
 import { writeFile, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { Axon } from "../../../setup/axon"
+import { Axon, driver } from "../../../setup/axon"
 import type { AxonEngineDef, AxonEngineRawEvent } from "@arcforge/types"
 
 async function bootDir() {
@@ -17,7 +17,7 @@ function capturingEngine() {
             async *stream(req): AsyncGenerator<AxonEngineRawEvent> {
                 seen.push(req.messages.filter(m => m.role === "system").map(m => m.content))
                 // Real drivers feed their text through as deltas so the AIR
-                // parser actually sees the <done/> tag — a raw "done" event
+                // parser actually sees the  tag — a raw "done" event
                 // alone never reaches the parser, so the loop would never
                 // see the model's stop signal.
                 const text = "<text>ok</text><done/>"
@@ -44,7 +44,7 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
 
         const { def, seen } = capturingEngine()
         const runtime = await Axon({
-            blueprint: { bootFilePath: filePath, config: { engine: def } },
+            blueprint: { bootFilePath: filePath, config: { providers: [driver(def)] } },
         })
 
         await runtime.axon.request("hi")
@@ -76,7 +76,7 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
                     fns: [{ name: "greet", declaration: "function greet(name: string): string" }],
                     source: `export default { name: "greeter", exports: { greet: (name) => "hello " + name } }`,
                 }],
-                config: { engine: def, policy: { tools: { greeter: true } } },
+                config: { providers: [driver(def)], policy: { tools: { greeter: true } } },
             },
         })
 
@@ -112,7 +112,7 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
                     fns: [{ name: "read", declaration: "function read(): string" }],
                     source: `let n = 0; export default { name: "counter", exports: { read: () => String(++n) } }`,
                 }],
-                config: { engine: def, policy: { tools: { counter: true } } },
+                config: { providers: [driver(def)], policy: { tools: { counter: true } } },
             },
         })
 
@@ -127,10 +127,14 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
     })
 
     it("a static boot.md still works unchanged — no Vuedown involved", async () => {
-        const runtime = await Axon({ blueprint: { boot: "You are a helpful agent." } })
+        // Declared at BOOT rather than swapped in by update(): inference
+        // resolves once, from the user's providers, and a config reload no
+        // longer re-binds it.
         const { def, seen } = capturingEngine()
+        const runtime = await Axon({
+            blueprint: { boot: "You are a helpful agent.", config: { providers: [driver(def)] } },
+        })
 
-        await runtime.update({ config: { engine: def } })
         await runtime.axon.request("hi")
 
         expect(seen[0].some(m => m.includes("You are a helpful agent."))).toBe(true)
@@ -140,11 +144,71 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
 
     it("no boot at all — the system context omits a boot section, nothing throws", async () => {
         const { def, seen } = capturingEngine()
-        const runtime = await Axon({ blueprint: { config: { engine: def } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [driver(def)] } } })
 
         await expect(runtime.axon.request("hi")).resolves.toBeDefined()
-        expect(seen[0].some(m => m.includes("<system>"))).toBe(true)
+        expect(seen[0].some(m => m.includes("<system"))).toBe(true)
 
         await runtime.shutdown()
+    })
+
+    /**
+     * A boot.vue that will not render must never stop the agent replying.
+     *
+     * render() is called by kernel.base() on EVERY tick, inside the cognet's
+     * render phase — so a throw there does not merely fail the boot, it kills
+     * the wake. Saving a typo mid-session stopped the agent answering at all,
+     * while the user was editing the very file they would use it to fix.
+     *
+     * Nothing about the degradation is silent: the model is told which of the
+     * two situations it is in, because they call for different behaviour.
+     */
+    it("a broken boot.vue keeps the last render that worked", async () => {
+        const dir = await bootDir()
+        const filePath = path.join(dir, "boot.vue")
+        await writeFile(filePath, `<template><h1>Barry</h1></template>`)
+
+        const { def, seen } = capturingEngine()
+        const runtime = await Axon({
+            blueprint: { bootFilePath: filePath, config: { providers: [driver(def)] } },
+        })
+
+        await runtime.axon.request("hi")
+        expect(seen[0].some(m => m.includes("Barry"))).toBe(true)
+
+        // Broken mid-session, exactly as a save would.
+        await writeFile(filePath, `<text><h1>Barry</h1>{{ unclosed`)
+        await runtime.axon.request("still there?")
+
+        const latest = seen[seen.length - 1].join("\n")
+        // Identity survives — stale instructions are far better than none.
+        expect(latest).toContain("Barry")
+        // And the model is told they may be out of date.
+        expect(latest).toContain("last version that worked")
+
+        await runtime.shutdown()
+        await rm(dir, { recursive: true, force: true })
+    })
+
+    it("a boot.vue broken before it ever rendered tells the model it has no identity", async () => {
+        const dir = await bootDir()
+        const filePath = path.join(dir, "boot.vue")
+        await writeFile(filePath, `<text>{{ never closed`)
+
+        const { def, seen } = capturingEngine()
+        const runtime = await Axon({
+            blueprint: { bootFilePath: filePath, config: { providers: [driver(def)] } },
+        })
+
+        // Replies at all — this is the property the change exists for.
+        await runtime.axon.request("who are you?")
+
+        // With nothing to fall back to, empty context would make it answer
+        // confidently as a generic assistant and the user could not tell why
+        // it stopped sounding like theirs.
+        expect(seen[0].join("\n")).toContain("running without the identity")
+
+        await runtime.shutdown()
+        await rm(dir, { recursive: true, force: true })
     })
 })

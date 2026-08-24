@@ -1,116 +1,96 @@
-import { startPolling, stopPolling } from "./src/telegram/poller"
-import { resetClient } from "./src/telegram/client"
-import { isAllowed } from "./src/telegram/allowlist"
-import { telegram } from "./src/tools/telegram"
+import { TelegramClient } from "./src/telegram/client"
+import { TelegramPoller } from "./src/telegram/poller"
 
+/**
+ * Telegram — a sense organ for the agent.
+ *
+ * Inbound messages become text stimuli on channel `telegram:<chatId>`,
+ * exactly like text typed at the terminal — which arrives on `user`. AIR
+ * renders that channel onto the turn, so the brain sees WHERE each message
+ * came from and can hold two conversations at once without confusing them.
+ *
+ * Outbound is the `telegram.send` tool, which the brain calls deliberately
+ * with the address it read off the stimulus it is answering. Deliberately a
+ * tool and not a direct output: a reply needs a target, and an output that
+ * carried one would make every emission a routing decision.
+ *
+ * There are no hooks here. An earlier version emitted `telegram:message` and
+ * a plugin answered it with its own `axon.request()`, which spawned an
+ * isolated wake per message and bypassed the scheduler — the agent had no
+ * continuity across its own conversation. Sensing through `stim` puts
+ * Telegram on the same footing as every other channel: one session, one
+ * mind, many senses.
+ */
 export default defineModule({
     env: {
         TELEGRAM_BOT_TOKEN: {
             required: true,
             description: "Bot token from @BotFather on Telegram.",
         },
-        TELEGRAM_ALLOWED_USERS: {
+    },
+
+    options: {
+        chatIds: {
+            type: "string" as const,
             required: false,
-            description: "Comma-separated Telegram user IDs allowed to interact with the agent. If unset, all users are allowed. Find your ID via @userinfobot.",
+            description:
+                "Comma-separated chat IDs to listen to. Leave empty to hear every chat the bot is in. " +
+                "This is a wiring choice (which lines are connected), not a trust decision — the sender " +
+                "travels with each message so the agent can judge it. Find your ID via @userinfobot.",
         },
     },
 
-    emits: {
-        "telegram:message": {} as {
-            text: string
-            chatId: number
-            userId: number
-            username: string | null
-            messageId: number
-            /** Send a plain text reply to this message. */
-            reply: (text: string) => Promise<void>
-            /** Send a markdown reply to this message. */
-            replyMarkdown: (text: string) => Promise<void>
-            /** Send a reply with inline keyboard buttons. */
-            replyWithButtons: (text: string, buttons: import("./src/tools/telegram").ButtonRow[]) => Promise<void>
-        },
-        "telegram:command": {} as {
-            /** Command name without the leading slash. e.g. "review" for /review */
-            command: string
-            /** Arguments after the command. e.g. ["42"] for /review 42 */
-            args: string[]
-            chatId: number
-            userId: number
-            username: string | null
-            reply: (text: string) => Promise<void>
-            replyMarkdown: (text: string) => Promise<void>
-            replyWithButtons: (text: string, buttons: import("./src/tools/telegram").ButtonRow[]) => Promise<void>
-        },
-        "telegram:button": {} as {
-            /** The callback_data payload set when the button was created. */
-            data: string
-            queryId: string
-            chatId: number
-            userId: number
-            messageId: number
-            /** Dismiss the loading spinner on the button. Always call this. Optional toast text (max 200 chars). */
-            answer: (text?: string) => Promise<void>
-            reply: (text: string) => Promise<void>
-        },
-    },
+    async setup({ axon, options }) {
+        // Absent token DEGRADES; it does not abort the boot. `env.require`
+        // throws, and a throw in setup() takes the whole agent down — right
+        // for a broken module, wrong for one that is merely not connected
+        // yet. See the same reasoning in @axon/discord.
+        const token = axon.env.get("TELEGRAM_BOT_TOKEN")
+        if (!token) {
+            await axon.warn(
+                "TELEGRAM_BOT_TOKEN is not set — Telegram is installed but not connected. Add the token from @BotFather to your agent's .env.",
+            )
+            return
+        }
 
-    async setup({ axon }) {
-        // Boot the long-polling loop after all plugins are registered
-        axon.hook("server:ready", () => {
-            startPolling({
-                async onMessage(msg) {
-                    if (!isAllowed(msg.userId)) return
+        const client = TelegramClient({ token })
 
-                    const makeReply = (chatId: number) => ({
-                        reply: (text: string) => telegram.send(chatId, text).then(() => { }),
-                        replyMarkdown: (text: string) => telegram.sendMarkdown(chatId, text).then(() => { }),
-                        replyWithButtons: (text: string, buttons: import("./src/tools/telegram").ButtonRow[]) =>
-                            telegram.sendButtons(chatId, text, buttons).then(() => { }),
-                    })
+        const listening = (options.chatIds ?? "")
+            .split(",")
+            .map(id => id.trim())
+            .filter(Boolean)
 
-                    if (msg.isCommand) {
-                        const [rawCmd, ...args] = msg.text.slice(1).split(/\s+/)
-                        const command = rawCmd.split("@")[0]  // strip @botname suffix
-                        await axon.callHook("telegram:command", {
-                            command,
-                            args,
-                            chatId: msg.chatId,
-                            userId: msg.userId,
-                            username: msg.username,
-                            messageId: msg.messageId,
-                            ...makeReply(msg.chatId),
-                        })
-                    } else {
-                        await axon.callHook("telegram:message", {
-                            text: msg.text,
-                            chatId: msg.chatId,
-                            userId: msg.userId,
-                            username: msg.username,
-                            messageId: msg.messageId,
-                            ...makeReply(msg.chatId),
-                        })
-                    }
-                },
+        const poller = TelegramPoller({
+            client,
+            async onUpdate(msg) {
+                if (listening.length > 0 && !listening.includes(String(msg.chatId))) return
 
-                async onCallback(query) {
-                    if (!isAllowed(query.userId)) return
+                const channel = `telegram:${msg.chatId}`
 
-                    await axon.callHook("telegram:button", {
-                        data: query.data,
-                        queryId: query.queryId,
-                        chatId: query.chatId,
-                        userId: query.userId,
-                        messageId: query.messageId,
-                        answer: (text?: string) => telegram.answerCallback(query.queryId, text),
-                        reply: (text: string) => telegram.send(query.chatId, text).then(() => { }),
-                    })
-                },
-            })
+                // The channel rides the envelope alone — AIR renders it as
+                // `channel="telegram:<chatId>"` on the turn, which is the
+                // return address the brain hands to telegram.send.
+                //
+                // It used to be repeated inside the content, because the
+                // renderer dropped it and a message with no return address
+                // cannot be answered. That prefix is retired: routing is
+                // metadata about the turn, and in the content the model read
+                // it as something a human typed and echoed it back.
+                //
+                // The sender stays in the content deliberately. Who is
+                // speaking is something the mind should weigh — including
+                // whether to trust them — while the channel is pure routing.
+                await axon.stim("cognet:stimulus:text", {
+                    channel,
+                    content: `${msg.from}: ${msg.text}`,
+                })
+            },
         })
 
-        axon.onDispose(() => {
-            stopPolling()
-            resetClient()
+        poller.start()
+
+        axon.onDispose(async () => {
+            await poller.stop()
         })
     },
 })

@@ -62,3 +62,66 @@ describe("AxonError.render()", () => {
         expect(e.frames[0]?.fileName).toContain("render.test.ts")
     })
 })
+
+/**
+ * Whose fault is it?
+ *
+ * `axon publish` outside a project directory printed eighty lines of OUR call
+ * stack under a message that already said everything actionable — telling the
+ * user to debug software they did not write. Expected failures render as the
+ * message alone; everything else keeps the full diagnostic.
+ */
+describe("expected failures render without our internals", () => {
+    it("prints only what the user can act on", () => {
+        const e = err("PROJECT_NOT_FOUND", { context: { path: "/home/cody/git/arclabs" } })
+        const out = e.render()
+
+        // The whole message: what happened, and where.
+        expect(out).toContain("Axon Error: Project Not Found")
+        expect(out).toContain("path: /home/cody/git/arclabs")
+
+        // ...and none of our machinery. Matched on the frame marker
+        // ("\nat ", how renderFrame starts a line) rather than " at ", which
+        // appears in ordinary prose — "was found at this path".
+        expect(out).not.toContain("─".repeat(10))
+        expect(out).not.toContain("\nat ")
+        expect(out).not.toContain("packages/err/src")
+    })
+
+    it("still carries its frames on the object for anything that wants them", () => {
+        // Suppressed from THIS renderer, not discarded — a devtools surface or
+        // a bug report can still read them.
+        const e = err("PROJECT_NOT_FOUND")
+
+        expect(e.expected).toBe(true)
+        expect(e.frames.length).toBeGreaterThan(0)
+    })
+
+    it("keeps a cause chain, which names the real underlying fault", () => {
+        // "the file is missing" caused by ECONNREFUSED is a network problem
+        // wearing a filesystem message. Dropping the cause would hide the one
+        // line that explains it.
+        const e = err("PROMPT_FILE_NOT_FOUND", { cause: new Error("ECONNREFUSED: could not reach registry") })
+
+        expect(e.render()).toContain("ECONNREFUSED")
+    })
+})
+
+describe("unexpected failures keep the full diagnostic", () => {
+    it("prints frames and source snippets", () => {
+        // The default. An unclassified failure IS ours, and this is what makes
+        // it debuggable from a pasted terminal log.
+        const out = err(new Error("something genuinely broke")).render()
+
+        expect(out).toContain("─".repeat(10))
+        expect(out).toContain("\nat ")
+    })
+
+    it("defaults to unexpected when a code does not classify itself", () => {
+        // Forgetting the flag costs a noisier message, never a hidden bug.
+        const e = err("ENGINE_MISSING")
+
+        expect(e.expected).toBeUndefined()
+        expect(e.render()).toContain("\nat ")
+    })
+})

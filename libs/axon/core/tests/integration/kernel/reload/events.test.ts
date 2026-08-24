@@ -1,15 +1,15 @@
 import { Axon } from "../../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 import type { CognetDefinition } from "@arcforge/types"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
 
 describe("kernel reload: session log record", () => {
     it("update() commits axon:reload:start then axon:reload:complete to the session log", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "v1" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "v1" })] } },
         })
 
-        await runtime.update({ config: { engine: Mock({ hello: "v2" }) } })
+        await runtime.update({ config: { providers: [Mock({ hello: "v2" })] } })
 
         const types = runtime.session.log.map(e => e.type)
         const start = types.indexOf("axon:reload:start")
@@ -37,7 +37,7 @@ describe("kernel reload: session log record", () => {
 
     it("axon:boot:complete is a durable session-log fact, not just a bus notification", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         const boot = runtime.session.log.find(e => e.type === "axon:boot:complete")
@@ -49,11 +49,11 @@ describe("kernel reload: session log record", () => {
 
     it("commits one causal system entry per successful reload with monotonic revisions", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "v1" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "v1" })] } },
         })
 
-        await runtime.update({ config: { engine: Mock({ hello: "v2" }) } })
-        await runtime.update({ config: { engine: Mock({ hello: "v3" }) } })
+        await runtime.update({ config: { providers: [Mock({ hello: "v2" })] } })
+        await runtime.update({ config: { providers: [Mock({ hello: "v3" })] } })
 
         const revisions = runtime.session.entries
             .filter(e => e.type === "axon:system:message" && e.data.type === "hot-reload")
@@ -66,7 +66,7 @@ describe("kernel reload: session log record", () => {
 
     it("a failing update() records axon:reload:failed and rethrows", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "v1" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "v1" })] } },
         })
 
         const broken: CognetDefinition = {

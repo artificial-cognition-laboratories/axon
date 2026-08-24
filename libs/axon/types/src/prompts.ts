@@ -38,16 +38,20 @@ export type AxonPrompt = {
 }
 
 /**
- * `prompt.config.ts` — a prompt package's identity.
+ * `prompt.config.ts` — a prompt package's marker.
  *
- * Deliberately thin. A prompt has no dependencies, no build output and no
- * runtime surface: the folder's top-level .vue/.md files ARE the artifact,
- * and this only carries what the registry needs to list it.
+ * Deliberately EMPTY. A prompt has no dependencies, no build output and no
+ * runtime surface: the folder's top-level .vue/.md files ARE the artifact.
+ *
+ * Identity (name, version, description) lives in package.json, which is what
+ * publish actually reads — see `bundle/source.ts`. This type carried a
+ * `description` that no code ever read, so a package could set it and watch
+ * the registry list something else.
+ *
+ * The config FILE stays: its presence is how `detectKind()` identifies a
+ * prompt package, and real per-prompt configuration is expected here.
  */
-export type PromptConfig = {
-    /** One line, shown in the registry listing and `axon prompt list`. */
-    description?: string
-}
+export type PromptConfig = Record<string, never>
 
 /** Return shape produced by `definePrompt()`. */
 export type PromptDefinition = {

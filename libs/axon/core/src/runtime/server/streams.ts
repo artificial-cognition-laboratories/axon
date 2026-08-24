@@ -18,6 +18,24 @@ type H3Event = Parameters<typeof setResponseHeader>[0]
 /** Anything carrying the ordering counter — i.e. a real enveloped event. */
 type Sequenced = { time: { seq: number } }
 
+/**
+ * An SSE comment, sent on an idle event stream to keep the connection open.
+ *
+ * A comment rather than an event on purpose: the spec says a line beginning
+ * `:` is ignored, so this is invisible to every consumer while still being
+ * bytes on the wire — which is the only thing an idle timeout measures.
+ * Inventing a `ping` event type instead would put a frame on the stream that
+ * every client had to learn to discard.
+ */
+const HEARTBEAT = new TextEncoder().encode(": keepalive\n\n")
+
+/**
+ * How often to send it. Comfortably inside Bun's 10s default idleTimeout,
+ * with room for a slow link — the cost is ~13 bytes per interval per attached
+ * client, against a reconnect loop if it is ever missed.
+ */
+const HEARTBEAT_MS = 5_000
+
 function isSequenced(payload: unknown): payload is Sequenced {
     if (typeof payload !== "object" || payload === null) return false
     const time = (payload as { time?: unknown }).time
@@ -85,6 +103,7 @@ export function eventStream(event: H3Event, opts: EventStreamOpts): Response {
     }
 
     let unsubscribe: (() => void) | null = null
+    let heartbeat: ReturnType<typeof setInterval> | null = null
 
     const body = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -125,10 +144,41 @@ export function eventStream(event: H3Event, opts: EventStreamOpts): Response {
             }
             pending.length = 0
             live = true
+
+            // ── Heartbeat ───────────────────────────────────────────────────
+            //
+            // An ambient event stream is IDLE most of the time — that is its
+            // normal state, not a fault. Nothing is emitted while a user reads
+            // the last answer, and Bun closes a connection that has sent
+            // nothing for its idleTimeout (10s by default), which surfaces
+            // server-side as "request timed out after 10 seconds".
+            //
+            // The client cannot tell that apart from the agent dying, so it
+            // reconnects, sits idle, and is cut off again — a reconnect loop
+            // on a perfectly healthy agent, every ten seconds, forever.
+            //
+            // An SSE COMMENT (`:` prefix) is the standard answer: it is bytes
+            // on the wire, which is all the timeout wants, and every SSE parser
+            // — including this repo's own parseFrames, which requires a
+            // `data:` line — ignores it. So no consumer sees a frame that is
+            // not an event, and none needed changing.
+            heartbeat = setInterval(() => {
+                try {
+                    controller.enqueue(HEARTBEAT)
+                } catch {
+                    // The stream is already closed (client gone, or cancel()
+                    // raced this tick). Nothing to report — the timer is
+                    // cleared below and the subscription with it.
+                    if (heartbeat) clearInterval(heartbeat)
+                    heartbeat = null
+                }
+            }, HEARTBEAT_MS)
         },
         cancel() {
             unsubscribe?.()
             unsubscribe = null
+            if (heartbeat) clearInterval(heartbeat)
+            heartbeat = null
         },
     })
 

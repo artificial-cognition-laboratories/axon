@@ -1,0 +1,11 @@
+{
+  "name": "@axon/mocha-theme",
+  "description": "Catppuccin for the terminal — all four flavours: mocha, macchiato, frappe and latte.",
+  "version": "1.0.4",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.133",
+    "@types/bun": "^1.2.0"
+  }
+}

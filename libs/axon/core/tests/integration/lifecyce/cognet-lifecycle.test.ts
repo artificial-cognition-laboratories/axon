@@ -1,5 +1,5 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * cognet:load:* / cognet:unload:* are the artifact's lifecycle bracket.
@@ -10,7 +10,7 @@ import { Mock } from "@arcforge/engines/mock"
 describe("Cognet lifecycle", () => {
     it("brackets load with start then complete during boot", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         const types = runtime.session.kernelLog.map(e => e.type)
@@ -25,7 +25,7 @@ describe("Cognet lifecycle", () => {
 
     it("cognet:load:complete carries the artifact name and a duration", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         const complete = runtime.session.kernelLog.find(e => e.type === "cognet:load:complete")
@@ -40,7 +40,7 @@ describe("Cognet lifecycle", () => {
 
     it("brackets unload with start then complete during shutdown", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         await runtime.shutdown()
@@ -55,7 +55,7 @@ describe("Cognet lifecycle", () => {
 
     it("loads before the first wake and unloads after it", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         await runtime.kernel.request({ content: "hello" })

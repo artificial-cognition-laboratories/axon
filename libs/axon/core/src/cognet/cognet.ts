@@ -3,11 +3,24 @@ import { mkdir, readdir, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, CognetBlueprint, CognetDefinition, CognetWake, KernelAbi } from "@arcforge/types"
+import type { AxonBlueprint, AxonEventMap, AxonSpanName, CognetBlueprint, CognetDefinition, CognetWake, KernelAbi } from "@arcforge/types"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
 
 type CognetOpts = {
     blueprint: AxonBlueprint
+    /**
+     * Where to report resolution cost. Optional: a reload resolves the same
+     * way with nobody watching, and tests construct a cognet with no session
+     * at all.
+     */
+    session?: {
+        span<K extends AxonSpanName, T>(
+            name: K,
+            start: AxonEventMap[`${K}:start`],
+            run: () => Promise<T>,
+            complete?: (value: T) => Omit<AxonEventMap[`${K}:complete`], "durationMs">,
+        ): Promise<T>
+    }
 }
 
 /**
@@ -34,7 +47,25 @@ type CognetOpts = {
  */
 export async function Cognet(opts: CognetOpts) {
     let blueprint = opts.blueprint
-    let resolved = await resolve(blueprint.cognet)
+    const slot = blueprint.cognet
+    let resolved = opts.session
+        ? await opts.session.span(
+            "axon:cognet",
+            { specifier: "path" in slot ? slot.path : null } as never,
+            () => resolve(slot),
+            (value: ResolvedCognet) => ({
+                // `cognet`, not `name`: `data.name` is span-identity by
+                // convention (the ontology guard pairs brackets on it), and a
+                // payload field that only appears on the closing half would
+                // split this span into an orphaned open and close.
+                cognet: value.definition.name,
+                version: value.definition.version,
+                bytes: value.bytes ?? 0,
+                hashMs: value.hashMs ?? 0,
+                importMs: value.importMs ?? 0,
+            }) as never,
+        )
+        : await resolve(slot)
     let current = resolved.definition
     let disposeArtifact = resolved.dispose
     let abi: KernelAbi | null = null
@@ -70,6 +101,9 @@ export async function Cognet(opts: CognetOpts) {
         get abi() { return current.abi },
         /** How the scheduler should invoke this cognet — read live, so a reload that changes mode takes effect on the next attach. */
         get mode() { return current.mode },
+
+        /** Which entry types wake this brain; absent = everything. Read live, same reason as mode. */
+        get wakeOn() { return current.wakeOn },
 
         load: load,
 
@@ -149,6 +183,15 @@ type ResolvedCognet = {
     definition: CognetDefinition
     /** Removes the per-runtime module copy once its owning kernel has stopped. */
     dispose?: () => Promise<void>
+    /** Bundle size on disk. Absent for the live-definition form, which reads nothing. */
+    bytes?: number
+    /**
+     * Split because they grow for different reasons: hashing scales with
+     * bundle size, the import is JS compile time. A boot that got slower has
+     * to be able to say which.
+     */
+    hashMs?: number
+    importMs?: number
 }
 
 async function resolve(slot: CognetBlueprint): Promise<ResolvedCognet> {
@@ -159,8 +202,10 @@ async function resolve(slot: CognetBlueprint): Promise<ResolvedCognet> {
         throw err("COGNET_MISSING", { detail: `no bundle at ${slot.path} — run \`axon prepare\``, context: { path: slot.path } })
     }
 
+    const hashBegan = Date.now()
     const contents = await file.bytes()
     const hash = createHash("sha256").update(contents).digest("hex")
+    const hashMs = Date.now() - hashBegan
     if (hash !== slot.hash) {
         throw err("COGNET_HASH_MISMATCH", {
             detail: `${slot.path} does not match the blueprint (expected ${slot.hash.slice(0, 12)}…, found ${hash.slice(0, 12)}…) — stale or tampered bundle; run \`axon prepare\``,
@@ -183,10 +228,15 @@ async function resolve(slot: CognetBlueprint): Promise<ResolvedCognet> {
     await Bun.write(instancePath, contents)
 
     try {
+        const importBegan = Date.now()
         const module = (await import(pathToFileURL(instancePath).href)) as { default?: unknown }
+        const importMs = Date.now() - importBegan
         return {
             definition: validate(slot, module.default),
             dispose: async () => { await rm(instancePath, { force: true }) },
+            bytes: contents.byteLength,
+            hashMs: hashMs,
+            importMs: importMs,
         }
     } catch (cause) {
         await rm(instancePath, { force: true })

@@ -1,5 +1,5 @@
 import { Axon } from "../../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * Bus handler failures are non-fatal but never silent. Plugins and modules
@@ -10,7 +10,7 @@ import { Mock } from "@arcforge/engines/mock"
  */
 describe("Bus handler failures", () => {
     it("records a throwing handler in the durable session log", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
         runtime.bus.on("kernel:run:start" as never, () => {
             throw new Error("plugin exploded")
         })
@@ -26,7 +26,7 @@ describe("Bus handler failures", () => {
     })
 
     it("keeps running the remaining handlers after one throws", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
         const reached: string[] = []
 
         runtime.bus.on("kernel:run:start" as never, () => {
@@ -46,7 +46,7 @@ describe("Bus handler failures", () => {
     })
 
     it("does not let a failing axon:bus:error handler recurse", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
         let calls = 0
 
         runtime.bus.on("kernel:run:start" as never, () => {

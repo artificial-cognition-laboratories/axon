@@ -24,6 +24,13 @@ export function Capsule(input?: CapsulePartialConfig) {
     return {
         // execution
         run: subprocess.run,
+        /**
+         * run() plus the top-level bindings the submission left behind.
+         * Separate verb rather than a wider run(): the scope is only
+         * meaningful to a caller about to render a template against it, and
+         * every other caller would have to unwrap a field it never reads.
+         */
+        exec: subprocess.exec,
         interrupt: subprocess.interrupt,
 
         // managed child processes — live mirror

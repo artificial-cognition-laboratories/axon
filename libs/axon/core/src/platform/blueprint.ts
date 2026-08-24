@@ -54,6 +54,18 @@ export function AxonBlueprint(input?: AxonPartialBlueprint): AxonBlueprintT {
             ...partial.config,
         },
 
+        // The machine-wide ceiling, carried through verbatim. Deliberately NOT
+        // defaulted: absent means "no profile governs this agent" — a
+        // deployment, or `axon run` outside one — which is a different fact
+        // from an empty ceiling and must stay distinguishable.
+        ...(partial.profilePolicy ? { profilePolicy: partial.profilePolicy } : {}),
+
+        // The user's declared inference sources, carried verbatim for the
+        // same reason and with the same distinction: absent means "no profile
+        // governs this agent", which is a deployment or `axon run` outside
+        // one, and is a different fact from a profile that declares none.
+        ...(partial.profileProviders ? { profileProviders: partial.profileProviders } : {}),
+
         env: partial.env ?? {},
 
         // the brain, constructed by the CLI (or a test) and carried in live.
@@ -63,6 +75,7 @@ export function AxonBlueprint(input?: AxonPartialBlueprint): AxonBlueprintT {
         tools: partial.tools ?? [],
         prompts: partial.prompts ?? [],
         scripts: partial.scripts ?? [],
+        knowledge: partial.knowledge ?? [],
 
         server: {
             middleware: partial.server?.middleware ?? [],
@@ -74,19 +87,33 @@ export function AxonBlueprint(input?: AxonPartialBlueprint): AxonBlueprintT {
 
         paths: {
             root: partial.paths?.root ?? process.cwd(),
-            data: partial.paths?.data ?? "data",
+            // Runtime output — sessions, state, sensory — lives INSIDE the
+            // generated frame, because none of it is authored: it is what the
+            // agent produced, not what the user wrote. `data/knowledge` is the
+            // counterpart and deliberately stays at the project root, since it
+            // IS authored and gets committed. After this split, everything
+            // under .agent/ is disposable and everything outside it is source.
+            data: partial.paths?.data ?? ".agent/data",
         },
     }
 
     if (partial.boot !== undefined) blueprint.boot = partial.boot
     if (partial.bootFilePath !== undefined) blueprint.bootFilePath = partial.bootFilePath
 
-    // AXON_HOME is the agent's data root, inherited by the capsule — the
-    // agent's own private subprocess reads it to reach its data/ directory.
+    // AXON_HOME is the agent's PROJECT ROOT, inherited by the capsule — the
+    // agent's own private subprocess reads it to reach its own folder.
+    //
+    // The root, not the data directory, which is what it used to be. The
+    // prose the model is given has always described it as the root ("an agent
+    // folder at AXON_HOME", then a tree with src/, .env and axon.config.ts
+    // under it), so the value and its documentation disagreed. Anchoring at
+    // the root makes the documented paths true and keeps `${AXON_HOME}/data/
+    // knowledge` correct now that runtime output has moved elsewhere.
+    //
     // It survives the multi-instance model only because each capsule gets
     // its own env at spawn; nothing in THIS process should read it back to
     // locate a session (that's what error context / blueprint.paths are for).
-    process.env.AXON_HOME = resolve(blueprint.paths.root, blueprint.paths.data)
+    process.env.AXON_HOME = resolve(blueprint.paths.root)
 
     return blueprint
 }
@@ -138,10 +165,20 @@ export function mergeBlueprint(
         session: current.session,
         agent: current.agent,
         config: { ...current.config, ...partial.config },
+        // Survives a merge-mode update for the same reason config does: a
+        // programmatic change to one field must not silently drop the
+        // machine's ceiling.
+        ...(partial.profileProviders ?? current.profileProviders
+            ? { profileProviders: partial.profileProviders ?? current.profileProviders }
+            : {}),
+        ...(partial.profilePolicy ?? current.profilePolicy
+            ? { profilePolicy: partial.profilePolicy ?? current.profilePolicy }
+            : {}),
         env: partial.env ?? current.env,
         tools: partial.tools ?? current.tools,
         prompts: partial.prompts ?? current.prompts,
         scripts: partial.scripts ?? current.scripts,
+        knowledge: partial.knowledge ?? current.knowledge,
         server: { ...current.server, ...partial.server },
         modules: partial.modules ?? current.modules,
         cognet: partial.cognet ?? current.cognet,

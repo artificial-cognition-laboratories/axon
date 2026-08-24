@@ -99,3 +99,15 @@ export const palette = {
     denied:        "#a03c3c",
     codeLine:      "#3c3c3c",
 } as const
+
+// ── Themes — the seven tokens every Axon surface draws from ─────────────────
+export {
+    arcnightTheme,
+    BUILTIN_THEMES,
+    themeVariables,
+    type Theme,
+    type ThemeTokens,
+    type ThemeColor,
+    type ColorName,
+    type BundledSyntax,
+} from "./themes"

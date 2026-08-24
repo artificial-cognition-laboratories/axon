@@ -1,6 +1,6 @@
 import { AxonCloud } from "@arclabs/cloud"
 import type { AxonCloudClient } from "@arclabs/cloud"
-import type { AxonHost, AxonPartialBlueprint } from "@arcforge/types"
+import type { AxonEscalate, AxonHost, AxonPartialBlueprint } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import { AxonBlueprint } from "./platform"
 import { Inject } from "./platform"
@@ -12,6 +12,7 @@ import { AxonSession, home } from "@arcforge/session"
 
 import { AxonHandle } from "./runtime"
 import { AxonRuntime } from "./runtime/runtime"
+import { Inference } from "./runtime/inference"
 import { Cognet } from "./cognet"
 import { Modules } from "./modules"
 import { resolve } from "node:path"
@@ -29,6 +30,18 @@ type AxonOpts = {
     cloud?: AxonCloudClient
     /** Trusted platform services available to capsule code through its Axon facade. */
     host?: AxonHost
+    /**
+     * The platform's policy decider — consulted when a rule says "escalate".
+     *
+     * Separate from `host` on purpose: that is the GUEST's channel into the
+     * platform, and a sandboxed program able to reach the decider could raise
+     * or answer its own escalations. This is host code asking host code.
+     *
+     * Absent = no decider, which the capsule treats as deny. That is the
+     * honest state for `axon run` in a script and for any embedder that never
+     * wired a surface to ask.
+     */
+    escalate?: AxonEscalate
 }
 
 export type { AxonHost } from "@arcforge/types"
@@ -79,15 +92,32 @@ export async function Axon(opts?: AxonOpts) {
         })
 
         try {
-            const cognet = await Cognet({ blueprint })
+            // Cognet resolution and role resolution are INDEPENDENT: one is a
+            // disk read plus a JS import, the other is network work against
+            // the user's providers. Run concurrently, the boot pays the
+            // slower of the two rather than their sum.
+            //
+            // Both still complete before the kernel, so the ordering
+            // guarantee below is unchanged — a required role that nothing can
+            // fill stops the boot before ring 0 exists, exactly as when these
+            // were sequential. What changed is only that the waiting overlaps.
+            //
+            // Started together and awaited together: a rejection in either is
+            // observed by the Promise.all, so neither can become an unhandled
+            // rejection while the other is still in flight.
+            const [cognet, engines] = await Promise.all([
+                Cognet({ blueprint, session }),
+                Inference({ blueprint, cloud, session }),
+            ])
 
             // Boot renders the agent's identity (boot.md / boot.vue). It is a
             // presentation concern, so it is built HERE and handed to the
             // kernel as base() rather than living in ring 0.
             const boot = Boot({ blueprint, session })
 
-            const kernel = await Kernel({
+            const kernel = await session.span("axon:kernel", {}, () => Kernel({
                 blueprint: blueprint,
+                ...(engines ? { engines } : {}),
                 bus: bus,
                 cloud: cloud,
                 cognet: cognet,
@@ -96,7 +126,8 @@ export async function Axon(opts?: AxonOpts) {
                 onUpdate: next => boot.update(next),
                 cwd,
                 ...(opts?.host ? { host: opts.host } : {}),
-            })
+                ...(opts?.escalate ? { escalate: opts.escalate } : {}),
+            }))
 
             // user facing handle
             const axon = AxonHandle({

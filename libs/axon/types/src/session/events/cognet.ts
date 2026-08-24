@@ -66,6 +66,22 @@ export type CognetEventMap =
         { tick: number; phase: string | null; system: string }
     >
     & {
+    // ── Knowledge mutations ──────────────────────────────────────────────────
+    //
+    // Emitted by the KERNEL when a cognet writes or removes long-term
+    // knowledge — the cognet never records its own mutations, the same rule
+    // that governs run()'s action/result pair.
+    //
+    // Not a span: a write is a settled act, not a bracket. There is no
+    // meaningful "in progress" for an atomic temp+rename, so :start/:complete
+    // would be two lines describing one instant.
+    //
+    // Traced because "the agent modified its own long-term memory" is exactly
+    // the fact you want when behaviour drifts weeks later. Name only, never
+    // content — the log records that memory changed, not a second copy of it.
+    "cognet:knowledge:write": { name: string }
+    "cognet:knowledge:remove": { name: string }
+
     // ── World writes ─────────────────────────────────────────────────────────
     "cognet:entity:add": { tick: number; phase: string | null; entity: string }
     "cognet:entity:remove": { tick: number; phase: string | null; entity: string }

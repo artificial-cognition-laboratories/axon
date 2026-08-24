@@ -1,0 +1,72 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "@axon/mock",
+      "dependencies": {
+        "@arcforge/air": "2.0.153",
+        "@arcforge/cognet": "2.0.153",
+        "@arcforge/engines": "2.0.153",
+        "@arcforge/types": "2.0.153",
+        "@axon/zero": "^1.0.34",
+        "h3": "^1.13.0",
+      },
+    },
+  },
+  "packages": {
+    "@arcforge/air": ["@arcforge/air@2.0.153", "", { "dependencies": { "@arcforge/err": "2.0.153", "@arcforge/types": "2.0.153" } }, "sha512-oDfinQkbseLL6MEl7pbAVBQrG9rKGxitjJiHc0TbfYvNhPy3+9xRQo6nrVm+3Xj65pqP3hjVsEhiI2UlwregKg=="],
+
+    "@arcforge/cognet": ["@arcforge/cognet@2.0.153", "", { "dependencies": { "@arcforge/err": "2.0.153", "@arcforge/types": "2.0.153", "hookable": "^5.5.3" } }, "sha512-Mb6zGNIwrs6KneaHeDus2lpRdVVje4Tv05mxv6hxHfvSoIGWU2QIVGvRyLiQzsfM8UdD8OFO5qwkuvFgEu7CLg=="],
+
+    "@arcforge/engines": ["@arcforge/engines@2.0.153", "", { "dependencies": { "@arcforge/types": "2.0.153" } }, "sha512-7LNd/ftm/wZSEuh8+CeaAur6ru1H0hY6QoFKELQcSqh/j72nYWi/jymGHvu/tC2yJoEIToI/XohKd2mfx7n99g=="],
+
+    "@arcforge/err": ["@arcforge/err@2.0.153", "", { "dependencies": { "@arcforge/types": "2.0.153" } }, "sha512-clZaHtu0jsF2LSOm9j8adeq5AYOlFSpj9jnXkzWymLhQsat1uEd68YaPoN0SadekbnfDa2EiDNjvYA4Nm96I2g=="],
+
+    "@arcforge/types": ["@arcforge/types@2.0.153", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-6tbJT5xbjARmIrhuMillw9pZdZg3D/QxyxZPWv2Ew5bc67tRWMxfv/69ZoCEIfX+MI9Pu695RU2iihQCmJ97BA=="],
+
+    "@axon/zero": ["@axon/zero@1.0.42", "http://127.0.0.1:3099/api/registry/npm/@axon/zero/-/zero-1.0.42.tgz", { "dependencies": { "@arcforge/air": "2.0.148", "@arcforge/cognet": "2.0.148", "@arcforge/engines": "2.0.148", "@arcforge/types": "2.0.148", "h3": "^1.13.0" } }, "sha512-fv/PGEI6cTkc+2z7Mp2FAMR4idrGyJ25TmSFFnsIdHJN/X6u9Sy0NBr9Qv+CIP14Q4Fz74l1j+PdTYuYxpTOAw=="],
+
+    "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
+
+    "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "cookie-es": ["cookie-es@1.2.3", "", {}, "sha512-lXVyvUvrNXblMqzIRrxHb57UUVmqsSWlxqt3XIjCkUP0wDAf6uicO6KMbEgYrMNtEvWgWHwe42CKxPu9MYAnWw=="],
+
+    "crossws": ["crossws@0.3.5", "", { "dependencies": { "uncrypto": "^0.1.3" } }, "sha512-ojKiDvcmByhwa8YYqbQI/hg7MEU0NC03+pSdEq4ZUnZR9xXpwk7E43SMNGkn+JxJGPFtNvQ48+vV2p+P1ml5PA=="],
+
+    "defu": ["defu@6.1.7", "", {}, "sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ=="],
+
+    "destr": ["destr@2.0.5", "", {}, "sha512-ugFTXCtDZunbzasqBxrK93Ik/DRYsO6S/fedkWEMKqt04xZ4csmnmwGDBAb07QWNaGMAmnTIemsYZCksjATwsA=="],
+
+    "h3": ["h3@1.15.11", "", { "dependencies": { "cookie-es": "^1.2.3", "crossws": "^0.3.5", "defu": "^6.1.6", "destr": "^2.0.5", "iron-webcrypto": "^1.2.1", "node-mock-http": "^1.0.4", "radix3": "^1.1.2", "ufo": "^1.6.3", "uncrypto": "^0.1.3" } }, "sha512-L3THSe2MPeBwgIZVSH5zLdBBU90TOxarvhK9d04IDY2AmVS8j2Jz2LIWtwsGOU3lu2I5jCN7FNvVfY2+XyF+mg=="],
+
+    "hookable": ["hookable@5.5.3", "", {}, "sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ=="],
+
+    "iron-webcrypto": ["iron-webcrypto@1.2.1", "", {}, "sha512-feOM6FaSr6rEABp/eDfVseKyTMDt+KGpeB35SkVn9Tyn0CqvVsY3EwI0v5i8nMHyJnzCIQf7nsy3p41TPkJZhg=="],
+
+    "node-mock-http": ["node-mock-http@1.0.5", "", {}, "sha512-KQyt/wLjG3TAc7DOUhpqWzgd4ERxR80JOlTK5VE5R1S12IaPVN5qkj4klBce9HPG1Njuup4Sb5bljaT34lIyjw=="],
+
+    "radix3": ["radix3@1.1.2", "", {}, "sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA=="],
+
+    "ufo": ["ufo@1.6.4", "", {}, "sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA=="],
+
+    "uncrypto": ["uncrypto@0.1.3", "", {}, "sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q=="],
+
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+
+    "@axon/zero/@arcforge/air": ["@arcforge/air@2.0.148", "", { "dependencies": { "@arcforge/err": "2.0.148", "@arcforge/types": "2.0.148" } }, "sha512-QjZXnpCL4fGJ7/bKrWvTdZnL8/0ZzAgLNBmvnGRjSo6npi+WnQYTwZwNHlFJxPPxfccu06UJRjDHA6DumDxZTQ=="],
+
+    "@axon/zero/@arcforge/cognet": ["@arcforge/cognet@2.0.148", "", { "dependencies": { "@arcforge/err": "2.0.148", "@arcforge/types": "2.0.148", "hookable": "^5.5.3" } }, "sha512-3bb6VJjrXB/BQ6MYQtuHMwF+kAhhts2fNmR8uj5ZiddfXR7XE05+HmCQycJg6Z0jOn6LIxD1AmSyMf1Vxw3OKw=="],
+
+    "@axon/zero/@arcforge/engines": ["@arcforge/engines@2.0.148", "", { "dependencies": { "@arcforge/types": "2.0.148" } }, "sha512-8x5XrfWdKWO463l3uNEAdj/ju2gN7geNnq/xXw6TZljEoMux5m2Eu+GUfnwF/JJJl4iOPy4JT5rOfFnoULAQFg=="],
+
+    "@axon/zero/@arcforge/types": ["@arcforge/types@2.0.148", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-blYOpb2o59CalXjKPbmB0GU8J5i8zMCc9MgN7jOb0DfUD9UFlMtXo4S+/vUHIUPWuzSBb4zhebJXoAkcPxTluQ=="],
+
+    "@axon/zero/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.148", "", { "dependencies": { "@arcforge/types": "2.0.148" } }, "sha512-PMKaNqWjdfQGpQpFUAtIBl3nxt7X3lukHowt5nkrYyARSXv0wgejrTGKjL6HqEjNQxj8CaM+ZurONXKryl+CzA=="],
+
+    "@axon/zero/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.148", "", { "dependencies": { "@arcforge/types": "2.0.148" } }, "sha512-PMKaNqWjdfQGpQpFUAtIBl3nxt7X3lukHowt5nkrYyARSXv0wgejrTGKjL6HqEjNQxj8CaM+ZurONXKryl+CzA=="],
+  }
+}

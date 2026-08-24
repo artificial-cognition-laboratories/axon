@@ -1,3 +1,4 @@
+import { err } from "@arcforge/err"
 import type { AxonCloudClient } from "@arclabs/cloud"
 import { foldChunks, type AxonBlueprint, type AxonRequestInput, type AxonResult } from "@arcforge/types"
 import { AxonHooksT, Inject } from "../platform"
@@ -7,6 +8,7 @@ import { Prompt } from "./source/render"
 import { Scripts } from "./source/scripts"
 import { Tools } from "./source/tools"
 import { AxonKernelT } from "@arcforge/kernel"
+import { Output } from "@arcforge/air/output"
 import type { AxonSessionT } from "@arcforge/session"
 
 type AxonHandleOpts = {
@@ -33,10 +35,34 @@ type AxonHandleOpts = {
 function Invoke(opts: { kernel: AxonKernelT }) {
     const { kernel } = opts
 
-    /** The public surface takes a prompt; the kernel takes content. */
+    // The typechecker behind `output`. Built once and reused: it holds a
+    // warm TypeScript program, so the per-request cost is an incremental
+    // check rather than a compiler spin-up. Construction is wiring only —
+    // no program is created until the first output type is compiled.
+    const output = Output({ scope: () => kernel.scope() })
+
+    /**
+     * The public surface takes a prompt; the kernel takes content.
+     *
+     * An `output` type is compiled HERE, synchronously, before anything is
+     * scheduled — so an invalid type throws at the caller's own line with a
+     * real TypeScript message, rather than costing a model call and
+     * surfacing as a confusing repair loop.
+     */
     function toKernelInput(input: AxonRequestInput | string) {
         const normalized = typeof input === "string" ? { prompt: input } : input
-        return { content: normalized.prompt }
+        // The surface travels with the message whether or not a shape was
+        // asked for — it is the reply's address, not part of the contract.
+        const channel = normalized.channel === undefined ? {} : { channel: normalized.channel }
+        if (!normalized.output) return { content: normalized.prompt, ...channel }
+
+        const compiled = output.compile(normalized.output)
+        return {
+            content: normalized.prompt,
+            ...channel,
+            output: { declaration: compiled.declaration, check: compiled.check },
+            ...(normalized.retries === undefined ? {} : { retries: normalized.retries }),
+        }
     }
 
     return {
@@ -104,8 +130,60 @@ export function AxonHandle(opts: AxonHandleOpts) {
 
         prompt: prompt.render,
 
+        /**
+         * Installed modules and their validated options.
+         *
+         * Reads `opts.blueprint` rather than a captured snapshot for the
+         * same reason `ready` is a getter: a hot reload replaces the
+         * blueprint, and a module plugin re-running after one must see the
+         * options the agent has NOW, not the ones it booted with.
+         */
+        modules: {
+            list(): string[] {
+                return opts.blueprint.modules.map(module => module.name)
+            },
+
+            all<T extends Record<string, unknown> = Record<string, unknown>>(name: string): T[] {
+                const instances = opts.blueprint.modules.filter(entry => entry.name === name)
+                if (instances.length === 0) {
+                    throw err("MODULE_NOT_INSTALLED", {
+                        detail: `no module named "${name}" is installed on this agent`,
+                        context: { name, installed: opts.blueprint.modules.map(m => m.name) },
+                    })
+                }
+                return instances.map(module => (module.options ?? {}) as T)
+            },
+
+            options<T extends Record<string, unknown> = Record<string, unknown>>(name: string): T {
+                const module = opts.blueprint.modules.find(entry => entry.name === name)
+                if (!module) {
+                    // Loud, not empty. A plugin asking for a module that is
+                    // not installed is asking under the wrong name, and
+                    // returning {} would hand it every default silently —
+                    // a sensor that opens the wrong device and says nothing.
+                    throw err("MODULE_NOT_INSTALLED", {
+                        detail: `no module named "${name}" is installed on this agent`,
+                        context: { name, installed: opts.blueprint.modules.map(m => m.name) },
+                    })
+                }
+                return (module.options ?? {}) as T
+            },
+        },
+
         prompts: {
             list: prompt.list,
+
+            /**
+             * Render a prompt this agent does not declare, from an entry the
+             * host scanned elsewhere — a cached registry prompt.
+             *
+             * The scope is still this agent's (`axon`, its own env), which is
+             * why this has to run here rather than host-side. Sits under
+             * `prompts` beside `list` rather than alongside the bare
+             * `prompt(name)` verb: that one is the agent's own library, this
+             * one takes an entry the caller already resolved.
+             */
+            renderEntry: prompt.renderEntry,
         },
 
         request: invoke.request,

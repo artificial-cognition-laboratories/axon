@@ -1,4 +1,5 @@
 import { AxonConfig } from "./config"
+import type { CapsulePartialConfig } from "./capsule-config"
 import { CognetBlueprint } from "./cognet/blueprint"
 import { AxonPlugin } from "./plugin"
 import { AxonRoute } from "./route"
@@ -7,6 +8,8 @@ import { AxonModule } from "./module"
 import { AxonTool } from "./tools"
 import { AxonScript } from "./scripts"
 import { AxonPrompt } from "./prompts"
+import { AxonKnowledge } from "./knowledge"
+import type { ProviderEntry } from "./tui"
 
 /**
  * The blueprint is the boundary between CLI and runtime.
@@ -53,6 +56,42 @@ export type AxonBlueprint = {
     config: AxonConfig
 
     /**
+     * The machine-wide policy CEILING, from the profile that owns this agent.
+     *
+     * Kept beside `config.policy` rather than merged into it, deliberately.
+     * The two layers stay distinct all the way to enforcement so a denial can
+     * name which one produced it — merged, a user reading "denied" would have
+     * no way to tell whether to edit their agent or their profile, and
+     * removing the agent rule would silently change nothing.
+     *
+     * Resolved at LOAD, never baked in at prepare: a blueprint travels (it is
+     * what `axon deploy` ships), and a deployed agent runs on a machine with
+     * no profile. Baking the ceiling in would carry one machine's rules to
+     * another, where they describe a filesystem and a threat model that do not
+     * exist there.
+     *
+     * Absent means no ceiling — every capability falls through to the agent's
+     * own policy. That is the case for a deployment, for `axon run` outside a
+     * profile, and for a profile that simply declares none.
+     */
+    profilePolicy?: CapsulePartialConfig["policy"]
+
+    /**
+     * The inference sources the OWNING PROFILE declares, merged ahead of the
+     * agent's own at boot.
+     *
+     * Resolved at LOAD for the same reason `profilePolicy` is: a blueprint
+     * travels — it is what `axon deploy` ships — and a deployed agent runs on
+     * a machine with no profile. Baking a user's Ollama daemon into an
+     * artifact would carry one machine's inference to another, where it
+     * describes a localhost that is not there.
+     *
+     * Absent means the agent runs on whatever it declares for itself, which
+     * for a deployment is the managed route and nothing else.
+     */
+    profileProviders?: ProviderEntry[]
+
+    /**
      * The brain. REQUIRED and never defaulted: an agent without a brain is
      * not an agent — normalization fails loudly when it's missing. The CLI
      * bundles the cognet project and passes path+hash; tests pass a live
@@ -71,6 +110,15 @@ export type AxonBlueprint = {
     tools: AxonTool[]
     prompts: AxonPrompt[]
     scripts: AxonScript[]
+    /**
+     * Every knowledge file this agent can reach — its own `data/knowledge/`
+     * plus each installed module's, namespaced by module.
+     *
+     * Discovered at build time and carried as paths, so a module's corpus is
+     * never copied into the agent. The kernel enumerates these rather than
+     * walking one directory, which is what makes knowledge shareable.
+     */
+    knowledge: AxonKnowledge[]
 
     server: AxonServerBlueprint
 
@@ -100,11 +148,14 @@ export type AxonPartialBlueprint = {
     boot?: string
     bootFilePath?: string
     config?: AxonBlueprint["config"]
+    profilePolicy?: AxonBlueprint["profilePolicy"]
+    profileProviders?: AxonBlueprint["profileProviders"]
     cognet?: CognetBlueprint
     env?: AxonBlueprint["env"]
     tools?: AxonBlueprint["tools"]
     prompts?: AxonBlueprint["prompts"]
     scripts?: AxonBlueprint["scripts"]
+    knowledge?: AxonBlueprint["knowledge"]
     server?: Partial<AxonServerBlueprint>
     modules?: AxonBlueprint["modules"]
     paths?: Partial<AxonBlueprint["paths"]>

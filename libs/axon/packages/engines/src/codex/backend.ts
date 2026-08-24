@@ -75,11 +75,23 @@ async function fetchResponses(
     const systemMessages = req.messages.filter(m => m.role === "system")
     const nonSystemMessages = req.messages.filter(m => m.role !== "system")
     const instructions = systemMessages.map(m => m.content).join("\n\n") || undefined
-    const input = nonSystemMessages.map(m => ({
-        type: "message",
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: [{ type: "input_text", text: m.content }],
-    }))
+    // The content type follows the ROLE. The Responses API accepts
+    // `input_text` only on input roles; an assistant turn is output and must
+    // be `output_text`, or the request is rejected outright:
+    //
+    //   400 — Invalid value: 'input_text'. Supported values are:
+    //   'output_text' and 'refusal'.  (param: input[1].content[0])
+    //
+    // Hardcoded until the history began rendering as real chat turns, which
+    // is when an assistant message first reached a driver at all.
+    const input = nonSystemMessages.map(m => {
+        const assistant = m.role === "assistant"
+        return {
+            type: "message",
+            role: assistant ? "assistant" : "user",
+            content: [{ type: assistant ? "output_text" : "input_text", text: m.content }],
+        }
+    })
 
     const body = {
         model: opts.model,

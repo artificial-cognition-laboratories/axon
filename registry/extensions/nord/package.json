@@ -1,0 +1,11 @@
+{
+  "name": "@axon/nord",
+  "description": "Nord for the terminal — desaturated arctic blues.",
+  "version": "1.0.3",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.133",
+    "@types/bun": "^1.2.0"
+  }
+}

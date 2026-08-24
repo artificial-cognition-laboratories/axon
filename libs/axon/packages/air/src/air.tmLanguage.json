@@ -1,0 +1,325 @@
+{
+    "name": "air",
+    "displayName": "AIR",
+    "scopeName": "text.air",
+    "fileTypes": [
+        "air"
+    ],
+    "embeddedLangs": [
+        "typescript",
+        "json",
+        "markdown"
+    ],
+    "patterns": [
+        {
+            "include": "#block-ts"
+        },
+        {
+            "include": "#block-json"
+        },
+        {
+            "include": "#block-md"
+        },
+        {
+            "include": "#block-plain"
+        },
+        {
+            "include": "#tag"
+        },
+        {
+            "include": "#entity"
+        }
+    ],
+    "repository": {
+        "block-ts": {
+            "comment": "Bodies that are TypeScript. <script> with no lang IS TypeScript — the contract defines it that way, and model output carries no attributes at all. <scope lang=\"ts\"> is the same language under a different tag, which is why lang decides and the tag never does.",
+            "begin": "(<)(script|scope)((?:\\s[^>]*)?)(>)",
+            "end": "(</)(script|scope)(>)",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.execute.air"
+                },
+                "3": {
+                    "patterns": [
+                        {
+                            "include": "#attributes"
+                        }
+                    ]
+                },
+                "4": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "endCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.execute.air"
+                },
+                "3": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "contentName": "meta.embedded.block.typescript",
+            "patterns": [
+                {
+                    "include": "#entity"
+                },
+                {
+                    "include": "source.ts"
+                }
+            ]
+        },
+        "block-json": {
+            "comment": "lang=\"json\" — a <stdout> whose whole body parsed, or a <state> serialized as JSON. Note lang=\"txt\" is deliberately NOT routed here: detectLang() only says json when the entire body parses, so a txt body is one that did not, and highlighting it as JSON would mis-tokenize truncation notices and trailing values.",
+            "begin": "(<)([a-z][a-z-]*)(\\s[^>]*?lang=\"json\"[^>]*?)(>)",
+            "end": "(</)(\\2)(>)",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.stdout.air"
+                },
+                "3": {
+                    "patterns": [
+                        {
+                            "include": "#attributes"
+                        }
+                    ]
+                },
+                "4": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "endCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.stdout.air"
+                },
+                "3": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "contentName": "meta.embedded.block.json",
+            "patterns": [
+                {
+                    "include": "#entity"
+                },
+                {
+                    "include": "source.json"
+                }
+            ]
+        },
+        "block-md": {
+            "comment": "lang=\"md\" — prose, and the one body a model reads as a document rather than as data. <text> with no lang is markdown by the same reasoning <script> is TypeScript.",
+            "begin": "(<)(text|system)((?:\\s[^>]*)?)(>)",
+            "end": "(</)(\\2)(>)",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.prose.air"
+                },
+                "3": {
+                    "patterns": [
+                        {
+                            "include": "#attributes"
+                        }
+                    ]
+                },
+                "4": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "endCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.prose.air"
+                },
+                "3": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "contentName": "meta.embedded.block.markdown",
+            "patterns": [
+                {
+                    "include": "#entity"
+                },
+                {
+                    "include": "text.html.markdown"
+                }
+            ]
+        },
+        "block-plain": {
+            "comment": "Everything else with a body: <stdout lang=\"txt\">, <state lang=\"yaml\">. Highlighted as nothing, deliberately — see block-json. The entity pattern still runs so escaped markup stays legible.",
+            "begin": "(<)(stdout|state)((?:\\s[^>]*)?)(>)",
+            "end": "(</)(\\2)(>)",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.stdout.air"
+                },
+                "3": {
+                    "patterns": [
+                        {
+                            "include": "#attributes"
+                        }
+                    ]
+                },
+                "4": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "endCaptures": {
+                "1": {
+                    "name": "punctuation.definition.tag.air"
+                },
+                "2": {
+                    "name": "entity.name.tag.stdout.air"
+                },
+                "3": {
+                    "name": "punctuation.definition.tag.air"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#entity"
+                }
+            ]
+        },
+        "tag": {
+            "comment": "Structural tags with no body of their own: the <agent> wrapper, <timeline>, and the <done/> signal. Every other tag is consumed by a block rule above, so anything reaching the catch-all is a tag AIR does not define — coloured as unknown rather than as one of ours.",
+            "patterns": [
+                {
+                    "match": "(<)(done)\\s*(/>)",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.tag.air"
+                        },
+                        "2": {
+                            "name": "entity.name.tag.signal.air"
+                        },
+                        "3": {
+                            "name": "punctuation.definition.tag.air"
+                        }
+                    }
+                },
+                {
+                    "match": "(</?)(agent|timeline)\\s*(>)",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.tag.air"
+                        },
+                        "2": {
+                            "name": "entity.name.tag.turn.air"
+                        },
+                        "3": {
+                            "name": "punctuation.definition.tag.air"
+                        }
+                    }
+                },
+                {
+                    "match": "(</?)([a-z][\\w-]*)((?:\\s[^>]*?)?)(/?>)",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.tag.air"
+                        },
+                        "2": {
+                            "name": "entity.name.tag.state.air"
+                        },
+                        "3": {
+                            "patterns": [
+                                {
+                                    "include": "#attributes"
+                                }
+                            ]
+                        },
+                        "4": {
+                            "name": "punctuation.definition.tag.air"
+                        }
+                    }
+                }
+            ]
+        },
+        "attributes": {
+            "comment": "Scoped by MEANING, not uniformly. ok=\"false\" and status=\"rejected\" are the two values worth spotting from across the pane — a failed script and a discarded reply — so they get their own scope rather than sharing one attribute-value colour with lang and channel.",
+            "patterns": [
+                {
+                    "match": "\\b(ok)(=)(\"false\")",
+                    "captures": {
+                        "1": {
+                            "name": "entity.other.attribute-name.air"
+                        },
+                        "2": {
+                            "name": "punctuation.separator.key-value.air"
+                        },
+                        "3": {
+                            "name": "invalid.illegal.air"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(status)(=)(\"rejected\")",
+                    "captures": {
+                        "1": {
+                            "name": "entity.other.attribute-name.air"
+                        },
+                        "2": {
+                            "name": "punctuation.separator.key-value.air"
+                        },
+                        "3": {
+                            "name": "invalid.illegal.air"
+                        }
+                    }
+                },
+                {
+                    "comment": "id/for are the correlation pair — <script id=\"e5\"> and the <stdout for=\"e5\"> that answered it. Same scope on both halves so the eye matches them.",
+                    "match": "\\b(id|for)(=)(\"[^\"]*\")",
+                    "captures": {
+                        "1": {
+                            "name": "entity.other.attribute-name.air"
+                        },
+                        "2": {
+                            "name": "punctuation.separator.key-value.air"
+                        },
+                        "3": {
+                            "name": "constant.numeric.air"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b([\\w-]+)(=)(\"[^\"]*\")",
+                    "captures": {
+                        "1": {
+                            "name": "entity.other.attribute-name.air"
+                        },
+                        "2": {
+                            "name": "punctuation.separator.key-value.air"
+                        },
+                        "3": {
+                            "name": "string.quoted.double.air"
+                        }
+                    }
+                }
+            ]
+        },
+        "entity": {
+            "comment": "Every block body is escaped on the way in (esc/escCode in render/text.ts), so a TypeScript body is full of &lt; and &gt; wherever a generic or an arrow appears. Without this pattern INSIDE the embedded grammars, source.ts tokenizes those as stray identifiers and most lines of real code read as noise.",
+            "match": "&(?:[a-zA-Z]+|#[0-9]+|#x[0-9a-fA-F]+);",
+            "name": "constant.character.entity.air"
+        }
+    },
+    "_comment_perf": "No `injections`. An injection scoped to the embedded blocks made &lt; render as one token, and cost a 7x slowdown to do it: the selector is evaluated against every token inside every embedded body, which took one 370-line <scope> from 165ms to 1168ms and made the whole pane feel heavy. #entity is listed first inside each block's own patterns instead — same result for &gt; and &amp;, and &lt; fragments into three tokens, which is a cosmetic loss worth 7x."
+}

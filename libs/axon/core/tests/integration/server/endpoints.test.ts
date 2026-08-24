@@ -1,5 +1,5 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * The framework-reserved /_axon/* surface — behaviour-driven, through the real
@@ -13,7 +13,7 @@ describe("/_axon endpoints", () => {
     }
 
     it("GET /_axon/health returns ok once the runtime is serving", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
         const res = await call(runtime, "/_axon/health")
         expect(res.status).toBe(200)
@@ -25,7 +25,7 @@ describe("/_axon endpoints", () => {
     })
 
     it("POST /_axon/request runs an invocation and returns AxonResult JSON", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
 
         const res = await call(runtime, "/_axon/request", {
             method: "POST",
@@ -42,7 +42,7 @@ describe("/_axon endpoints", () => {
     })
 
     it("POST /_axon/request rejects a body with no usable prompt", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
         const res = await call(runtime, "/_axon/request", {
             method: "POST",
@@ -56,7 +56,7 @@ describe("/_axon endpoints", () => {
     })
 
     it("POST /_axon/stream streams AxonEntry events as SSE and closes with a done frame", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
 
         const res = await call(runtime, "/_axon/stream", {
             method: "POST",
@@ -76,7 +76,7 @@ describe("/_axon endpoints", () => {
     })
 
     it("the /_axon surface is present regardless of user routes (empty blueprint)", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
         // No user routes declared, yet the framework surface answers.
         expect((await call(runtime, "/_axon/health")).status).toBe(200)
@@ -92,7 +92,7 @@ describe("/_axon endpoints", () => {
      */
     describe("GET /_axon/session", () => {
         it("returns the live session with all three logs", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -115,7 +115,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("since= returns only events after the cursor, so hydrate+stream never double-counts", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -145,7 +145,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("include= omits the logs a client does not want", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -163,7 +163,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("limit= returns the most recent events and reports truncation", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -183,7 +183,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("rejects malformed query params instead of silently defaulting", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
             // A since= that parsed as 0 would resend the whole history and look
             // like duplicated messages in the client — a 400 is the honest answer.
@@ -234,7 +234,7 @@ describe("/_axon endpoints", () => {
         }
 
         it("replays session history then signals live", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -253,7 +253,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("replays in seq order across all three logs", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -271,7 +271,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("since= replays only the events after the cursor", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -289,7 +289,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("include= filters which logs reach the client", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
             await call(runtime, "/_axon/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -307,7 +307,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("streams events that happen after going live", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "Hi!" }) } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "Hi!" })] } } })
 
             const res = await call(runtime, "/_axon/events?include=entries")
             const reader = res.body!.getReader()
@@ -349,7 +349,7 @@ describe("/_axon endpoints", () => {
         })
 
         it("rejects malformed query params", async () => {
-            const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+            const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
             expect((await call(runtime, "/_axon/events?since=abc")).status).toBe(400)
             expect((await call(runtime, "/_axon/events?include=nope")).status).toBe(400)

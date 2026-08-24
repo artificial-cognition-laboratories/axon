@@ -1,7 +1,7 @@
 {
   "name": "@axon/discord",
   "description": "Discord bot integration — receive messages, read channel history, and send messages.",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "type": "module",
   "dependencies": {
     "discord.js": "^14.16.3",

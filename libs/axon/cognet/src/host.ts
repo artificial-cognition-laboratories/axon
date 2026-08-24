@@ -126,21 +126,42 @@ globals.definePlugin = (plugin: CognetPlugin): CognetPlugin => {
 
 // run() is overloaded on input shape (string vs string[]) — a plain arrow
 // can't carry two call signatures, so it's declared separately and spread in.
-function run(code: string, opts?: { signal?: AbortSignal }): Promise<AxonRunResult>
-function run(code: string[], opts?: { signal?: AbortSignal }): Promise<AxonRunResult[]>
-function run(code: string | string[], opts?: { signal?: AbortSignal }) {
-    if (Array.isArray(code)) return kernelOrThrow().run(code, opts)
-    return kernelOrThrow().run(code, opts)
+function run(code: string): Promise<AxonRunResult>
+function run(code: string[]): Promise<AxonRunResult[]>
+function run(code: string | string[]) {
+    if (Array.isArray(code)) return kernelOrThrow().run(code)
+    return kernelOrThrow().run(code)
+}
+
+/**
+ * The `engine` verb, delegating like every other syscall.
+ *
+ * A FACADE rather than a captured reference, for the same reason the rest of
+ * this table delegates: the bound ABI is resolved at the moment a call is
+ * made, never at module scope, so nothing here can outlive or precede a
+ * load(). Written twice-over as one helper because the two facades below
+ * (bound-kernel and ambient) differ only in how they reach the ABI.
+ *
+ * `has` hangs off the callable so the common case reads as one verb and the
+ * degradation check reads as a question — which is the shape the ABI
+ * declares, and a shim that flattened it would quietly change the contract.
+ */
+function engineFacade(resolve: () => KernelAbi): KernelAbi["engine"] {
+    return Object.assign(
+        (role: string) => resolve().engine(role),
+        { has: (role: string) => resolve().engine.has(role) },
+    )
 }
 
 // the syscall table, delegating — live from load() onward
 const localKernel = {
     output: (type: keyof AxonOutputEvent, data: never) => kernelOrThrow().output(type, data),
-    stream: (req: never) => kernelOrThrow().stream(req),
+    engine: engineFacade(() => kernelOrThrow()),
     run,
     scope: () => kernelOrThrow().scope(),
     base: () => kernelOrThrow().base(),
     emit: (type: never, data: never) => kernelOrThrow().emit(type, data),
+    fault: (input: Parameters<KernelAbi["fault"]>[0]) => kernelOrThrow().fault(input),
     // store is a live sub-object on the bound ABI — delegate per call, same
     // discipline as every other syscall (never captured before load())
     store: {
@@ -150,12 +171,19 @@ const localKernel = {
         get: (key: never) => kernelOrThrow().store.get(key),
         set: (key: never, value: never) => kernelOrThrow().store.set(key, value),
     },
+    // Same discipline as store: a live sub-object on the bound ABI,
+    // delegated per call and never captured before load().
+    knowledge: {
+        list: (opts?: Parameters<KernelAbi["knowledge"]["list"]>[0]) => kernelOrThrow().knowledge.list(opts),
+        read: (name: string) => kernelOrThrow().knowledge.read(name),
+        write: (name: string, content: string) => kernelOrThrow().knowledge.write(name, content),
+        remove: (name: string) => kernelOrThrow().knowledge.remove(name),
+    },
     wake: () => kernelOrThrow().wake(),
     clock: () => kernelOrThrow().clock(),
     // A getter, not a captured value: the bound kernel arrives at load(), and
     // capturing this at module scope would freeze an empty map from before
     // the brain was given anything.
-    get models() { return kernelOrThrow().models },
 } satisfies KernelAbi
 
 /**
@@ -184,15 +212,22 @@ const localScope: CognetAmbientScope = scopeFor(null)
 globals.loop = (body: LoopBody): void => ambientOrThrow().loop(body)
 globals.kernel = {
     output: (type: keyof AxonOutputEvent, data: never) => ambientOrThrow().kernel.output(type, data),
-    stream: (req: never) => ambientOrThrow().kernel.stream(req),
-    run: ((code: string | string[], opts?: { signal?: AbortSignal }) => ambientOrThrow().kernel.run(code as never, opts)) as KernelAbi["run"],
+    engine: engineFacade(() => ambientOrThrow().kernel),
+    run: ((code: string | string[]) => ambientOrThrow().kernel.run(code as never)) as KernelAbi["run"],
     scope: () => ambientOrThrow().kernel.scope(),
     base: () => ambientOrThrow().kernel.base(),
     emit: (type: never, data: never) => ambientOrThrow().kernel.emit(type, data),
+    fault: (input: Parameters<KernelAbi["fault"]>[0]) => ambientOrThrow().kernel.fault(input),
     store: {
         session: { get: (opts?: { after?: number }) => ambientOrThrow().kernel.store.session.get(opts) },
         get: (key: never) => ambientOrThrow().kernel.store.get(key),
         set: (key: never, value: never) => ambientOrThrow().kernel.store.set(key, value),
+    },
+    knowledge: {
+        list: (opts?: Parameters<KernelAbi["knowledge"]["list"]>[0]) => ambientOrThrow().kernel.knowledge.list(opts),
+        read: (name: string) => ambientOrThrow().kernel.knowledge.read(name),
+        write: (name: string, content: string) => ambientOrThrow().kernel.knowledge.write(name, content),
+        remove: (name: string) => ambientOrThrow().kernel.knowledge.remove(name),
     },
     // Resolved through kernelOrThrow(), not ambientOrThrow(): a plugin's
     // clock lives in a setInterval registered during boot, and that callback
@@ -200,7 +235,6 @@ globals.kernel = {
     // that outlives each wake, which is exactly what a driver needs.
     wake: () => kernelOrThrow().wake(),
     clock: () => kernelOrThrow().clock(),
-    get models() { return kernelOrThrow().models },
 } satisfies KernelAbi
 
 globals.phase = <T>(name: string, fn: () => Promise<T>) => ambientOrThrow().phase(name, fn)

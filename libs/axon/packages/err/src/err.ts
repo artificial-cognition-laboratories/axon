@@ -1,4 +1,4 @@
-import { errorMap, type AxonErrorCode, type AxonErrorMap } from "./map"
+import { errorMap, type AxonErrorCode, type AxonErrorMap, type AxonErrorMapEntry } from "./map"
 import { captureStack, firstRealFrame } from "./stack"
 import { renderError } from "./render"
 import { emitError } from "./sink"
@@ -56,7 +56,10 @@ export function err(codeOrCause: AxonErrorCode | unknown, opts?: AxonErrorOpts):
     }
 
     const code = codeOrCause as AxonErrorCode
-    const def = (errorMap as AxonErrorMap)[code]
+    // Read through the ENTRY type, not the literal map type: `as const` keeps
+    // each entry's exact shape, so optional fields are absent from the type of
+    // entries that omit them and unreadable off the union.
+    const def: AxonErrorMapEntry = (errorMap as AxonErrorMap)[code]
 
     const e = new Error(opts?.detail ?? def.title, { cause: opts?.cause }) as AxonError
 
@@ -65,6 +68,9 @@ export function err(codeOrCause: AxonErrorCode | unknown, opts?: AxonErrorOpts):
     e.description = def.description
     e.source = def.source
     e.severity = opts?.severity ?? def.severity
+    // Carried onto the instance so renderers (and the CLI's own catch) can ask
+    // whose fault this is without reaching back into the map.
+    if (def.expected) e.expected = true
     e.context = opts?.context
     e.frames = captureStack(2) // drop captureStack's own frame + err()'s
     e.isAxonError = true

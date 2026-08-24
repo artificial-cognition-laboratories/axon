@@ -5,6 +5,32 @@ import {
     type Message,
 } from "discord.js"
 
+/**
+ * Discord — a sense organ for the agent.
+ *
+ * Inbound messages become text stimuli on channel `discord:<channelId>`,
+ * exactly like text typed at the terminal — which arrives on `user`. AIR
+ * renders that channel onto the turn, so the brain sees WHERE each message
+ * came from and can hold two conversations at once without confusing them.
+ *
+ * Outbound is the `discord.send` tool, which the brain calls deliberately with
+ * the address it read off the stimulus it is answering. Deliberately a tool and
+ * not a direct output: a reply needs a target, and an output that carried one
+ * would make every emission a routing decision.
+ *
+ * There are no hooks here. An earlier version emitted `discord:message.received`
+ * carrying a `reply` closure, and a server plugin answered it with its own
+ * `axon.request()` — which spawned an isolated wake per message and bypassed
+ * the scheduler, so the agent had no continuity across its own conversation.
+ * Each message was answered by a mind that remembered nothing of the last one.
+ * Sensing through `stim` puts Discord on the same footing as every other
+ * channel: one session, one mind, many senses.
+ *
+ * The gateway lives here, in the agent runtime. The tool surface is REST-only
+ * and runs in the capsule — a different process, which is why it reads the
+ * token from its own env rather than sharing this client.
+ */
+
 // Hoisted for DiscordOptions type export — must match the inline options below.
 const _optionsSchema = {
     guildId:     { type: "string"  as const, required: false as const },
@@ -52,20 +78,30 @@ export default defineModule({
         },
     },
 
-    emits: {
-        "discord:message.received": {} as {
-            content: string
-            userId: string
-            username: string
-            channelId: string
-            guildId: string | null
-            messageId: string
-            reply: (text: string) => Promise<void>
-        },
-    },
-
     async setup({ axon, options }) {
-        const token = axon.env.require("DISCORD_BOT_TOKEN")
+        /**
+         * Absent token DEGRADES; it does not abort the boot.
+         *
+         * `env.require` throws, and a throw in setup() is total — no later
+         * module is wired and the agent does not come up. That is right for a
+         * module that is broken, and wrong for one that is merely not
+         * connected yet: installing @axon/discord and setting the token are
+         * two separate moments, and `:connect discord` puts a whole guided
+         * flow between them. Requiring the token made the agent unbootable
+         * for the entire duration of its own setup flow — and unbootable is
+         * also unable to run the command that fixes it.
+         *
+         * So a missing token leaves the agent running with one sense organ
+         * unconnected, says so once, and connects on the next reload — which
+         * `setKey` triggers the moment the credential lands.
+         */
+        const token = axon.env.get("DISCORD_BOT_TOKEN")
+        if (!token) {
+            await axon.warn(
+                "DISCORD_BOT_TOKEN is not set — Discord is installed but not connected. Run `:connect discord`.",
+            )
+            return
+        }
 
         const allowedChannels = options.channelIds
             ? options.channelIds.split(",").map(s => s.trim()).filter(Boolean)
@@ -80,8 +116,11 @@ export default defineModule({
             ],
         })
 
-        // Serialise hook calls so concurrent messages don't interleave.
-        let messageQueue = Promise.resolve()
+        // Serialise stimuli so two messages arriving together reach the session
+        // in the order Discord delivered them. This is ordering, not
+        // throttling — `stim` hands the session a sense datum and returns; the
+        // scheduler decides when to wake and answers both from one mind.
+        let queue = Promise.resolve()
 
         client.on(Events.MessageCreate, (msg: Message) => {
             if (msg.author.bot) return
@@ -106,24 +145,24 @@ export default defineModule({
                 content = content.replace(`<@!${client.user.id}>`, "").trim()
             }
 
-            const payload = {
-                content,
-                userId: msg.author.id,
-                username: msg.author.username,
-                channelId: msg.channelId,
-                guildId: msg.guildId,
-                messageId: msg.id,
-                reply: async (text: string) => { await msg.reply(text) },
-            }
-
-            // Serialise, but never swallow: a handler that throws (a failed
-            // request, a failed reply) must surface, or a message silently
-            // vanishes with no trace. Log and continue so one bad message
-            // doesn't wedge the queue for every message after it.
-            messageQueue = messageQueue
-                .then(() => axon.callHook("discord:message.received", payload))
+            // The CHANNEL is the return address the brain hands to
+            // discord.send — the channel id, not the guild, because a DM has
+            // no guild and a reply always goes to the channel it came from.
+            //
+            // The sender stays in the content deliberately. Who is speaking is
+            // something the mind should weigh — including whether to trust
+            // them — while the channel is pure routing.
+            queue = queue
+                .then(() => axon.stim("cognet:stimulus:text", {
+                    channel: `discord:${msg.channelId}`,
+                    content: `${msg.author.username}: ${content}`,
+                }))
+                .then(() => undefined)
                 .catch((error: unknown) => {
-                    console.error(`[discord] message handler failed for message ${msg.id}:`, error)
+                    // Never swallow silently: a message that fails to reach the
+                    // session has vanished with no trace. Log and continue so
+                    // one bad message doesn't wedge every message after it.
+                    console.error(`[discord] could not deliver message ${msg.id}:`, error)
                 })
         })
 

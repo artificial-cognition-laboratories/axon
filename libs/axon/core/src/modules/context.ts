@@ -1,12 +1,16 @@
 import type { AxonBlueprint, ModuleSetupAxon } from "@arcforge/types"
 import { err } from "@arcforge/err"
+import type { AxonSessionT } from "@arcforge/session"
 import type { AxonHooksT } from "../platform"
 
 /**
  * The narrow `axon` handle a module's `setup()` receives. Deliberately
  * smaller than the full AxonHandle: a module registers boot-time wiring
- * (hooks, policy) — it does not run conversations. Everything here is a thin
- * projection over pieces Axon() already built; the context owns no state.
+ * (hooks, policy) and may SENSE (`stim`) — it does not run conversations.
+ * `request`/`stream` are withheld on purpose; `stim` is not, because a
+ * channel module is a sense organ and sensing is not cognition. Everything
+ * here is a thin projection over pieces Axon() already built; the context
+ * owns no state.
  *
  * `server` and `tools` are declared by the type but throw loudly: no module
  * consumes them yet, and wiring dynamic routes from setup() means teaching
@@ -16,10 +20,12 @@ import type { AxonHooksT } from "../platform"
 export function ModuleContext(opts: {
     blueprint: AxonBlueprint
     hooks: AxonHooksT
+    /** Backs `stim()` — a channel module's wire into the session's sense pathway. */
+    session: AxonSessionT
     /** Sink for teardown callbacks registered via ctx.onDispose(). Owned by the caller (runSetup), which runs them in reverse. */
     onDispose: (fn: () => void | Promise<void>) => void
 }): ModuleSetupAxon {
-    const { blueprint, hooks } = opts
+    const { blueprint, hooks, session } = opts
 
     // The narrow module handle intentionally exposes hooks with a loose
     // (string, ...any[]) signature — a module registers against hook names by
@@ -32,6 +38,16 @@ export function ModuleContext(opts: {
         hook,
         callHook,
         onDispose: opts.onDispose,
+
+        // Straight through to the session's sense pathway — the same door
+        // AxonHandle.stim uses. Granted to modules because sensing is not
+        // cognition: a channel module delivers what its transport received
+        // and never decides what was worth delivering.
+        stim: session.stimuli.ingest,
+
+        warn: async (message: string) => {
+            await session.commit("build:warning", { domain: "module", message })
+        },
 
         env: {
             get: key => blueprint.env[key],

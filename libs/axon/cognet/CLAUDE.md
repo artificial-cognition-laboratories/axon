@@ -24,8 +24,13 @@ a control loop that never queries an entity bundles no entity store.
 ```
 .       CognetHost, defineCognet, Clock   — always needed
 ./ecs   entities, components, queries      — opt-in
-./air   the AIR grammar                    — opt-in
 ```
+
+The grammar a cognet renders with is **not here** — it is `@arcforge/air`, a
+peer package. It lived under `./air` while the reasoning was "AIR is a
+cognet's choice", but the kernel parses with the same grammar, and a subpath
+of this package forced ring 0 to depend on the runtime it loads. See
+`packages/air/CLAUDE.md` for the input/output split that replaced it.
 
 **The clock is not the world.** `tick`/`phase`/`system` and their telemetry live
 in `clock.ts`; entities/components/watchers live in `ecs/`. They were one module
@@ -44,9 +49,6 @@ paths. The `blueprint` ambient global was removed deliberately — a mind that
 never knew what kind of world it was in doesn't need porting when the world
 changes.
 
-**AIR is a cognet's choice, not the platform's.** The kernel has no opinion on
-grammar. `./air` is a library that happens to be the one `@axon/zero` uses.
-
 ## Key Interfaces
 
 ```ts
@@ -54,7 +56,6 @@ CognetHost(config, main)        // config + wrapped main → the definition the 
 defineCognet(config)            // identity, in cognet.config.ts
 Clock({ emit, signal })         // runTick / runPhase / runSystem + the tick/phase counters
 Ecs({ emit, stamp })            // entity / component / query / watch
-Air(opts?)                      // render + parse, one resolved grammar
 ```
 
 The ABI itself (`KernelAbi`, `CognetConfig`, `CognetDefinition`) lives in
@@ -72,5 +73,5 @@ runtime version bump, and by nothing else.
 - The entity/component surface is live but not exposed to cognet source as an
   ambient global — only `phase`/`system` are. Waiting on a real workload (most
   likely the first continuous cognet) to settle what the authoring API should be.
-- No tests for `host.ts` beyond lifecycle basics; coverage is strongest on AIR
-  (52) and ECS.
+- No tests for `host.ts` beyond lifecycle basics; coverage is strongest on ECS.
+  AIR's own suite moved with it to `packages/air/tests` (148).

@@ -16,11 +16,28 @@ export type QueryOpts = {
     context?: number
     regex?: boolean
     ignoreCase?: boolean
+    /**
+     * Cap on total lines returned across all matches (default 400).
+     *
+     * `limit` bounds FILES, which is not the same as bounding cost: one file
+     * with forty hits and `context: 2` contributes two hundred lines, so a
+     * hundred files can return tens of thousands. A real run put 244k
+     * characters into the context from one call that looked modest —
+     * `limit: 100, context: 2` — and the wake never recovered.
+     */
+    maxLines?: number
 }
 
 export type MatchLine = { line: number; text: string; isMatch: boolean }
 export type QueryMatch = { path: string; lines?: MatchLine[] }
-export type QueryResult = { matches: QueryMatch[]; truncated: boolean; total: number }
+export type QueryResult = {
+    matches: QueryMatch[]
+    /** True when `limit` or `maxLines` cut the result short. */
+    truncated: boolean
+    total: number
+    /** Set when the LINE budget was what truncated it — the caller should narrow. */
+    truncatedBy?: "files" | "lines"
+}
 
 export type PatchOpts = { find: string; replace: string; all?: boolean }
 export type PatchResult = { count: number }
@@ -157,11 +174,14 @@ export const fs = {
      * @param opts.glob - Glob pattern for filename matching (e.g. "**\/*.ts", "*mode*")
      * @param opts.cwd - Root directory to search from (defaults to cwd)
      * @param opts.maxDepth - Max directory traversal depth
-     * @param opts.limit - Max results to return (default 50)
+     * @param opts.limit - Max FILES to return (default 50)
+     * @param opts.maxLines - Max total lines across all matches (default 400)
      * @param opts.context - Lines of context around content matches (default 0)
      * @param opts.regex - Treat pattern as regex (default false — literal match)
      * @param opts.ignoreCase - Case insensitive matching (default true)
-     * @returns matches with file paths and matching lines; truncated flag if limit hit
+     * @returns matches with file paths and matching lines. `truncated` is set when
+     *          either cap bit, and `truncatedBy` says which — narrow the pattern
+     *          when it reads "lines".
      *
      * @example
      * await fs.query({ pattern: "useMode", glob: "**\/*.ts", context: 2 })
@@ -172,7 +192,9 @@ export const fs = {
         const act = activity("file:search", { query: opts.pattern ?? opts.glob ?? "*", ...(opts.cwd ? { scope: opts.cwd } : {}) })
         const cwd = opts.cwd ?? process.cwd()
         const limit = opts.limit ?? 50
+        const maxLines = opts.maxLines ?? 400
         const context = opts.context ?? 0
+        let lineBudget = maxLines
         const ignoreCase = opts.ignoreCase ?? true
 
         const globPattern = opts.glob ?? "**/*"
@@ -227,7 +249,7 @@ export const fs = {
             if (matchLineNums.size === 0) continue
             total++
 
-            if (matches.length < limit) {
+            if (matches.length < limit && lineBudget > 0) {
                 const includeLines = new Set<number>()
                 for (const ln of matchLineNums) {
                     for (let c = Math.max(0, ln - context); c <= Math.min(fileLines.length - 1, ln + context); c++) {
@@ -235,7 +257,13 @@ export const fs = {
                     }
                 }
 
-                const sortedLines = [...includeLines].sort((a, b) => a - b)
+                // Spend the budget per file rather than dropping the file
+                // whole: a file with four hundred matches should still show
+                // its first few, and cutting it entirely would hide the very
+                // result the caller is most likely looking for.
+                const sortedLines = [...includeLines].sort((a, b) => a - b).slice(0, lineBudget)
+                lineBudget -= sortedLines.length
+
                 const lines: MatchLine[] = sortedLines.map(i => ({
                     line: i + 1,
                     text: fileLines[i] ?? "",
@@ -247,7 +275,13 @@ export const fs = {
         }
 
         act.done({ matches: total })
-        return { matches, truncated: total > limit, total }
+        const cutByLines = lineBudget <= 0
+        return {
+            matches,
+            truncated: total > limit || cutByLines,
+            total,
+            ...(cutByLines ? { truncatedBy: "lines" as const } : total > limit ? { truncatedBy: "files" as const } : {}),
+        }
     },
 
     /**

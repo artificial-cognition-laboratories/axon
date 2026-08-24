@@ -3,6 +3,7 @@
 // (mediator.ts) and existing importers resolve them from the same place.
 export type {
     PolicyRule,
+    PolicyBucket,
     CapsulePolicy,
     PolicyResponseCommand,
     PolicyCall,

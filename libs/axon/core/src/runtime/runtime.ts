@@ -49,7 +49,7 @@ export async function AxonRuntime(opts: AxonRuntimeOpts) {
     const session = opts.session
     let blueprint = opts.blueprint
     let revision = 0
-    let server = await AxonServer({ blueprint, hooks: opts.hooks, axon: opts.axon, bus: opts.bus, session })
+    let server = await AxonServer({ blueprint, hooks: opts.hooks, axon: opts.axon, bus: opts.bus, session, ...(opts.kernel.engines ? { engines: opts.kernel.engines } : {}) })
 
     const runtime = {
         axon: opts.axon,
@@ -94,7 +94,7 @@ export async function AxonRuntime(opts: AxonRuntimeOpts) {
                 // the reset and survive. Reload stays shutdown+boot for
                 // modules — just interleaved with the server rebuild.
                 await opts.modules.dispose()
-                server = await AxonServer({ blueprint, hooks: opts.hooks, axon: opts.axon, bus: opts.bus, session })
+                server = await AxonServer({ blueprint, hooks: opts.hooks, axon: opts.axon, bus: opts.bus, session, ...(opts.kernel.engines ? { engines: opts.kernel.engines } : {}) })
                 await opts.modules.setup(blueprint)
 
                 // The session log owns the runtime transaction; the entry
@@ -133,8 +133,34 @@ export async function AxonRuntime(opts: AxonRuntimeOpts) {
          */
         async shutdown(reason?: string) {
             const started = Date.now()
+
+            /**
+             * Phase timing for the shutdown-hang investigation.
+             *
+             * Shutdown is a chain of unbounded awaits over code we do not all
+             * own (module dispose, cognet unload, capsule teardown), and the
+             * observed freeze scales with SESSION LENGTH — which points at an
+             * O(entries) walk rather than a stuck handler. Naming the phase is
+             * the difference between fixing that walk and hiding it behind a
+             * timeout.
+             *
+             * Writes to stderr because the TTY is already being torn down by
+             * the time later phases run, and the session log is one of the
+             * things being closed.
+             */
+            const trace = process.env.AXON_SHUTDOWN_TRACE === "1"
+            let mark = Date.now()
+            const phase = (name: string): void => {
+                if (!trace) return
+                const now = Date.now()
+                process.stderr.write(`[shutdown] ${name} ${now - mark}ms (total ${now - started}ms)\n`)
+                mark = now
+            }
+
             await session.commit("axon:shutdown:start", { reason })
+            phase("commit:start")
             await opts.hooks.callHook("shutdown:before")
+            phase("hooks:shutdown:before")
 
             const failures: unknown[] = []
 
@@ -147,7 +173,9 @@ export async function AxonRuntime(opts: AxonRuntimeOpts) {
             ] as const) {
                 try {
                     await close()
+                    phase(name)
                 } catch (cause) {
+                    phase(`${name}:failed`)
                     failures.push(err("HANDLE_SHUTDOWN_FAILED", { detail: `${name} shutdown failed`, context: { name }, cause }))
                 }
             }
@@ -160,7 +188,9 @@ export async function AxonRuntime(opts: AxonRuntimeOpts) {
             }
 
             await session.commit("axon:shutdown:complete", { durationMs: Date.now() - started })
+            phase("commit:complete")
             await session.end()
+            phase("session:end")
         },
     }
 

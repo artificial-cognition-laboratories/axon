@@ -129,7 +129,18 @@ export type BuildEventMap =
          * inside the runtime, which meant they arrived AFTER boot and only
          * for builds that got that far.
          */
-        "build:warning": { domain: string; message: string; stage?: BuildStage }
+        /**
+         * Something the user wrote could not be read, and the build continued
+         * without it — a module whose tools will not compile, a prompt that
+         * would not introspect.
+         *
+         * `error` carries the full AxonError when the scanner had one. The
+         * flattened `message` remains the contract every consumer can rely on;
+         * a renderer that understands the structured form gets the code,
+         * location and source snippet, and one that does not still has a
+         * sentence to print.
+         */
+        "build:warning": { domain: string; message: string; stage?: BuildStage; error?: AxonError }
     }
 
 export type BuildEventName = keyof BuildEventMap

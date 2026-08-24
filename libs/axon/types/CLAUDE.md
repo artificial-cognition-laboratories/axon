@@ -12,6 +12,30 @@ The dividing question for any file: *is this a contract two things agree on, or
 is it one thing's implementation?* Contracts live here. `AxonError`'s shape is
 here; `err()`'s stack capture is in `@arcforge/err`.
 
+## `src/tui.ts` — the extension contract
+
+The one file here with a build step and a hard constraint: **it must not
+import.** `axon prepare` copies its source text verbatim into a profile's
+`.axon/types/globals.d.ts` and an extension's `.extension/types/`, wrapped in
+`declare global` — and those directories have no node_modules for an import to
+resolve through.
+
+`scripts/contract.ts` derives `src/tui-contract.ts` (the source as a string,
+exported at `@arcforge/types/tui-contract`) and **asserts the no-import rule**
+rather than stripping violations, so a bad import fails at the source instead of
+producing globals that reference types nobody can resolve. Run `bun run
+contract` after editing `tui.ts`.
+
+Derived rather than hand-copied because this surface is large and still moving —
+`prompt-dts.ts` accepts a manual "keep in lockstep" duplicate for a four-line
+contract, which does not scale to the whole extension API.
+
+Two invariants inside it are enforced by the type system and worth keeping that
+way: `agents.send()` returns `void` (an extension drives a conversation, it
+never consumes one — reading model output to decide what to do next is a
+cognet's job), and every `register`/`create` returns a `Disposer` (hot-reload
+re-runs setup, and without teardown one keystroke fires N handlers).
+
 ## The Event Ontology
 
 `src/session/` is the largest thing in this package and the one with real

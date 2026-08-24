@@ -25,7 +25,7 @@ export type AgentDefinition<EventMap extends Record<string, unknown> = Record<st
  *
  * export default defineAgent({
  *     description: "Reviews incoming pull requests",
- *     engine: Axon({ model: "claude-sonnet-4-6" }),
+ *     providers: [Axon()],
  *     policy: {
  *         fs: { read: ["./src/**"], write: ["./reports/**"] },
  *         network: { allow: ["api.github.com"] },
@@ -119,13 +119,16 @@ export function defineBench<Schema extends Record<string, unknown> = Record<stri
  * top-level `.vue`/`.md` file in the folder is an invokable prompt;
  * `components/` holds the fragments they compose and is never invokable.
  *
- * Identity only — a prompt has no build step, no dependencies, and no
- * runtime surface of its own. It is text an agent is handed.
+ * A prompt has no build step, no dependencies, and no runtime surface of its
+ * own. It is text an agent is handed.
+ *
+ * The config is EMPTY today, deliberately: identity (name, version,
+ * description) lives in package.json, which is what publish reads. The call
+ * exists because the file's presence is how a prompt package is identified,
+ * and configuration is expected to land here.
  *
  * ```ts
- * export default definePrompt({
- *     description: "Scouts a codebase and files proposals",
- * })
+ * export default definePrompt({})
  * ```
  */
 export function definePrompt(config: PromptConfig): PromptDefinition {
@@ -209,12 +212,18 @@ export function defineProps<T extends Record<string, unknown>>(): T {
  *
  * ```ts
  * export default defineAxonPlugin(async (axon) => {
- *     axon.hooks.hook("telegram:message", async ({ text, reply }) => {
- *         const result = await axon.request({ prompt: text })
- *         await reply(result.text)
+ *     axon.hooks.hook("axon:agent:ready", async () => {
+ *         console.log("agent ready")
  *     })
  * })
  * ```
+ *
+ * Note what this is NOT for: answering an inbound message by calling
+ * `axon.request()` per event. That spawns an isolated wake outside the
+ * scheduler, so the agent has no continuity across its own conversation.
+ * A channel (Telegram, Discord) is a sense organ — it delivers
+ * `cognet:stimulus:text` through the module's `axon.stim`, and the mind
+ * replies with the channel's send tool.
  *
  * The `axon` handle is passed in by the runtime that boots the plugin — never
  * read from a global — so a plugin is always bound to its own Axon() instance

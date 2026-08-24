@@ -1,4 +1,4 @@
-import type { AxonEngineDef, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
+import type { AxonEngineDef, EngineEffort, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
 import { Collect } from "../shared"
 import { CodexBackend } from "./backend"
 
@@ -12,7 +12,7 @@ export type CodexOptions = {
     /** Codex model to use. Defaults to "gpt-5.5". */
     model?: CodexCurrentModel | (string & {})
     /** Reasoning effort level. Only valid for models that support reasoning. Defaults to "medium". */
-    effort?: "low" | "medium" | "high" | "xhigh"
+    effort?: EngineEffort
 }
 
 /**
@@ -29,7 +29,7 @@ export type CodexOptions = {
  * import { Codex } from "@arcforge/engines"
  *
  * export default defineAgent({
- *     engine: Codex({ model: "gpt-5.5", effort: "medium" }),
+ *     providers: [Codex()],
  * })
  * ```
  *
@@ -42,6 +42,7 @@ export function Codex(options: CodexOptions = {}): AxonEngineDef {
     return {
         name: "codex",
         model,
+        effort,
 
         create({ cloud }): AxonEngineDriver {
             const backend = CodexBackend({ cloud, model, effort })

@@ -76,6 +76,19 @@ export interface AxonError extends Error {
     description: string
     source: AxonErrorSource
     severity: AxonErrorSeverity
+    /**
+     * The USER caused this and can fix it from the message alone — a wrong
+     * directory, a missing argument, a name that does not exist.
+     *
+     * Renderers show these without frames or a cause chain: our call stack is
+     * not part of the answer, and printing it tells the user to debug software
+     * they did not write. Absent means unexpected (the safe default), which
+     * still gets the full diagnostic.
+     *
+     * A different axis from `severity`: PROJECT_NOT_FOUND is both `fatal` (the
+     * command cannot continue) and expected.
+     */
+    expected?: boolean
     context: AxonErrorContext | undefined
     frames: AxonStackFrame[]
     /** native Error.cause — walk this to render the full chain */

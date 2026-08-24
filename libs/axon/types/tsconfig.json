@@ -12,6 +12,7 @@
     },
     "include": [
         "src/**/*.ts",
+        "tests/**/*.ts",
         "../packages/capsule/types/capsule-events.ts",
         "src/engine.ts"
     ]

@@ -1,4 +1,4 @@
-import type { AxonChunk, StimulusRef } from "./shared"
+import type { AxonChannel, AxonChunk, AxonTextFormat, StimulusRef } from "./shared"
 
 /**
  * Output — the effector protocol. Every fact a cognet emits TO the world
@@ -11,7 +11,7 @@ import type { AxonChunk, StimulusRef } from "./shared"
  * DESIGN RULES (identical to stimuli.ts, mirrored):
  *
  * 1. Top-level types are INFORMATION KINDS, not pipeline stages. A kind
- *    describes what the data IS (text, audio, visual, a measured value),
+ *    describes what the data IS (text, audio, visual, a measurement),
  *    never WHEN or HOW a cognet produced it. "Thinking" is deliberately
  *    absent: it never described a data kind — it described a stage in one
  *    specific engine's pipeline (LLM reasoning-before-answer), the same
@@ -40,6 +40,13 @@ import type { AxonChunk, StimulusRef } from "./shared"
  *    stimulushood. These are ordinary log entries; a renderer or
  *    devtools view derives "is this an output?" from the type prefix, the
  *    same way it derives "is this a stimulus?" from stimulus:*.
+ *
+ * 5. Every emission carries a CHANNEL, mirroring stimuli exactly. Outbound
+ *    addressing is the same problem as inbound: a cognet writing to
+ *    /cmd_vel and /speaker is not doing one thing, and an observer that
+ *    cannot separate them cannot debug either. Required, never defaulted —
+ *    a fallback channel would silently merge two lines that a mind
+ *    deliberately kept apart.
  */
 
 // ── The output set ───────────────────────────────────────────────────────────
@@ -51,19 +58,23 @@ import type { AxonChunk, StimulusRef } from "./shared"
  *   text    — symbolic language out (an LLM cognet's natural output)
  *   audio   — synthesized sound out (a cognet that speaks directly)
  *   visual  — an image or clip produced/selected by the cognet
- *   field   — a measured/declared value emitted outward (a fish declaring
- *             a homeostatic reading, telemetry, a structured status)
+ *   vector  — a measured/declared quantity emitted outward: a motor
+ *             command, a homeostatic reading, telemetry, a target pose
  */
 export type AxonOutputEvent = {
     /** Symbolic language output. Inline — text IS its own digest. */
     "cognet:output:text": {
+        channel: AxonChannel
         content: string
+        /** how to read it — "json", "markdown"; absent = plain prose */
+        format?: AxonTextFormat
         /** chunking standard (shared.ts) — absent = self-contained complete emission */
         chunk?: AxonChunk
     }
 
     /** Synthesized or selected audio segment. */
     "cognet:output:audio": {
+        channel: AxonChannel
         ref: StimulusRef
         /** symbolic digest — what the emission means without fetching audio */
         transcript?: string
@@ -74,6 +85,7 @@ export type AxonOutputEvent = {
 
     /** An image or clip the cognet produced or selected. */
     "cognet:output:visual": {
+        channel: AxonChannel
         ref: StimulusRef
         /** symbolic digest — caption / description */
         caption?: string
@@ -82,9 +94,28 @@ export type AxonOutputEvent = {
         chunk?: AxonChunk
     }
 
-    /** A value the cognet declares outward — status, telemetry, a homeostatic reading. */
-    "cognet:output:field": {
-        reading: { value: number | string | boolean; unit?: string }
+    /**
+     * A measurement the cognet declares outward — a motor command, a
+     * homeostatic reading, telemetry, a target pose.
+     *
+     * The exact mirror of the stimulus kind, and for the same reasons: one
+     * instrument, one instant, always an array. A wheel-velocity command is
+     * `[left, right]` and is one act, not two — the same atomicity argument
+     * that applies to sensing applies to acting.
+     */
+    "cognet:output:vector": {
+        channel: AxonChannel
+        /** the emission — one sample, one or more components */
+        values: number[]
+        /** what the numbers are in when every component shares one */
+        unit?: string
+        /** per-component units, same length as `values` — see the stimulus kind */
+        units?: string[]
+        /** what each component is, same length as `values` */
+        labels?: string[]
+        /** the convention these values follow — advisory, never validated */
+        profile?: string
+        /** for emissions too large to inline */
         ref?: StimulusRef
         /** chunking standard (shared.ts) — absent = self-contained complete emission */
         chunk?: AxonChunk

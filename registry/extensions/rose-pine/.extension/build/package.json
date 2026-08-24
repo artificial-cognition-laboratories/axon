@@ -1,0 +1,11 @@
+{
+  "name": "@axon/rose-pine",
+  "description": "Rosé Pine for the terminal — muted rose and gold, in three variants.",
+  "version": "1.0.3",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.133",
+    "@types/bun": "^1.2.0"
+  }
+}

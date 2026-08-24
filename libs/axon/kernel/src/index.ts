@@ -13,8 +13,8 @@
 export { Kernel, type AxonKernelT } from "./kernel"
 export type { KernelBus, KernelCognet } from "./contracts"
 
-// The capsule's executable surface, and its rendering as TypeScript
-// declarations — the kernel reports executable reality, callers decide how it
-// enters model context.
+// The capsule's executable surface — the kernel reports executable reality,
+// callers decide how it enters model context. How that surface is SPELLED
+// (for a model, for tsc, as an output contract) belongs to @arcforge/air:
+// the kernel owns what is callable, never how it is written down.
 export { toScope, toScopeModule, isLoadable } from "./scope"
-export { scopeToDts, scopeMemberCount } from "./scope-dts"

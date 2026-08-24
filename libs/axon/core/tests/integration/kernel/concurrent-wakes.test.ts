@@ -1,7 +1,7 @@
 import { readSession, STIMULUS_TRANSIENT_EVENTS } from "@arcforge/types"
 import type { AxonEntry, AxonEvent } from "@arcforge/types"
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * Overlapping wakes, and what had to become async-scoped to allow them.
@@ -16,34 +16,35 @@ import { Mock } from "@arcforge/engines/mock"
 describe("Concurrent wakes", () => {
     describe("transient stimuli", () => {
         it("delivers a dense stimulus to the cognet without writing it to the log", async () => {
-            const runtime = await Axon({ engine: Mock() })
+            const runtime = await Axon({ providers: [Mock()] })
 
             const entry = await runtime.session.stimuli.ingest("cognet:stimulus:audio", {
-                source: { channel: "mic0" },
+                channel: "mic0",
                 ref: { uri: "buffer://0", mime: "audio/pcm" },
                 durationMs: 32,
             })
 
             // Stamped like any other entry — a cognet cannot tell the
-            // difference, and should not need to.
-            expect(entry.id).toBeString()
+            // difference, and should not need to. Identity is `time.seq`
+            // (the envelope carries no uuid, and the session id lives in
+            // the file's header rather than on every line).
+            expect(entry.time.seq).toBeNumber()
             expect(entry.type).toBe("cognet:stimulus:audio")
-            expect(entry.context.sessionId).toBe(runtime.session.id)
 
             // ...and absent from the durable record.
             expect(runtime.session.entries.some(e => e.type === "cognet:stimulus:audio")).toBe(false)
 
             // Still delivered: the wake that drains next receives it.
-            expect(runtime.session.stimuli.drain().map(s => s.id)).toEqual([entry.id])
+            expect(runtime.session.stimuli.drain().map(s => s.time.seq)).toEqual([entry.time.seq])
 
             await runtime.shutdown()
         })
 
         it("still commits sparse stimuli — text is what someone said", async () => {
-            const runtime = await Axon({ engine: Mock() })
+            const runtime = await Axon({ providers: [Mock()] })
 
             await runtime.session.stimuli.ingest("cognet:stimulus:text", {
-                source: { channel: "user" },
+                channel: "user",
                 content: "hello",
             })
 
@@ -55,14 +56,14 @@ describe("Concurrent wakes", () => {
         it("consumes a seq for a transient stimulus, so the record has no false adjacency", async () => {
             // Two durable entries either side of a sensation must not look
             // consecutive: something really happened between them.
-            const runtime = await Axon({ engine: Mock() })
+            const runtime = await Axon({ providers: [Mock()] })
 
-            await runtime.session.stimuli.ingest("cognet:stimulus:text", { source: { channel: "user" }, content: "a" })
+            await runtime.session.stimuli.ingest("cognet:stimulus:text", { channel: "user", content: "a" })
             const transient = await runtime.session.stimuli.ingest("cognet:stimulus:audio", {
-                source: { channel: "mic0" },
+                channel: "mic0",
                 ref: { uri: "buffer://1", mime: "audio/pcm" },
             })
-            await runtime.session.stimuli.ingest("cognet:stimulus:text", { source: { channel: "user" }, content: "b" })
+            await runtime.session.stimuli.ingest("cognet:stimulus:text", { channel: "user", content: "b" })
 
             const text = runtime.session.entries.filter(e => e.type === "cognet:stimulus:text")
             const [first, second] = text.slice(-2)
@@ -77,7 +78,7 @@ describe("Concurrent wakes", () => {
             expect(STIMULUS_TRANSIENT_EVENTS.has("cognet:stimulus:audio")).toBe(true)
             expect(STIMULUS_TRANSIENT_EVENTS.has("cognet:stimulus:visual")).toBe(true)
             expect(STIMULUS_TRANSIENT_EVENTS.has("cognet:stimulus:text")).toBe(false)
-            expect(STIMULUS_TRANSIENT_EVENTS.has("cognet:stimulus:field")).toBe(false)
+            expect(STIMULUS_TRANSIENT_EVENTS.has("cognet:stimulus:vector")).toBe(false)
         })
     })
 

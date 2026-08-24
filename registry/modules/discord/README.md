@@ -1,25 +1,28 @@
 # @axon/discord
 
-Adds a Discord bot to your agent. Incoming messages fire a hook your plugin handles.
+Adds a Discord bot to your agent. Messages the bot can see arrive as stimuli;
+the agent replies with the `discord.send` tool.
+
+No plugin, no handler — install it, set the token, and the agent is in Discord.
 
 ## Setup
 
-1. Create a bot at [discord.com/developers](https://discord.com/developers) and copy the token
-2. Under **Bot → Token** copy the token
-3. Invite the bot to your server with the `bot` scope and `Send Messages` + `Read Message History` permissions
+1. Create an application at [discord.com/developers](https://discord.com/developers/applications) → **New Application**
+2. **Bot → Reset Token → Copy**
+3. Invite the bot with the `bot` scope and **Send Messages** + **Read Message History**
 4. Add `DISCORD_BOT_TOKEN` to your agent's `.env`
 
-## Config
+Or run `:connect discord` in the terminal, which walks all four and verifies the
+token before it writes anything.
 
-`modules` is an array; pass options with a `[module, options]` tuple:
+## Config
 
 ```ts
 // axon.config.ts
 export default defineAgent({
     modules: ["@axon/discord"],
 
-    // or
-
+    // or, with options
     modules: [
         ["@axon/discord", {
             channelIds: "123456789,987654321",  // optional — omit to listen everywhere
@@ -31,35 +34,31 @@ export default defineAgent({
 })
 ```
 
-## Handling messages
+## How it works
+
+An inbound message becomes a text stimulus on channel `discord:<channelId>` —
+the same door text typed at the terminal comes through, which arrives on
+`user`. The agent sees where each message came from and can hold two
+conversations at once without confusing them.
+
+The sender travels in the content (`cody: did the deploy finish?`) rather than
+in the channel. Who is speaking is something the mind should weigh, including
+whether to trust them; the channel is pure routing.
+
+Replies go out through the `discord.send` tool, which the agent calls with the
+channel it read off the message it is answering:
 
 ```ts
-// server/plugins/discord.ts
-export default defineAxonPlugin(async (axon) => {
-    axon.hooks.hook("discord:message.received", async ({ content, username, reply }) => {
-        const prompt = await axon.prompt("discord", { content, username })
-        const response = await axon.request({ prompt })
-        if (response?.text) await reply(response.text)
-    })
-})
+await discord.send("discord:123456789", "Deploy finished — all green.")
 ```
 
-Messages are queued — if the agent is still processing one message when the next arrives,
-it waits. The agent's cognitive loop is never called concurrently.
+There is deliberately no "reply to the last sender" — that is a hidden global
+that misroutes the moment two people write at once.
 
-## Hook payload
+## Tools
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `content` | `string` | Message text, stripped of prefix and @mention |
-| `username` | `string` | Discord username of the sender |
-| `userId` | `string` | Discord user ID |
-| `channelId` | `string` | Channel the message arrived in |
-| `guildId` | `string \| null` | Server ID — `null` for DMs |
-| `messageId` | `string` | Discord message ID |
-| `reply` | `(text: string) => Promise<void>` | Send a reply in the same channel |
-
-## Prompt
-
-The module ships a `discord` prompt that frames the inbound message for the agent.
-Override it by creating `src/prompts/discord.vue` in your agent — agent-owned prompts take precedence.
+| Tool | Purpose |
+|------|---------|
+| `discord.send(channel, text)` | Reply to a channel. Takes the stimulus's channel address. |
+| `discord.history(channelId, limit)` | Read recent messages, oldest first, max 50. |
+| `discord.channels(guildId)` | List text channels in a server. |

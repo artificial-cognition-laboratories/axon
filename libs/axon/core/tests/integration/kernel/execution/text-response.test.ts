@@ -1,10 +1,10 @@
 import { Axon } from "../../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 describe("kernel execution: text responses", () => {
     it("a plain text reply lands on the session as cognet:output:text", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } },
         })
 
         await runtime.kernel.request({ content: "hello" })
@@ -18,7 +18,7 @@ describe("kernel execution: text responses", () => {
 
     it("stops after one tick when the reply is text-only — no execution entries", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } },
         })
 
         await runtime.kernel.request({ content: "hello" })
@@ -31,21 +31,21 @@ describe("kernel execution: text responses", () => {
 
     it("commits the user's message before the agent's reply, in order", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } },
         })
 
         await runtime.kernel.request({ content: "hello" })
 
         const types = runtime.session.entries.map(e => e.type)
 
-        expect(types).toEqual(["cognet:stimulus:text", "cognet:output:text"])
+        expect(types).toEqual(["cognet:stimulus:text", "cognet:output:text", "axon:agent:done"])
 
         await runtime.shutdown()
     })
 
     it("axon.request() surfaces the agent's text as the result's text field", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "Hi there!" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "Hi there!" })] } },
         })
 
         const result = await runtime.axon.request("hello")
@@ -57,7 +57,7 @@ describe("kernel execution: text responses", () => {
 
     it("a fresh call on the same session sees the prior turn as context", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi", bye: "bye" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi", bye: "bye" })] } },
         })
 
         await runtime.kernel.request({ content: "hello" })

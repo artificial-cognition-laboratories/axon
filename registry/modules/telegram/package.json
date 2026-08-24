@@ -1,6 +1,13 @@
 {
   "name": "@axon/telegram",
-  "description": "Telegram bot integration — receive messages and button taps via long-polling, send replies, markdown, inline keyboards, files, and typing indicators.",
-  "version": "0.1.0",
-  "type": "module"
+  "description": "Telegram as a sense channel — inbound messages arrive as text stimuli, outbound is one send tool.",
+  "version": "0.1.4",
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.144",
+    "@arcforge/engines": "2.0.144",
+    "@arcforge/cognet": "2.0.144",
+    "@arcforge/air": "2.0.144",
+    "h3": "^1.13.0"
+  }
 }

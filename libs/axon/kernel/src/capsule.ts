@@ -2,9 +2,9 @@ import { isAbsolute, resolve } from "node:path"
 import { Capsule, CapsuleT } from "@axon/capsule"
 import type { CapsulePartialConfig, CapsuleTool } from "@axon/capsule"
 import { err } from "@arcforge/err"
-import { CAPSULE_TRANSIENT_EVENTS } from "@arcforge/types"
-import type { AxonBlueprint, AxonEventMap, CapsulePolicy } from "@arcforge/types"
-import type { AxonHost } from "@arcforge/types"
+import { CAPSULE_TRANSIENT_EVENTS, resolveIsolation } from "@arcforge/types"
+import type { AxonBlueprint, AxonEventMap, CapsulePolicy, PolicyRule } from "@arcforge/types"
+import type { AxonEscalate, AxonHost } from "@arcforge/types"
 import type { KernelBus } from "./contracts"
 import type { AxonSessionT } from "@arcforge/session"
 import { isLoadable, toScopeModule } from "./scope"
@@ -56,13 +56,34 @@ function defaultPolicy(blueprint: AxonBlueprint): CapsulePartialConfig["policy"]
     const tools: Record<string, true> = {}
     for (const tool of blueprint.tools.filter(isLoadable)) tools[tool.name] = true
 
-    const userPolicy = blueprint.config.policy ?? {}
+    // The two layers, intersected into what the capsule enforces.
+    //
+    // The profile is a CEILING: an agent narrows within it and can never widen
+    // it. Resolved HERE rather than in the TUI, because this is the one seam
+    // every consumer passes through — `axon dev`, `axon run` in a script, a
+    // test harness. A ceiling applied only on the TUI's spawn path would be
+    // advisory, and the CLI is exactly where someone scripting would bypass it
+    // without meaning to.
+    // Both layers normalised to the KEYED shape before they meet.
+    //
+    // A bare `tools: "escalate"` is an authoring convenience; every rule below
+    // — the pairing, the wildcard lookup, the mediator — reads one shape. Doing
+    // it here rather than in each of them is the same discipline Blueprint()
+    // applies at the capsule seam.
+    const userPolicy = intersect(
+        blueprint.profilePolicy ? keyed(blueprint.profilePolicy) : undefined,
+        keyed(blueprint.config.policy ?? {}),
+    )
 
     // The invariant: not setting a security policy means "I don't care" — the
     // agent gets full access to the machine, no hassle, no dependencies. Setting
     // ANY containment intent (fs/network/limits) opts into rootless confinement,
     // which needs no privilege and just works. A user can always name isolation
     // explicitly to force a tier (e.g. "hardened", or "none" despite having fs).
+    //
+    // Read off the INTERSECTED policy, so a profile declaring containment opts
+    // every agent on the machine into it — an agent that declares nothing still
+    // gets the wall its profile asked for.
     const wantsContainment =
         userPolicy.fs !== undefined || userPolicy.network !== undefined || userPolicy.limits !== undefined
     const isolation = userPolicy.isolation ?? (wantsContainment ? "auto" : "none")
@@ -79,6 +100,151 @@ function defaultPolicy(blueprint: AxonBlueprint): CapsulePartialConfig["policy"]
         process: { spawn: true, run: true, ...userPolicy.process },
         tools: { ...tools, ...userPolicy.tools },
     }
+}
+
+/**
+ * Intersect the profile ceiling with an agent's own policy.
+ *
+ * ── Why this is a UNION of keys, not of permissions ─────────────────────────
+ *
+ * Both layers' rules are carried forward per capability, and the MEDIATOR
+ * evaluates the pair at call time (see resolveVerdict in @arcforge/types).
+ * That split is deliberate: merging two glob rules into one is where a ceiling
+ * silently springs a leak — `allow: ["git status"]` unioned with
+ * `allow: ["git push"]` permits a command neither layer permitted alone.
+ *
+ * So this composes the SHAPE (which capabilities each layer has an opinion
+ * about) and leaves the VERDICT to per-call evaluation, where both rules are
+ * still separately available and the answer can name which one decided.
+ *
+ * ── The bare cases collapse here ────────────────────────────────────────────
+ *
+ * `true`/`false`/`"escalate"` carry no patterns, so there is nothing to defer:
+ * a profile `false` is final regardless of what the agent says, and a profile
+ * `true` adds no constraint the agent could violate. Collapsing them at this
+ * seam keeps the common case (a profile that just says "no shell") from
+ * costing a pair lookup on every call.
+ *
+ * fs and limits are NOT intersected: they are OS-layer facts (bind mounts,
+ * cgroups) with no verdict to evaluate, and the mediator never sees them. The
+ * profile's are taken when present, since a ceiling that a bind mount ignores
+ * is not a ceiling.
+ */
+function intersect(
+    profile: NormalizedPolicy | undefined,
+    agent: NormalizedPolicy,
+): NormalizedPolicy {
+    if (!profile) return agent
+
+    return {
+        ...agent,
+        isolation: resolveIsolation(profile.isolation, agent.isolation) ?? agent.isolation,
+
+        // The OS wall. A profile grant is the outer bound, so an agent's paths
+        // are kept only where the profile has no opinion at all — otherwise a
+        // narrower mount would have to be computed, which bind mounts cannot
+        // express as an intersection of globs.
+        ...(profile.fs ? { fs: profile.fs } : {}),
+        ...(profile.limits ? { limits: profile.limits } : {}),
+
+        ...(profile.network || agent.network
+            ? { network: pairRules(profile.network, agent.network) }
+            : {}),
+        ...(profile.tools || agent.tools
+            ? { tools: pairRules(profile.tools, agent.tools) }
+            : {}),
+
+        process: {
+            spawn: pairRule(profile.process?.spawn, agent.process?.spawn),
+            run: pairRule(profile.process?.run, agent.process?.run),
+        },
+    }
+}
+
+/**
+ * One capability's rule under both layers.
+ *
+ * A bare profile verdict wins outright — it cannot be narrowed further by a
+ * pattern and cannot be widened at all. Otherwise the agent's rule stands and
+ * the profile's is carried alongside for the mediator to evaluate against.
+ */
+function pairRule(profile: PolicyRule | undefined, agent: PolicyRule | undefined): PolicyRule {
+    if (profile === false) return false
+    if (profile === "escalate" && agent !== false) return "escalate"
+    if (profile === undefined) return agent ?? true
+    if (profile === true) return agent ?? true
+    // Profile is glob-shaped: the agent narrows within it, and the pair is
+    // evaluated per call. With no agent rule, the profile IS the rule.
+    return agent ?? profile
+}
+
+/** pairRule across two keyed maps, over the union of their keys. */
+function pairRules(
+    profile: Record<string, PolicyRule> | undefined,
+    agent: Record<string, PolicyRule> | undefined,
+): Record<string, PolicyRule> {
+    const keys = new Set([...Object.keys(profile ?? {}), ...Object.keys(agent ?? {})])
+    const out: Record<string, PolicyRule> = {}
+
+    // A profile WILDCARD applies to every key, not only to `*`.
+    //
+    // Without this the ceiling leaks in exactly the case the wildcard exists
+    // for: a profile saying `tools: "escalate"` normalises to `{ "*":
+    // "escalate" }`, an agent's `tools: { fs: true }` keeps its own key, and
+    // the mediator's exact-match then hands back `true` — the profile's
+    // blanket never consulted. A ceiling a named grant can punch through is
+    // not a ceiling.
+    //
+    // Paired per key rather than replacing the agent's rule, so the profile's
+    // blanket and the agent's specific are BOTH carried to the mediator and
+    // the verdict can still name which layer decided.
+    const blanket = profile?.[POLICY_WILDCARD]
+
+    for (const key of keys) out[key] = pairRule(profile?.[key] ?? blanket, agent?.[key])
+    return out
+}
+
+
+/** The key a blanket rule normalises to — mirrors POLICY_WILDCARD in @axon/capsule. */
+const POLICY_WILDCARD = "*"
+
+/**
+ * One authored policy, with every bare surface rule expanded to `{ "*": rule }`.
+ *
+ * `tools: "escalate"` and `tools: { "*": "escalate" }` are the same statement;
+ * this makes them the same VALUE, so nothing downstream has to ask which was
+ * written. `process` is a fixed pair rather than an open bucket, so a bare rule
+ * there applies to both verbs instead of becoming a key no verb would match.
+ */
+function keyed(policy: NonNullable<CapsulePartialConfig["policy"]>): NormalizedPolicy {
+    const { tools, network, process: proc, ...rest } = policy
+    return {
+        ...rest,
+        ...(tools !== undefined ? { tools: bucket(tools) } : {}),
+        ...(network !== undefined ? { network: bucket(network) } : {}),
+        ...(proc !== undefined
+            ? { process: isBareRule(proc) ? { spawn: proc, run: proc } : proc }
+            : {}),
+    }
+}
+
+type NormalizedPolicy = Omit<NonNullable<CapsulePartialConfig["policy"]>, "tools" | "network" | "process"> & {
+    tools?: Record<string, PolicyRule>
+    network?: Record<string, PolicyRule>
+    process?: Partial<CapsulePolicy["process"]>
+}
+
+function bucket(value: NonNullable<CapsulePartialConfig["policy"]>["tools"]): Record<string, PolicyRule> {
+    if (value === undefined) return {}
+    return isBareRule(value) ? { [POLICY_WILDCARD]: value } : value
+}
+
+/** A rule with no keys of its own — `true`, `false`, `"escalate"`, or a glob object. */
+function isBareRule(value: unknown): value is PolicyRule {
+    if (typeof value === "boolean" || value === "escalate") return true
+    if (typeof value !== "object" || value === null) return false
+    const keys = Object.keys(value)
+    return keys.length > 0 && keys.every(key => key === "allow" || key === "deny" || key === "escalate")
 }
 
 /** Resolve an fs policy's relative paths against the agent project root. */
@@ -100,6 +266,13 @@ type AxonCapsuleOpts = {
     run?: () => { runId: string } | null
     boot: boolean
     host?: AxonHost
+    /**
+     * The platform's policy decider. Handed to the capsule as its `escalate`
+     * callback — the one wire that makes a rule saying "escalate" mean
+     * anything. Without it the capsule denies after its own timeout, which is
+     * how every escalation behaved before this was connected.
+     */
+    escalate?: AxonEscalate
 }
 
 /**
@@ -136,6 +309,7 @@ export async function AxonCapsule(opts: AxonCapsuleOpts) {
             env: blueprint.env,
             tools: toCapsuleTools(blueprint),
             policy: defaultPolicy(blueprint),
+            ...(opts.escalate ? { escalate: opts.escalate } : {}),
             ...(opts.host ? {
                 host: {
                     call: request => opts.host!.call({

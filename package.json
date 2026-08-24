@@ -15,6 +15,7 @@
     "registry/agents/*",
     "registry/benches/*",
     "registry/cognets/*",
+    "registry/extensions/*",
     "registry/modules/*",
     "registry/prompts/*"
   ]

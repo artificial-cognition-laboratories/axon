@@ -1,6 +1,6 @@
 import { exportPKCS8, exportSPKI, generateKeyPair } from "jose"
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 import { Connect } from "../../../../../../apps/backend/platform/auth/connect"
 
 /**
@@ -33,7 +33,7 @@ beforeAll(async () => {
 function deployed() {
     return Axon({
         blueprint: {
-            config: { engine: Mock({ hello: "hi" }) },
+            config: { providers: [Mock({ hello: "hi" })] },
             env: { AXON_JWT_PUBLIC_KEY: publicKeyPem, AGENT_ID: AGENT_ID },
         },
     })
@@ -121,7 +121,7 @@ describe("Connect end to end", () => {
     })
 
     it("stays open when the agent has no key — a local agent is inside its owner's boundary", async () => {
-        const runtime = await Axon({ blueprint: { config: { engine: Mock({ hello: "hi" }) } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
 
         const response = await runtime.server.handler(
             new Request("http://localhost/_axon/request", {
@@ -158,6 +158,66 @@ describe("Connect end to end", () => {
             globalThis.fetch = realFetch
         }
 
+        await runtime.shutdown()
+    })
+})
+
+/**
+ * An agent that enforces must SAY which audience to mint for.
+ *
+ * `/_axon/health` is ungated by design — the startup probe hits it before any
+ * caller exists — which makes it the one place a client holding nothing but a
+ * URL can learn what to ask the backend for. Without it, `:attach <url>` sent
+ * no token and every gated route answered `401: connect: missing bearer
+ * token`, naming nothing the user could act on.
+ *
+ * The assumption underneath was "local means the gate is open", which stopped
+ * being true when local staging began deploying through the real pipeline:
+ * those agents are local AND enforcing.
+ */
+describe("Connect discovery", () => {
+    it("publishes the audience on health when the gate is enforcing", async () => {
+        const runtime = await deployed()
+
+        const response = await runtime.server.handler(new Request("http://localhost/_axon/health"))
+        const health = await response.json() as { agentId?: string }
+
+        expect(health.agentId).toBe(AGENT_ID)
+        await runtime.shutdown()
+    })
+
+    it("publishes NO audience when the gate is open", async () => {
+        // Absence is the honest signal that no token is needed, rather than an
+        // id a client would then mint against for nothing.
+        const runtime = await Axon({ blueprint: { config: { providers: [Mock({ hello: "hi" })] } } })
+
+        const response = await runtime.server.handler(new Request("http://localhost/_axon/health"))
+        const health = await response.json() as { agentId?: string }
+
+        expect(health.agentId).toBeUndefined()
+        await runtime.shutdown()
+    })
+
+    it("health stays reachable without a token, so discovery is possible at all", async () => {
+        const runtime = await deployed()
+
+        const response = await runtime.server.handler(new Request("http://localhost/_axon/health"))
+
+        expect(response.status).toBe(200)
+        await runtime.shutdown()
+    })
+
+    it("the published audience is the one a working token must name", async () => {
+        const runtime = await deployed()
+        const health = await (await runtime.server.handler(new Request("http://localhost/_axon/health"))).json() as { agentId: string }
+
+        // Mint for exactly what health advertised — the round trip a client makes.
+        const token = await minter.mint({ sub: "user-1", aud: health.agentId, scope: ["request"] })
+        const response = await runtime.server.handler(
+            new Request("http://localhost/_axon/request", bearer(token)),
+        )
+
+        expect(response.status).toBe(200)
         await runtime.shutdown()
     })
 })

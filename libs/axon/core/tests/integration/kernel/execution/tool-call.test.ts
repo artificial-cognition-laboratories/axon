@@ -1,11 +1,12 @@
-import { Axon } from "../../../setup/axon"
-import { Mock, run } from "@arcforge/engines/mock"
+import { Axon, driver } from "../../../setup/axon"
+import { Mock } from "@arcforge/engines"
+import { run } from "@arcforge/engines/mock"
 import type { AxonEngineDef, AxonEngineRawEvent } from "@arcforge/types"
 
 describe("kernel execution: tool calls", () => {
     it("executes a run() step in the real capsule and commits the result to the session", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ "/go": [run("1 + 1"), "done"] }) } },
+            blueprint: { config: { providers: [Mock({ "/go": [run("1 + 1"), "done"] })] } },
         })
 
         await runtime.kernel.request({ content: "/go" })
@@ -21,7 +22,7 @@ describe("kernel execution: tool calls", () => {
 
     it("commits the cognet:action:typescript entry with the code the engine emitted", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ "/go": [run("40 + 2"), "done"] }) } },
+            blueprint: { config: { providers: [Mock({ "/go": [run("40 + 2"), "done"] })] } },
         })
 
         await runtime.kernel.request({ content: "/go" })
@@ -35,7 +36,7 @@ describe("kernel execution: tool calls", () => {
 
     it("links the result entry back to the typescript block it answers", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ "/go": [run("1 + 1"), "done"] }) } },
+            blueprint: { config: { providers: [Mock({ "/go": [run("1 + 1"), "done"] })] } },
         })
 
         await runtime.kernel.request({ content: "/go" })
@@ -53,7 +54,7 @@ describe("kernel execution: tool calls", () => {
 
     it("commits a failed result (ok: false) when the executed code throws", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ "/go": [run(`throw new Error("boom")`), "done"] }) } },
+            blueprint: { config: { providers: [Mock({ "/go": [run(`throw new Error("boom")`), "done"] })] } },
         })
 
         await runtime.kernel.request({ content: "/go" })
@@ -69,9 +70,9 @@ describe("kernel execution: tool calls", () => {
         const runtime = await Axon({
             blueprint: {
                 config: {
-                    engine: Mock({
+                    providers: [Mock({
                         "/go": [run(`await new Promise(r => setTimeout(r, 10_000)); "unreachable"`), "also unreachable"],
-                    }),
+                    })],
                 },
             },
         })
@@ -99,6 +100,67 @@ describe("kernel execution: tool calls", () => {
         await runtime.shutdown()
     })
 
+    it("a batch interrupted partway does not run the blocks it had not started", async () => {
+        /**
+         * The destructive case that survived until now.
+         *
+         * ONE long command is already killed on abort — procs.ts kills the
+         * child's process tree. What was not killed is a SEQUENCE: a turn
+         * emitting several blocks dispatches them together, so every remaining
+         * block still executed after the user pressed Escape. Forty small
+         * writes finishing past an interrupt is worse than one big one, because
+         * nothing stops it.
+         *
+         * The kernel cannot cancel a tool already inside an `await` without
+         * every module author threading a signal — a contract this system
+         * deliberately does not impose. So it stops the sequence instead: a
+         * block that has not STARTED does not start once the wake is cancelled.
+         *
+         * Asserted through the RESULTS rather than a count, because the fix
+         * must not lose the blocks that genuinely ran.
+         */
+        const runtime = await Axon({
+            blueprint: {
+                config: {
+                    providers: [Mock({
+                        "/go": [
+                            // The first blocks long enough to interrupt during.
+                            run(`await new Promise(r => setTimeout(r, 10_000)); "first"`),
+                            run(`"second"`),
+                            run(`"third"`),
+                            "done",
+                        ],
+                    })],
+                },
+            },
+        })
+
+        const invocation = runtime.axon.stream("/go")
+        const drain = (async () => {
+            for await (const _ of invocation.stream) { /* drain */ }
+        })()
+
+        while (!runtime.session.entries.some(e => e.type === "cognet:action:typescript")) {
+            await Bun.sleep(5)
+        }
+        invocation.interrupt()
+        await drain
+
+        const results = runtime.session.entries.filter(e => e.type === "cognet:action:result")
+
+        // Every result that exists reports honestly — nothing claims success
+        // after the interrupt.
+        for (const result of results) {
+            expect((result.data as { ok: boolean }).ok).toBe(false)
+        }
+
+        // And the wake is recorded as interrupted rather than completed.
+        expect(runtime.session.kernelLog.some(e => e.type === "kernel:run:interrupted")).toBe(true)
+        expect(runtime.session.kernelLog.some(e => e.type === "kernel:run:complete")).toBe(false)
+
+        await runtime.shutdown()
+    })
+
     it("allows text and done emitted after executable code in the same model turn, and still executes the code", async () => {
         let call = 0
         const engine: AxonEngineDef = {
@@ -107,7 +169,7 @@ describe("kernel execution: tool calls", () => {
                 async *stream(): AsyncGenerator<AxonEngineRawEvent> {
                     call++
                     const text = call === 1
-                        ? "<typescript>1 + 1</typescript><text>checking that now</text><done/>"
+                        ? "<script>1 + 1</script><text>checking that now</text><done/>"
                         : "<text>final answer</text><done/>"
                     yield { type: "text:delta", content: text }
                     yield {
@@ -126,7 +188,7 @@ describe("kernel execution: tool calls", () => {
                 },
             }),
         }
-        const runtime = await Axon({ blueprint: { config: { engine } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [driver(engine)] } } })
 
         const response = await runtime.axon.request("/go")
 

@@ -1,6 +1,0 @@
-{
-  "name": "@axon/google",
-  "description": "Google Search integration — search the web from any agent.",
-  "version": "0.1.3",
-  "type": "module"
-}

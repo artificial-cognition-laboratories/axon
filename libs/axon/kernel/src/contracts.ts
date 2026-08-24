@@ -26,6 +26,14 @@ export type KernelBus = {
 export type KernelCognet = {
     readonly name: string
     readonly mode: CognetSchedule
+    /**
+     * Which entry types wake this brain. Absent = everything.
+     *
+     * Read by the scheduler's stimulus trigger. A conversational cognet
+     * declares nothing and hears all of it; one attached to a firehose
+     * sensor names the few kinds worth a thought.
+     */
+    readonly wakeOn?: readonly string[]
     load(abi: KernelAbi): Promise<void>
     wake(wake: CognetWake): Promise<void>
     update(blueprint: AxonBlueprint): Promise<void> | void

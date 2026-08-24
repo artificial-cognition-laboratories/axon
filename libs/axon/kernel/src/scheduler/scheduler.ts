@@ -54,7 +54,7 @@ type InvokeInput = {
  * AsyncLocalStorage binds it to the wake that started the work, so a syscall
  * resolves correctly no matter how the awaits interleave.
  */
-const runStorage = new AsyncLocalStorage<{ runId: string }>()
+const runStorage = new AsyncLocalStorage<{ runId: string; signal: AbortSignal }>()
 
 export function Scheduler(opts: SchedulerOpts) {
     let cognet: KernelCognet | null = null
@@ -117,7 +117,11 @@ export function Scheduler(opts: SchedulerOpts) {
             session: opts.session,
             abort: reserved.abort,
         })
-        const run = { runId: wake.runId }
+        // The signal rides WITH the run, so a mediated syscall resolves its
+        // own wake's cancellation rather than being handed one. A cognet
+        // that forgot to thread it used to make an operation unkillable;
+        // there is now nothing to forget.
+        const run = { runId: wake.runId, signal: reserved.abort.signal }
 
         return (async function* () {
             try {
@@ -165,9 +169,85 @@ export function Scheduler(opts: SchedulerOpts) {
     const invocation = Invocation({ session: opts.session, reserve, release, runWake, interrupt })
     const continuous = Continuous({ session: opts.session, reserve, release, runWake })
 
+    /**
+     * Wake an invocation cognet when the WORLD reaches it — the trigger that
+     * makes `mode: "invocation"` mean what its docstring says ("invoked once
+     * per admitted stimulus arrival") for a stimulus nobody called in.
+     *
+     * Without this the only path to a wake was kernel.stream()/request(), so
+     * a stimulus from a sense organ (a channel module, a sensor) queued and
+     * waited for a caller that never came: the message landed in the log and
+     * the agent never thought about it. A body has no caller by definition.
+     *
+     * Three gates, and each rejects for its own reason:
+     *
+     *   MODE — continuous cognets own their clock (a cognet plugin drives
+     *   kernel.wake()); waking them here would be the runtime asserting a
+     *   rhythm it cannot know, which continuous.ts exists to prevent.
+     *
+     *   PROVENANCE — a stimulus committed BY a wake is that wake's own echo.
+     *   Waking on it is an infinite loop: the brain hears itself and thinks
+     *   again, forever. runStorage answers this exactly — anything ingested
+     *   inside a wake carries that wake's async context.
+     *
+     *   MASK — `wakeOn`, when the cognet declares one. Absent means wake on
+     *   everything, which is the right default for a conversational brain
+     *   and wrong for one that only cares about a single channel.
+     *
+     * Contention is NOT a gate: an invocation cognet is one conversation, so
+     * a stimulus arriving mid-wake is dropped by reserve() throwing
+     * RUN_IN_PROGRESS. That is correct — it stays on the queue and the
+     * running wake's own drain picks it up.
+     */
+    function onStimulus(entry: AxonStimulusEntry): void {
+        if (!cognet || cognet.mode.kind !== "invocation") return
+
+        // The brain's own echo — never wake on it.
+        if (runStorage.getStore()) return
+
+        const mask = cognet.wakeOn
+        if (mask && !mask.includes(entry.type)) return
+
+        let wire: ReturnType<typeof invocation.stream>
+        try {
+            wire = invocation.stream()
+        } catch {
+            // RUN_IN_PROGRESS: a wake is already running and will drain this
+            // stimulus itself. Nothing is lost, so nothing to report.
+            return
+        }
+
+        // The wire MUST be consumed to completion or its reservation leaks
+        // (runWake's finally lives inside the generator). Detached because
+        // no caller is waiting — a sensation is not a question. Entries
+        // commit as they are produced.
+        void (async () => {
+            for await (const _entry of wire.stream) {
+                // nothing to collect
+            }
+        })().catch(() => {
+            // Already durable as kernel:run:failed by the time it lands here.
+        })
+    }
+
+    // Stimuli reach the bus on every ingest (durable and transient alike —
+    // session.ts forwards both), so this is the arrival signal without
+    // threading a second callback through the session's queue. Subscribed
+    // for the scheduler's lifetime: onStimulus itself gates on whether a
+    // cognet is attached and what mode it is in.
+    const unsubscribe = opts.bus.onAny((event, payload) => {
+        if (!event.startsWith("cognet:stimulus:")) return
+        onStimulus(payload as AxonStimulusEntry)
+    })
+
     return {
         get loaded() {
             return cognet !== null
+        },
+
+        /** Drop the bus subscription — run when the kernel shuts down. */
+        dispose() {
+            unsubscribe()
         },
 
         /** register the loaded cognet — the kernel runs load(abi) first */

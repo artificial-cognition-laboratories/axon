@@ -1,4 +1,4 @@
-import { errScope } from "@arcforge/err"
+import { err, errScope } from "@arcforge/err"
 import { isBuildEvent, isEntryEvent, isKernelEvent, STIMULUS_TRANSIENT_EVENTS } from "@arcforge/types"
 import type {
     AxonBlueprint,
@@ -12,7 +12,9 @@ import type {
     AxonStimulusEvent,
     AxonStimulusType,
 } from "@arcforge/types"
+import type { AxonSpanName } from "@arcforge/types"
 import { home } from "./home"
+import { SensoryRing } from "./sensory"
 import path from "node:path"
 
 /**
@@ -172,6 +174,11 @@ async function SessionState(opts: SessionStateOpts) {
     const errorQueue = ErrorQueue()
     const reportedErrors = new WeakSet<object>()
     const stimuli = Stimuli()
+    // The bounded window for dense sense streams — see sensory.ts. Its own
+    // write chain, deliberately not the log's Writer: a 30Hz sensor must
+    // never be able to delay a durable commit, and the two orderings are
+    // independent (one file per tier, `seq` correlates them).
+    const sensory = SensoryRing({ root: opts.root, sessionId: opts.sessionId })
     const log: AxonSessionEvent[] = []
     const kernelLog: AxonKernelEvent[] = []
     const entries: AxonEntry[] = []
@@ -179,17 +186,39 @@ async function SessionState(opts: SessionStateOpts) {
 
     // ── envelope stamping — the one place id/time/context are minted ────────
 
+    /**
+     * The envelope carries what VARIES, and nothing else.
+     *
+     * Measured on a real 30Hz session (1M events, 302MB): the data payload
+     * was 20% of the file and the envelope 80%. Two fields accounted for
+     * most of it — `agentId` and `sessionId`, stamped on every line and
+     * CONSTANT for the whole file (36%), and a per-event uuid (14%).
+     *
+     * Both are now gone from the line. The two constants are written once,
+     * in the file's header (see home.data.sessions.open), and the uuid is
+     * replaced by `time.seq`, which was already the authoritative total
+     * order: verified unique and monotonic across 300k consecutive events,
+     * and nothing in the runtime ever read `id` back. An identifier that
+     * duplicates an existing key is 8.8MB of ceremony.
+     *
+     * `seq` is therefore the event's identity as well as its order, which
+     * is the honest shape — a session log is a sequence, and a sequence
+     * numbers its members.
+     */
     function envelope(type: string, data: unknown, ctx?: CommitContext) {
         return {
-            id: Bun.randomUUIDv7(),
             type,
             time: { ms: Date.now(), seq: seq++ },
-            context: {
-                agentId: opts.agentId,
-                sessionId: opts.sessionId,
-                ...(ctx?.runId ? { runId: ctx.runId } : {}),
-                ...(ctx?.spanId ? { spanId: ctx.spanId } : {}),
-            },
+            // Only correlation ids that actually vary per event survive
+            // here. An event with neither carries no context key at all.
+            ...(ctx?.runId || ctx?.spanId
+                ? {
+                    context: {
+                        ...(ctx.runId ? { runId: ctx.runId } : {}),
+                        ...(ctx.spanId ? { spanId: ctx.spanId } : {}),
+                    },
+                }
+                : {}),
             data,
         }
     }
@@ -269,10 +298,24 @@ async function SessionState(opts: SessionStateOpts) {
         data: AxonStimulusEvent[K],
         ctx?: CommitContext,
     ): Promise<AxonEntry> {
-        // A transient stimulus is STAMPED but never written: it gets a real
-        // envelope (id, seq, context) so the cognet receives an entry
-        // indistinguishable from any other, and the log never sees it. See
+        // A transient stimulus is STAMPED and ANNOUNCED but never written: it
+        // gets a real envelope (id, seq, context) so the cognet receives an
+        // entry indistinguishable from any other, it reaches live observers
+        // over the bus, and the log never sees it. See
         // STIMULUS_TRANSIENT_EVENTS for why durability belongs to the kind.
+        //
+        // DURABILITY AND OBSERVABILITY ARE DIFFERENT QUESTIONS. "Do not keep
+        // this forever" is a statement about the record; "do not let anyone
+        // watch this happen" is a statement about the present, and the two
+        // were previously answered by one branch. That made a live sensor
+        // invisible to devtools by construction: a voice agent's entire input
+        // half could not be observed, which is precisely the half you need
+        // when its hearing is what is broken.
+        //
+        // Forwarding costs nothing when nobody is attached — the bus drops
+        // events with no subscribers — so the firehose argument that governs
+        // the disk append does not govern this. Bytes still never touch the
+        // log, which is the invariant that actually matters.
         //
         // Note the seq is still consumed. The stimulus is a real event that
         // really happened, and skipping the counter would make two durable
@@ -282,9 +325,27 @@ async function SessionState(opts: SessionStateOpts) {
         // so for any K in AxonStimulusType the two payload types are the same
         // type — TS just can't prove it through the intersection for a generic
         // K. Narrowed to this one key rather than the old union-wide cast.
-        const entry = STIMULUS_TRANSIENT_EVENTS.has(type)
-            ? envelope(type, data, ctx) as AxonEntry
-            : await commitEntry(type, data as AxonEntryEvent[K], ctx)
+        let entry: AxonEntry
+        if (STIMULUS_TRANSIENT_EVENTS.has(type)) {
+            entry = envelope(type, data, ctx) as AxonEntry
+            // The sensory tier: a bounded window on disk, plus the live
+            // announce. Not awaited against the delivery path — a wake must
+            // never wait on the debugger's window to be updated, and the
+            // ring serializes its own appends internally.
+            //
+            // A failure here is reported, never swallowed: the ring not
+            // being writable is a real fault (a full or read-only disk) and
+            // a silently empty debug window is exactly the kind of lie that
+            // costs an hour when you finally need it. It does not propagate
+            // to the sensation itself, because delivery already succeeded —
+            // the cognet's input must not fail because observation did.
+            sensory.record(entry).catch((cause: unknown) => {
+                commitError({ error: err("SENSORY_WRITE_FAILED", { cause, context: { type } }) })
+            })
+            await opts.bus.forward(entry)
+        } else {
+            entry = await commitEntry(type, data as AxonEntryEvent[K], ctx)
+        }
         // commitEntry returns the general AxonEntry shape (shared machinery
         // for every commit); K constrained to AxonStimulusType guarantees
         // this specific entry is stimulus-shaped.
@@ -336,6 +397,11 @@ async function SessionState(opts: SessionStateOpts) {
      */
     const resuming = prior.some(event => !isBuildEvent(event.type))
 
+    // The header, before anything else can append. No-ops when the file
+    // already exists, so a resumed session keeps the header it opened with
+    // and a build-created file gets one on the runtime's first touch.
+    await home.data.sessions.open(opts.root, opts.sessionId, opts.agentId)
+
     await commit(resuming ? "axon:session:restored" : "axon:session:opened", {})
 
     return {
@@ -378,6 +444,19 @@ async function SessionState(opts: SessionStateOpts) {
         async close(): Promise<void> {
             await drainWithTimeout(writer, "session writer")
             await errorQueue.drain()
+            // The ring settles last and under a ceiling, for the same reason
+            // the error queue does: it fills at sensor rate, independently of
+            // anything the user asked for, and a debug window must never be
+            // the reason a shutdown hangs.
+            await Promise.race([
+                sensory.drain(),
+                new Promise<void>(resolve => setTimeout(resolve, DRAIN_TIMEOUT_MS)),
+            ])
+            // Release the append handles last — every writer above has
+            // settled, so the bytes are durable and only the descriptors
+            // remain. A long-lived host (the TUI, which opens many sessions)
+            // would otherwise leak one fd per session it has ever loaded.
+            await home.close(opts.root)
         },
     }
 }
@@ -433,6 +512,55 @@ export async function AxonSession(opts: AxonSessionOpts) {
         /** append a typed entry to the session's one log */
         commitEntry<K extends keyof AxonEntryEvent>(type: K, data: AxonEntryEvent[K], ctx?: CommitContext) {
             return current.commitEntry(type, data, ctx)
+        },
+
+        /**
+         * Run one bracketed operation: commits `:start`, then `:complete` or
+         * `:failed`, whatever happens.
+         *
+         * The runtime counterpart of the build's `span()`, and it exists for
+         * the same reason: instrumentation that lies is worse than none. A
+         * hand-written triad drops its `:complete` on any early return and
+         * its `:failed` on any throw path the author did not picture, and a
+         * flame graph containing a span that never closes shows a phantom
+         * duration running to the end of the log. One `finally` makes that
+         * unrepresentable.
+         *
+         * Typed against AxonEventMap rather than a hand-written name union,
+         * so the payloads are checked at the call site and adding a span is
+         * a declaration in the event map plus a call — never a cast.
+         *
+         * The opening facts are REPEATED on both closing halves, as the
+         * build's span() does. Bracket-matching identifies a span by the
+         * discriminating fields in its payload (tick, phase, name, id), so a
+         * `:complete` that dropped them would not pair with its own `:start`
+         * — the span would read as one opened and never closed, plus an
+         * orphan close, and the flame graph would show a phantom duration.
+         */
+        async span<K extends AxonSpanName, T>(
+            name: K,
+            start: AxonEventMap[`${K}:start`],
+            run: () => Promise<T>,
+            complete?: (value: T) => Omit<AxonEventMap[`${K}:complete`], "durationMs">,
+        ): Promise<T> {
+            const began = Date.now()
+            await current.commit(`${name}:start` as keyof AxonEventMap, start as never)
+            try {
+                const value = await run()
+                await current.commit(`${name}:complete` as keyof AxonEventMap, {
+                    ...(start as object),
+                    ...(complete ? complete(value) : {}),
+                    durationMs: Date.now() - began,
+                } as never)
+                return value
+            } catch (cause) {
+                await current.commit(`${name}:failed` as keyof AxonEventMap, {
+                    ...(start as object),
+                    error: err(cause).toJSON(),
+                    durationMs: Date.now() - began,
+                } as never)
+                throw cause
+            }
         },
 
         /**

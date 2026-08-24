@@ -1,0 +1,14 @@
+{
+  "name": "@axon/screenshare",
+  "version": "0.1.3",
+  "description": "Screen capture as a sense. Streams a display's frames into the agent's cognet; list it twice for two monitors.",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.117",
+    "@arcforge/engines": "2.0.117",
+    "@arcforge/cognet": "2.0.117",
+    "@arcforge/air": "2.0.117",
+    "h3": "^1.13.0"
+  }
+}

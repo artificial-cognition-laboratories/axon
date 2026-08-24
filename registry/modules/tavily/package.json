@@ -1,7 +1,0 @@
-{
-  "name": "@axon/tavily",
-  "version": "0.1.4",
-  "description": "Tavily Search API",
-  "type": "module",
-  "private": false
-}

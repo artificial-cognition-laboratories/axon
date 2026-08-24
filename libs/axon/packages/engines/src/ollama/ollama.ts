@@ -1,10 +1,12 @@
-import type { AxonEngineDef, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
+import type { AxonEngineDef, EngineEffort, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
 import { Collect } from "../shared"
 import { OllamaBackend } from "./backend"
 
 export type OllamaOptions = {
     /** Model name as listed in `ollama list` e.g. "qwen2.5:7b", "gemma4" */
     model: string
+    /** Requested reasoning effort. Ollama models may ignore it. */
+    effort?: EngineEffort
     /** Ollama host. Defaults to http://localhost:11434 */
     host?: string
 }
@@ -19,7 +21,7 @@ export type OllamaOptions = {
  * import { Ollama } from "@arcforge/engines"
  *
  * export default defineAgent({
- *     engine: Ollama({ model: "qwen2.5:7b" }),
+ *     providers: [Ollama()],
  * })
  * ```
  *
@@ -31,6 +33,7 @@ export function Ollama(options: OllamaOptions): AxonEngineDef {
     return {
         name: "ollama",
         model: options.model,
+        ...(options.effort !== undefined ? { effort: options.effort } : {}),
 
         create(): AxonEngineDriver {
             const backend = OllamaBackend({ host, model: options.model })

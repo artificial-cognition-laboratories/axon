@@ -1,0 +1,14 @@
+{
+  "name": "@axon/docs",
+  "version": "1.0.7",
+  "description": "The Axon platform documentation, installable as agent knowledge.",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.141",
+    "@arcforge/engines": "2.0.141",
+    "@arcforge/cognet": "2.0.141",
+    "@arcforge/air": "2.0.141",
+    "h3": "^1.13.0"
+  }
+}

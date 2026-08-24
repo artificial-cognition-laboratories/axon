@@ -1,94 +1,71 @@
 import { Axon } from "../../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
-describe("kernel reload: engine swap", () => {
-    it("a request after update() uses the new engine, not the one from boot", async () => {
+/**
+ * What a hot reload does and does not touch, now that inference is resolved
+ * from the user's providers rather than named in the agent's config.
+ *
+ * Engine bindings are decided ONCE, at boot, against the pool the profile
+ * declares. A reload re-reads the agent's own config — its tools, prompts,
+ * policy — but cannot change what a user has, so it does not re-resolve.
+ * Changing which model serves a role is a deliberate act on one role, not a
+ * side effect of editing a file: `Engines.select()` for a picked model string,
+ * `Engines.rebind()` for a capability already in hand.
+ *
+ * That distinction is load-bearing and was, for a while, only half-built. The
+ * rule below is correct, but nothing called either verb — so the TUI's model
+ * picker wrote the choice to axon.config.ts and waited for the reload these
+ * tests describe, which by design does not re-resolve. The pick took effect
+ * only after a full reboot. The reload behaviour asserted here did not change;
+ * what changed is that the picker now performs the deliberate act instead of
+ * relying on a reload to do something it never did.
+ *
+ * These tests used to assert the opposite, because `engine:` WAS agent config
+ * and swapping it was the whole model-picker flow.
+ */
+describe("kernel reload: inference survives a reload", () => {
+    it("keeps serving from the engine resolved at boot", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "from the old engine" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "from the boot engine" })] } },
         })
 
-        await runtime.update({ config: { engine: Mock({ hello: "from the new engine" }) } })
+        await runtime.update({ config: { providers: [Mock({ hello: "from a later edit" })] } })
 
         const result = await runtime.axon.request("hello")
 
-        expect(result.text).toBe("from the new engine")
+        // The reload did not re-resolve: a user's providers are not something
+        // an agent's own config can change.
+        expect(result.text).toBe("from the boot engine")
 
         await runtime.shutdown()
     })
 
-    it("the old engine is never called again after a swap", async () => {
-        let oldEngineCalls = 0
-        const oldEngine = Mock(() => { oldEngineCalls++; return "old" })
+    it("a reload does not tear down the bound engine", async () => {
+        let calls = 0
+        const engine = Mock(() => { calls++; return "answered" })
 
-        const runtime = await Axon({ blueprint: { config: { engine: oldEngine } } })
+        const runtime = await Axon({ blueprint: { config: { providers: [engine] } } })
         await runtime.axon.request("first")
-        expect(oldEngineCalls).toBe(1)
+        expect(calls).toBe(1)
 
-        await runtime.update({ config: { engine: Mock(() => "new") } })
+        await runtime.update({ config: {} })
         await runtime.axon.request("second")
 
-        expect(oldEngineCalls).toBe(1) // unchanged — only the new engine served the second call
+        // Same binding, still live — the reload changed config, not inference.
+        expect(calls).toBe(2)
 
         await runtime.shutdown()
     })
 
-    it("swapping to an engine with no config still lets the kernel run — update() doesn't corrupt other config", async () => {
+    it("update() leaves the rest of the config intact", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "v1" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
-        await runtime.update({ config: { engine: Mock({ hello: "v2" }) } })
+        await runtime.update({ config: { links: { docs: "/api/help" } } })
 
         const result = await runtime.axon.request("hello")
-        expect(result.text).toBe("v2")
-
-        await runtime.shutdown()
-    })
-
-    it("session history survives an engine swap — the new engine sees prior conversation", async () => {
-        const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ remember: "noted" }) } },
-        })
-
-        await runtime.axon.request("remember this fact")
-
-        await runtime.update({ config: { engine: Mock(() => "post-swap reply") } })
-        await runtime.axon.request("what now")
-
-        const userTurns = runtime.session.entries.filter(e => e.type === "cognet:stimulus:text")
-
-        expect(userTurns.length).toBe(2)
-
-        await runtime.shutdown()
-    })
-
-    it("update() with an empty config partial (merge mode) leaves the current engine in place", async () => {
-        const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "still here" }) } },
-        })
-
-        // Default mode is "merge" — a partial programmatic update changes only
-        // what it names; the engine set at boot survives an empty config.
-        await runtime.update({ config: {} })
-
-        const result = await runtime.axon.request("hello")
-        expect(result.text).toBe("still here")
-
-        await runtime.shutdown()
-    })
-
-    it("update() in replace mode drops a config field the reloaded blueprint omits", async () => {
-        // A file reload passes mode:"replace" — the config file is authoritative,
-        // so a field the author deleted (commenting out `policy`) disappears
-        // rather than lingering (which kept a confined sandbox locked until a
-        // full restart). Merge mode would retain it; replace mirrors the file.
-        const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "v" }), policy: { isolation: "none", fs: { read: ["/tmp/x"] } } } },
-        })
-
-        await runtime.update({ config: { engine: Mock({ hello: "v" }) } }, { mode: "replace" })
-
-        expect(runtime.blueprint.config.policy?.fs).toBeUndefined()
+        expect(result.text).toBe("hi")
 
         await runtime.shutdown()
     })

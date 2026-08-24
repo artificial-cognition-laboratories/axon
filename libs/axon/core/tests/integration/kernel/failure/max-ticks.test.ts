@@ -1,11 +1,12 @@
 import { Axon } from "../../../setup/axon"
-import { Mock, run } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
+import { run } from "@arcforge/engines/mock"
 
 describe("kernel failure: MAX_TICKS bound", () => {
     it("a def that never reaches a stop condition fails with a bounded-run error rather than hanging", async () => {
         // always executes, never speaks — the loop keeps re-invoking the engine forever
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock(() => run("return 1")) } },
+            blueprint: { config: { providers: [Mock(() => run("return 1"))] } },
         })
 
         await expect(runtime.kernel.request({ content: "go" })).rejects.toThrow(/MAX_TICKS/)
@@ -15,7 +16,7 @@ describe("kernel failure: MAX_TICKS bound", () => {
 
     it("the lock releases after a MAX_TICKS failure — a fresh run is accepted afterward", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock(() => run("return 1")) } },
+            blueprint: { config: { providers: [Mock(() => run("return 1"))] } },
         })
 
         await expect(runtime.kernel.request({ content: "go" })).rejects.toThrow()
@@ -30,7 +31,7 @@ describe("kernel failure: MAX_TICKS bound", () => {
 
     it("commits kernel:run:failed rather than silently swallowing the bound violation", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock(() => run("return 1")) } },
+            blueprint: { config: { providers: [Mock(() => run("return 1"))] } },
         })
 
         await expect(runtime.kernel.request({ content: "go" })).rejects.toThrow()

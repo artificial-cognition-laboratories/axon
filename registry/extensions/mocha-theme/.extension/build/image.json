@@ -1,0 +1,8 @@
+{
+  "kind": "extension",
+  "name": "@axon/mocha-theme",
+  "version": "1.0.4",
+  "public": true,
+  "builtAt": "2026-08-13T18:54:08.522Z",
+  "description": "Catppuccin for the terminal — all four flavours: mocha, macchiato, frappe and latte."
+}

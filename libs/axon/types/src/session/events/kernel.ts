@@ -50,6 +50,29 @@ export type AxonKernelEventMap =
         { attempts: number; text: string; thinking?: string; stopReason: "end" | "length" | "abort"; meta: AxonEngineMeta },
         { attempts: number; fault: AxonEngineFault }
     >
+    /**
+     * A non-generate engine call — ASR, embeddings, depth, TTS.
+     *
+     * Its OWN family rather than a reuse of kernel:engine, because that span's
+     * completion carries text, a stop reason and token meta: a depth map has
+     * none of those, and a transform forced into that shape would have to lie
+     * about four fields. Same reason kernel:run is not kernel:engine.
+     *
+     * The payload never appears — it is a tensor, an image or a waveform, and
+     * the log records what happened rather than copying what moved. What is
+     * here is the thing a reader wants: which role, which model, how long.
+     *
+     * `stream` engines are bracketed at OPEN and CLOSE, not per push. A VAD at
+     * 30Hz is 1800 pushes a minute; a span for each would drown every other
+     * event in the log, and the session's lifetime is the interval that
+     * actually means something.
+     */
+    & AxonSpan<
+        "kernel:transform",
+        { role: string; provider: string; model?: string },
+        { role: string; durationMs: number },
+        { role: string; fault: AxonEngineFault }
+    >
     & {
         /**
          * The rendered AIR document handed to the engine for this call — what the
@@ -59,4 +82,26 @@ export type AxonKernelEventMap =
          */
         "kernel:engine:input": { messages: AxonEngineMessage[]; bytes: number }
         "kernel:engine:retry": { attempt: number; nextAttempt: number; delayMs: number; fault: AxonEngineFault }
+        /**
+         * The first provider delta crossed the boundary — the moment an engine
+         * call stops waiting and starts producing.
+         *
+         * Not a span, and deliberately so: this is an INSTANT inside the
+         * kernel:engine bracket, not a bracket of its own. The two intervals a
+         * reader wants (latency before it, generation after it) are both
+         * derivable from one marker plus the ends that already exist, so a
+         * second pair of start/complete events would be two lines describing
+         * the same split.
+         *
+         * `meta.firstTokenMs` on :complete carries the same number, but only in
+         * arrears and only for a call that finished. This is emitted AS IT
+         * HAPPENS, which is what makes it drawable on a live bar and what keeps
+         * the split visible on a call that was interrupted or failed mid-stream
+         * — precisely the calls where "was it slow to start or slow to finish"
+         * is the question being asked.
+         *
+         * Same spanId as its kernel:engine:start, per attempt: a retried call
+         * emits one per attempt, and `attempt` distinguishes them.
+         */
+        "kernel:engine:firstToken": { attempt: number; elapsedMs: number }
     }

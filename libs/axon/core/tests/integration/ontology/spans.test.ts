@@ -1,5 +1,5 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 import { isSpanEnd, isSpanStart, spanStem } from "@arcforge/types"
 import type { AxonEvent } from "@arcforge/types"
 
@@ -22,9 +22,9 @@ async function fullLifecycle() {
     const runtime = await Axon({
         blueprint: {
             config: {
-                engine: Mock({
+                providers: [Mock({
                     hello: "<typescript>1 + 1</typescript>",
-                }),
+                })],
             },
         },
     })
@@ -69,6 +69,12 @@ describe("Event ontology", () => {
         // at all; each was a real gap at some point in this convergence.
         for (const required of [
             "axon:boot:start", "axon:boot:complete",
+            // Boot's interior. axon:boot used to bracket the whole runtime
+            // construction and nothing inside it, so half a boot was one
+            // unlabelled gap — these are what closed it.
+            "axon:cognet:start", "axon:cognet:complete",
+            "axon:inference:start", "axon:inference:complete",
+            "axon:kernel:start", "axon:kernel:complete",
             "cognet:load:start", "cognet:load:complete",
             "kernel:run:start", "kernel:run:complete",
             "kernel:engine:start", "kernel:engine:complete",
@@ -130,6 +136,38 @@ describe("Event ontology", () => {
         expect(orphaned).toEqual([])
     })
 
+    it("accounts for boot's wall time in named spans, leaving no large gap", async () => {
+        const events = await fullLifecycle()
+
+        // WHY THIS IS A TEST. The boot trace is a user-facing surface, and
+        // an unlabelled hole in it reads as time the system cannot account
+        // for. This regressed once already: axon:boot bracketed 540ms while
+        // its named children summed to ~380ms, and the missing 271ms — half
+        // the boot — was a cold model-catalogue fetch nothing measured.
+        //
+        // The assertion is on the GAP, not on a duration budget: how long a
+        // boot takes depends on the machine, but whether the trace explains
+        // where that time went does not.
+        const boot = events.find(e => e.type === "axon:boot:start")!
+        const done = events.find(e => e.type === "axon:boot:complete")!
+        const inside = events.filter(e =>
+            e.time.seq > boot.time.seq && e.time.seq <= done.time.seq)
+
+        // Walk adjacent events inside the bracket. Any stretch where nothing
+        // was reported for a meaningful span of time is an accountability
+        // hole, and the event AFTER it names what the boot was doing.
+        const clock = (e: AnyEvent) => (e.time as { ms?: number }).ms ?? 0
+        let previous = clock(boot)
+        const holes: Array<{ before: string; ms: number }> = []
+        for (const event of inside) {
+            const gap = clock(event) - previous
+            if (gap > GAP_BUDGET_MS) holes.push({ before: event.type, ms: gap })
+            previous = clock(event)
+        }
+
+        expect(holes).toEqual([])
+    })
+
     it("keeps failure payloads structured, never a bare string", async () => {
         const events = await fullLifecycle()
 
@@ -142,6 +180,16 @@ describe("Event ontology", () => {
         }
     })
 })
+
+/**
+ * How long boot may go unreported before it counts as an accountability hole.
+ *
+ * Generous deliberately: this is a floor against UNTRACED WORK, not a
+ * performance budget. A slow machine, a cold import or a loaded CI box may
+ * legitimately make any single step take a while — what must not happen is
+ * that it takes a while with no span saying what it was.
+ */
+const GAP_BUDGET_MS = 150
 
 /** What distinguishes this bracket from its siblings of the same stem. */
 function identity(event: AnyEvent): string {

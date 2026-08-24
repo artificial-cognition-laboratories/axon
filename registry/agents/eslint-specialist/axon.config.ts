@@ -1,11 +1,4 @@
 export default defineAgent({
-    description: "ESLint Specialist — progressive linting convergence for any TypeScript project.",
-
-    engine: Codex({
-        model: "gpt-5.4",
-        effort: "medium",
-    }),
-
     policy: {
         fs: {
             read: ["./**/*.{ts,js,mjs,cjs,mts,cts,vue,tsx,jsx}", "./eslint.config.*", "./data/**"],

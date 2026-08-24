@@ -1,6 +1,7 @@
 import { HttpError } from "@arcforge/types"
 import type { AxonEngineRequest, EngineCloud } from "@arcforge/types"
-import { Codex, EngineFailure } from "../src"
+import { EngineFailure } from "../src"
+import { CodexDriver as Codex } from "../src/drivers"
 
 const request: AxonEngineRequest = { messages: [{ role: "user", content: "hello" }] }
 

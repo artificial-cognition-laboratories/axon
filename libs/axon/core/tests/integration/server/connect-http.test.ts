@@ -1,7 +1,7 @@
 import { exportSPKI, generateKeyPair, SignJWT } from "jose"
 import { Agents } from "@arclabs/cloud"
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * The connect gate over a REAL HTTP server.
@@ -40,7 +40,7 @@ describe("Connect gate over HTTP", () => {
 
         const runtime = await Axon({
             blueprint: {
-                config: { engine: Mock({ hello: "Hi there!" }) },
+                config: { providers: [Mock({ hello: "Hi there!" })] },
                 env: { AXON_JWT_PUBLIC_KEY: publicKey, AGENT_ID: "agent-1" },
             },
         })

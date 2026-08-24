@@ -1,7 +1,14 @@
 import { queryArxiv, fetchByIds } from "../arxiv/client.ts"
 import type { QueryOptions } from "../arxiv/client.ts"
 
-export type { Paper } from "../arxiv/client.ts"
+// Both types are re-exported, not only Paper.
+//
+// QueryOptions appears in three public signatures below (`search`, `byAuthor`,
+// `recent`), so the generated declaration names it — and a declaration that
+// names a type the agent cannot resolve is refused by the tool scanner
+// (AX-BLUEPRINT-002). A type used in an exported signature has to be exported
+// with it.
+export type { Paper, QueryOptions } from "../arxiv/client.ts"
 
 // ── Public surface ─────────────────────────────────────────────────────────────
 

@@ -1,0 +1,14 @@
+{
+  "name": "@axon/microphone",
+  "version": "0.1.1",
+  "description": "Hearing. Streams microphone frames into the agent's cognet — install it and talk; the device resolves automatically.",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.117",
+    "@arcforge/engines": "2.0.117",
+    "@arcforge/cognet": "2.0.117",
+    "@arcforge/air": "2.0.117",
+    "h3": "^1.13.0"
+  }
+}

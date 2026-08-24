@@ -7,6 +7,7 @@ import { Routes } from "./routes"
 import type { AxonBlueprint, AxonHandle } from "@arcforge/types"
 import { AxonBusT, AxonHooksT } from "../../platform"
 import type { AxonSessionT } from "@arcforge/session"
+import type { EnginesT } from "@arcforge/engines/catalogue"
 
 type ServerOpts = {
     blueprint: AxonBlueprint
@@ -21,6 +22,8 @@ type ServerOpts = {
     bus: AxonBusT
     /** Environmental — the request log commits here, same as every other runtime fact. */
     session: AxonSessionT
+    /** Resolved inference roles — the health endpoint reports the primary binding. */
+    engines?: EnginesT
 }
 
 /**
@@ -66,6 +69,7 @@ export async function AxonServer(opts: ServerOpts) {
         axon: opts.axon,
         bus: opts.bus,
         blueprint: opts.blueprint,
+        ...(opts.engines ? { engines: opts.engines } : {}),
     })
 
     const routes = Routes({

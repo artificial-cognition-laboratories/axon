@@ -1,0 +1,10 @@
+{
+  "extends": "@arcforge/types/tsconfig.base.json",
+  "include": [
+    "./**/*.d.ts",
+    "../../*.ts",
+    "../../src/**/*.ts",
+    "../../plugins/**/*.ts",
+    "../../tests/**/*.ts"
+  ]
+}

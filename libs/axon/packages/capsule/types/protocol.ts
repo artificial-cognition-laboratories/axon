@@ -8,9 +8,22 @@ import type { CapsulePolicy, PolicyResponseCommand } from "./policy"
  * subprocess; the generic response frame only completes calls initiated by
  * the capsule-safe Axon facade.
  */
+/**
+ * Who asked for a command to run — "cognet" (the agent's own reasoning,
+ * the default) or "host" (a developer typing into a live capsule).
+ *
+ * Owned by @arcforge/types like the rest of the capsule's session
+ * vocabulary; re-exported here because the wire carries it. It rides the
+ * wire rather than staying host-side because the subprocess is what emits
+ * capsule:cmd:start, and one emission site carrying the truth beats two
+ * sites that can disagree.
+ */
+export type { CapsuleCommandOrigin } from "@arcforge/types"
+import type { CapsuleCommandOrigin } from "@arcforge/types"
+
 export type CapsuleCommand =
     // ── Code execution ───────────────────────────────────────────────────────
-    | { type: "cmd:run"; id: string; code: string }
+    | { type: "cmd:run"; id: string; code: string; origin?: CapsuleCommandOrigin }
     | { type: "cmd:kill"; id: string }
 
     // ── Policy ───────────────────────────────────────────────────────────────

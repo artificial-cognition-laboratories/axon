@@ -1,0 +1,14 @@
+{
+  "name": "@axon/compute",
+  "version": "0.1.1",
+  "description": "Interoception. The machine sensing itself — CPU, memory, disk, network, thermal, GPU, and the agent process's own footprint.",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.117",
+    "@arcforge/engines": "2.0.117",
+    "@arcforge/cognet": "2.0.117",
+    "@arcforge/air": "2.0.117",
+    "h3": "^1.13.0"
+  }
+}

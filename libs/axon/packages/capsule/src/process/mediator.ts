@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto"
 import type { CapsulePolicy, PolicyRule } from "../../types"
 import { globMatch } from "./glob"
+
+/**
+ * The key a blanket rule normalises to — see `PolicyBucket` and `Blueprint`.
+ *
+ * Declared here rather than imported: this file is GUEST code, which may
+ * import node builtins and type-only declarations and nothing else (the
+ * workspace symlink points outside the confined filesystem, so a runtime
+ * import kills the subprocess at startup). Kept in step with the host's
+ * `POLICY_WILDCARD` by `tests/policy-wildcard.test.ts`, which asserts the two
+ * literals match — the same "duplicated across the boundary, guarded by a
+ * test" shape the error codes already use.
+ */
+const POLICY_WILDCARD = "*"
 import type { SandboxWireT } from "./wire"
 
 type MediatorOpts = {
@@ -69,9 +82,18 @@ export function Mediator(opts: MediatorOpts): MediatorT {
         const builtin = MODULE_RULES[fn]?.(policy)
         if (builtin !== undefined) return builtin
 
+        // An exact key wins; a `*` entry catches everything else.
+        //
+        // The wildcard is what a bare `tools: "escalate"` normalises to (see
+        // Blueprint), and it is also authorable directly alongside named keys.
+        // Specific-beats-wildcard is ordinary glob precedence, and it is what
+        // makes `{ "*": "escalate", fs: true }` mean what it reads as.
         const namespace = owner ?? fn.split(".")[0]!
-        if (namespace === "network") return policy.network?.[fn.slice("network.".length)]
-        return policy.tools?.[namespace]
+        if (namespace === "network") {
+            const host = fn.slice("network.".length)
+            return policy.network?.[host] ?? policy.network?.[POLICY_WILDCARD]
+        }
+        return policy.tools?.[namespace] ?? policy.tools?.[POLICY_WILDCARD]
     }
 
     async function check(fn: string, subject: string, args: unknown[], owner?: string): Promise<boolean> {

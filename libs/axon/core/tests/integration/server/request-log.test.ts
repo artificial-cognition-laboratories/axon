@@ -1,7 +1,7 @@
 import { defineEventHandler, createError } from "h3"
 import type { AxonRoute } from "@arcforge/types"
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 /**
  * axon:server:request — one durable line per request to the agent's own HTTP
@@ -11,7 +11,7 @@ import { Mock } from "@arcforge/engines/mock"
  */
 describe("Server request log", () => {
     function runtimeWith(routes: AxonRoute[] = []) {
-        return Axon({ blueprint: { config: { engine: Mock() }, server: { routes } } })
+        return Axon({ blueprint: { config: { providers: [Mock()] }, server: { routes } } })
     }
 
     function requests(runtime: Awaited<ReturnType<typeof Axon>>) {

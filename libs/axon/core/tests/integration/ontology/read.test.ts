@@ -1,5 +1,5 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 import { formatSession, isSpanNode, readSession } from "@arcforge/types"
 import type { ReadNode, SpanNode } from "@arcforge/types"
 
@@ -14,7 +14,7 @@ import type { ReadNode, SpanNode } from "@arcforge/types"
 async function wakeTree() {
     const runtime = await Axon({
         blueprint: {
-            config: { engine: Mock({ hello: "<typescript>1 + 1</typescript>" }) },
+            config: { providers: [Mock({ hello: "<typescript>1 + 1</typescript>" })] },
         },
     })
     await runtime.kernel.request({ content: "hello" })

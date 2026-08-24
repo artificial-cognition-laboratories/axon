@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/kernel",
-    "version": "2.0.112",
+    "version": "2.0.155",
     "description": "The Axon kernel — ring 0. Owns resources and execution, enforces policy, and is the only constructor of the unprivileged capsule.",
     "type": "module",
     "private": false,
@@ -15,7 +15,7 @@
         "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
     },
     "dependencies": {
-        "@arcforge/cognet": "workspace:*",
+        "@arcforge/air": "workspace:*",
         "@arcforge/engines": "workspace:*",
         "@arcforge/err": "workspace:*",
         "@arcforge/session": "workspace:*",

@@ -9,7 +9,7 @@ describe("kernel: persistence", () => {
         const sessionId = crypto.randomUUID()
 
         const first = await Axon({ blueprint: { session: { id: sessionId }, paths: { root } } })
-        await first.session.commitEntry("cognet:stimulus:text", { source: { channel: "user" }, content: "remember this" })
+        await first.session.commitEntry("cognet:stimulus:text", { channel: "user", content: "remember this" })
         await first.shutdown()
 
         const resumed = await Axon({ blueprint: { session: { id: sessionId }, paths: { root } } })
@@ -34,12 +34,12 @@ describe("kernel: persistence", () => {
         const sessionId = crypto.randomUUID()
 
         const first = await Axon({ blueprint: { session: { id: sessionId }, paths: { root } } })
-        await first.session.commitEntry("cognet:stimulus:text", { source: { channel: "user" }, content: "one" })
-        await first.session.commitEntry("cognet:stimulus:text", { source: { channel: "user" }, content: "two" })
+        await first.session.commitEntry("cognet:stimulus:text", { channel: "user", content: "one" })
+        await first.session.commitEntry("cognet:stimulus:text", { channel: "user", content: "two" })
         await first.shutdown()
 
         const resumed = await Axon({ blueprint: { session: { id: sessionId }, paths: { root } } })
-        const newEntry = await resumed.session.commitEntry("cognet:stimulus:text", { source: { channel: "user" }, content: "three" })
+        const newEntry = await resumed.session.commitEntry("cognet:stimulus:text", { channel: "user", content: "three" })
 
         const seqs = resumed.session.entries.map(e => e.time.seq)
         expect(new Set(seqs).size).toBe(seqs.length) // no seq collision with restored entries

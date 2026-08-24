@@ -1,5 +1,6 @@
 import { Axon } from "../../../setup/axon"
-import { Mock, run } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
+import { run } from "@arcforge/engines/mock"
 import type { AxonTool } from "@arcforge/types"
 
 const greeterTool: AxonTool = {
@@ -23,7 +24,7 @@ describe("kernel policy: tools", () => {
             blueprint: {
                 tools: [greeterTool],
                 config: {
-                    engine: Mock({ "/go": [run(`greet("world")`), "done"] }),
+                    providers: [Mock({ "/go": [run(`greet("world")`), "done"] })],
                     policy: { tools: { greeter: true } },
                 },
             },
@@ -44,7 +45,7 @@ describe("kernel policy: tools", () => {
             blueprint: {
                 tools: [greeterTool],
                 config: {
-                    engine: Mock({ "/go": [run(`greet("world")`), "done"] }),
+                    providers: [Mock({ "/go": [run(`greet("world")`), "done"] })],
                     // no policy.tools entry for "greeter" at all — Axon defaults to allow
                 },
             },
@@ -65,7 +66,7 @@ describe("kernel policy: tools", () => {
             blueprint: {
                 tools: [greeterTool],
                 config: {
-                    engine: Mock({ "/go": [run(`greet("world")`), "done"] }),
+                    providers: [Mock({ "/go": [run(`greet("world")`), "done"] })],
                     policy: { tools: { greeter: false } },
                 },
             },
@@ -85,7 +86,7 @@ describe("kernel policy: tools", () => {
             blueprint: {
                 tools: [greeterTool],
                 config: {
-                    engine: Mock({ "/go": [run(`greet("world")`), "done"] }),
+                    providers: [Mock({ "/go": [run(`greet("world")`), "done"] })],
                     policy: { tools: { greeter: false } },
                 },
             },
@@ -109,7 +110,7 @@ describe("kernel policy: tools", () => {
         const runtime = await Axon({
             blueprint: {
                 config: {
-                    engine: Mock({ "/go": [run(`nonexistent.doThing()`), "done"] }),
+                    providers: [Mock({ "/go": [run(`nonexistent.doThing()`), "done"] })],
                     policy: { tools: { nonexistent: true } },
                 },
             },

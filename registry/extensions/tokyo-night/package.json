@@ -1,0 +1,11 @@
+{
+  "name": "@axon/tokyo-night",
+  "description": "Tokyo Night for the terminal — night, storm and day.",
+  "version": "1.0.3",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.133",
+    "@types/bun": "^1.2.0"
+  }
+}

@@ -1,6 +1,8 @@
 import type { AxonPrompt } from "./prompts"
 import type { AxonScript } from "./scripts"
 import type { AxonTool } from "./tools"
+import type { AxonEntry } from "./session/session"
+import type { AxonStimulusEvent, AxonStimulusType } from "./session/events/stdio/stimuli"
 
 /**
  * A resolved, installed module as it appears in the blueprint — surfaces
@@ -42,6 +44,22 @@ export type AxonModule = {
     apiPath?: string
     /** Absolute path to modules/<name>/data/knowledge/, when present. */
     knowledgePath?: string
+    /**
+     * Why this module loaded WITHOUT part of what it declares.
+     *
+     * Set when a scanner could not read something the module ships — tools
+     * that will not compile, a prompt that would not introspect. The module is
+     * still installed and still in the blueprint; some of its surface is
+     * missing.
+     *
+     * Present on the module rather than only in a warnings list because the
+     * MODEL has to be told. A tool that failed to declare is absent from
+     * <scope> by construction, which is correct but silent: without this the
+     * agent has no way to know it lost a capability, and confidently offers
+     * one it cannot call. Rendered into context so it can say "I cannot search
+     * arXiv right now" instead.
+     */
+    degraded?: string
     prompts: AxonPrompt[]
     scripts: AxonScript[]
     tools: AxonTool[]
@@ -178,6 +196,29 @@ export type ModuleSetupAxon = {
     /** Emit a hook — fires all registered handlers for this name. */
     callHook(name: string, ...args: any[]): Promise<void>
     /**
+     * Deliver a stimulus — the sense door, for modules that ARE sense organs.
+     *
+     * A channel module (Telegram, Discord, Slack) holds a live transport for
+     * the agent's whole life and pushes what it receives into the session:
+     *
+     * ```ts
+     * axon.stim("cognet:stimulus:text", {
+     *     channel: "telegram:123456789",
+     *     content: "cody: did the deploy finish?",
+     * })
+     * ```
+     *
+     * Granted here, unlike `request`/`stream`, because sensing is not
+     * cognition. A stimulus is raw sense data — nothing upstream of the brain
+     * may judge, rank, or filter it (see stimuli.ts) — so this hands a module
+     * no cognitive power, only a wire into the session. The mind still decides
+     * when to wake and what to attend to.
+     *
+     * The counterpart is the module's TOOL surface: sense in through `stim`,
+     * act out through a tool the brain calls deliberately.
+     */
+    stim<K extends AxonStimulusType>(type: K, data: AxonStimulusEvent[K]): Promise<AxonEntry>
+    /**
      * Register teardown for this module's live resources (connections, timers,
      * sockets). Disposers run in REVERSE module order on shutdown, and on
      * hot-reload before setup re-runs — so a reloaded agent is identical to a
@@ -185,6 +226,24 @@ export type ModuleSetupAxon = {
      * registration order within the module too.
      */
     onDispose(fn: () => void | Promise<void>): void
+    /**
+     * Report that this module is installed but not working, and let the agent
+     * boot anyway.
+     *
+     * The alternative is throwing, and a throw in setup() is TOTAL — no later
+     * module is wired and the agent does not come up. That is the right answer
+     * for a module that is broken. It is the wrong answer for one that is
+     * merely unconfigured: a channel whose credential has not been pasted yet
+     * should leave the agent running with one sense organ unconnected, not
+     * take the whole agent down. An unbootable agent also cannot run the
+     * command that would fix it.
+     *
+     * Renders as a warning rather than an error — "the agent is fine EXCEPT
+     * for the thing you just installed" — and repeats on each boot until the
+     * cause is resolved, because a one-time notice about a permanent gap is
+     * one the user will not see again when they wonder why nothing happens.
+     */
+    warn(message: string): Promise<void>
     env: {
         get(key: string): string | undefined
         require(key: string): string

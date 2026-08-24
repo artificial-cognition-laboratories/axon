@@ -15,6 +15,8 @@
  * 1. Top-level types are INFORMATION KINDS, not sensors. Symbolic language,
  *    sound, light, measured fields — new hardware maps into an existing
  *    kind (ROS sensor_msgs discipline: the core set outlives every vendor).
+ *    "Measured quantity" is one kind however many components it has — a
+ *    thermometer and a nine-axis IMU differ in array length, not in type.
  *    A new top-level type here is a once-per-epoch event, like a syscall.
  *
  * 2. Heavy payloads NEVER cross this protocol. A stimulus is a small fact: a
@@ -40,21 +42,8 @@
  */
 
 import type { AxonEventUnion } from "../../envelope"
-import type { StimulusRef } from "./shared"
-
-// ── Shared shapes ─────────────────────────────────────────────────────────────
-
-/**
- * Where a stimulus came from. `channel` identifies the concrete source
- * ("user", "email:inbox", "mic0", "cam:front", "telemetry:battery") —
- * open vocabulary, agent-defined. The TYPE says what kind of information
- * it is; the source says where it entered.
- */
-export type StimulusSource = {
-    channel: string
-    /** stable id when the source is a session participant (user id, device id) */
-    id?: string
-}
+import { SENSORY_EVENTS } from "./shared"
+import type { AxonChannel, AxonTextFormat, StimulusRef } from "./shared"
 
 // ── The sense set ─────────────────────────────────────────────────────────────
 
@@ -65,20 +54,24 @@ export type StimulusSource = {
  *   text    — symbolic language (native modality of an LLM)
  *   audio   — sound over time (speech, ambient) — digest is the transcript
  *   visual  — light: frames and clips — digest is the caption/percept
- *   field   — measured quantities over time: touch, heat, pose, battery,
- *             GPS, market prices, autopilot telemetry. One type, open
- *             channel vocabulary — this is what stops sense-set sprawl.
+ *   vector  — measured quantities: touch, heat, pose, battery, joint
+ *             angles, an IMU, a lidar scan. One kind, always an array,
+ *             open channel vocabulary — this is what stops sense-set
+ *             sprawl, because a new sensor is new NUMBERS, never a new
+ *             kind.
  */
 export type AxonStimulusEvent = {
     /** Symbolic language input. Inline — text IS its own digest. */
     "cognet:stimulus:text": {
-        source: StimulusSource
+        channel: AxonChannel
         content: string
+        /** how to read it — "json", "markdown"; absent = plain prose */
+        format?: AxonTextFormat
     }
 
     /** An audio segment. Bytes stay behind `ref`; `transcript` is an optional inline digest. */
     "cognet:stimulus:audio": {
-        source: StimulusSource
+        channel: AxonChannel
         ref: StimulusRef
         /** inline digest, when the producer already had one — never a summary it computed */
         transcript?: string
@@ -87,7 +80,7 @@ export type AxonStimulusEvent = {
 
     /** A frame or clip. Bytes stay behind `ref`; `caption` is an optional inline digest. */
     "cognet:stimulus:visual": {
-        source: StimulusSource
+        channel: AxonChannel
         ref: StimulusRef
         /** inline digest, when the producer already had one — never a summary it computed */
         caption?: string
@@ -95,18 +88,83 @@ export type AxonStimulusEvent = {
     }
 
     /**
-     * A reading from a measured field — touch, heat, pose, battery, light,
-     * price. The reading is inline (small by nature); `ref` optionally points
-     * at a surrounding raw window.
+     * A measurement — one instrument, one instant, one to many numbers.
+     *
+     * Touch, heat, pose, battery, joint angles, an IMU, a mouse position, a
+     * lidar scan. Everything the world reports as quantity rather than as
+     * sound, light, or language.
+     *
+     * ALWAYS AN ARRAY, even for a thermometer. A scalar is a vector of
+     * length one, and admitting both shapes would put
+     * `Array.isArray(v) ? v : [v]` at the top of every renderer, every fold,
+     * and every bridge forever. The boundary is also unstable in the
+     * direction real systems travel: one GPU's temperature is one number
+     * until a second GPU arrives, and under a union that is a silent shape
+     * change nobody validated. One shape, always.
+     *
+     * THE VALUES ARE ONE SAMPLE. Nine core temperatures read at one instant
+     * belong together, and nine separate stimuli could never say so — the
+     * mind would be left to guess which readings were simultaneous. This is
+     * the whole reason the kind is a vector rather than a scalar: atomicity
+     * is a property of the measurement, and only the instrument knows it.
      *
      * Deliberately carries no judgment about why the reading was sent. A
      * producer emits what it measured; deciding which readings matter is the
      * cognet's, and only the cognet's.
      */
-    "cognet:stimulus:field": {
-        source: StimulusSource
-        /** the measurement, unit-tagged, e.g. { value: 87, unit: "%" } */
-        reading: { value: number | string | boolean; unit?: string }
+    "cognet:stimulus:vector": {
+        channel: AxonChannel
+        /** the measurement — one sample, one or more components */
+        values: number[]
+        /** what the numbers are in when every component shares one, e.g. "°C", "m/s²", "px" */
+        unit?: string
+        /**
+         * Per-component units, same length as `values` — for readings whose
+         * components genuinely differ.
+         *
+         * Not an edge case: it is the norm the moment you leave a
+         * single-quantity instrument. A joint reports position in rad,
+         * velocity in rad/s, and effort in Nm. An IMU is m/s² and rad/s. A
+         * force/torque sensor is N and Nm. A GPS is degrees and metres.
+         *
+         * The alternative — one channel per unit — would split a
+         * measurement that the instrument took as one sample, which is the
+         * atomicity this kind exists to preserve. Folding the unit into the
+         * label ("position (rad)") makes labels unparseable and mixes
+         * presentation into data.
+         *
+         * `unit` stays for the common uniform case; a reading uses one or
+         * the other, never both.
+         */
+        units?: string[]
+        /**
+         * What each component is, same length as `values` —
+         * ["Package","Core 0",…] or ["x","y"] or ["roll","pitch","yaw"].
+         *
+         * Carried because the instrument already knows it. Without it a
+         * nine-vector is nine anonymous numbers and every consumer
+         * re-derives the meaning from the channel name, which is the
+         * second-source-of-truth pattern this protocol refuses everywhere
+         * else.
+         */
+        labels?: string[]
+        /**
+         * The convention these values follow — "imu", "pose2d",
+         * "mouse.position". Advisory: the runtime never validates or reads
+         * it. It is a JOIN KEY, so a cognet written against `imu` works with
+         * any body that declares one, and a ROS bridge can carry
+         * `sensor_msgs/Imu` across without the meaning being lost.
+         *
+         * Optional because `unit` and `labels` are usually enough. A new
+         * sensor convention is a new string, never a protocol change — which
+         * is what keeps this kind set closed.
+         */
+        profile?: string
+        /**
+         * For readings too large to inline — a point cloud is 50,000 × 3
+         * numbers. Same size rule audio and visual already use, so a reading
+         * outgrowing JSON is never a change of kind.
+         */
         ref?: StimulusRef
     }
 }
@@ -114,33 +172,21 @@ export type AxonStimulusEvent = {
 export type AxonStimulusType = keyof AxonStimulusEvent
 
 /**
- * Dense sense streams — delivered to the cognet, never written to the log.
- * Everything not in this set is durable.
+ * The inbound half of SENSORY_EVENTS (shared.ts), which is the one
+ * definition — sensory-tier is a property of the KIND and does not differ
+ * by direction.
  *
- * A stimulus is a SENSATION, and the protocol has always described it as one:
- * delivered once, then gone, with no second chance to attend to it. The
- * delivery queue was already built that way (drain-and-forget, no history) —
- * but ingest() committed every stimulus first, so the runtime kept a
- * permanent record of exactly the thing it told cognets was transient.
- *
- * That is affordable for text and sparse field readings, and impossible for
- * a live sensor. A 30Hz microphone commits ~2.6M entries a day whose bytes
- * nobody will ever replay; the useful record is what the mind DID with them
- * — its outputs and actions — which stays durable and is unaffected.
- *
- * Durability is a property of the KIND, not a runtime mode, for the same
- * reason CAPSULE_TRANSIENT_EVENTS is: whether a sensation is worth
- * remembering follows from what it is. Text is what someone said and belongs
- * in the record. Frames are what a retina saw.
+ * Kept as a named export because the delivery path is stimulus-only: the
+ * scheduler asks "is this sensation transient" about things it is handing
+ * to a cognet, and can never be handed an output.
  *
  * A cognet that needs a frame beyond the tick it arrived in keeps it in its
  * own resident state — which is what an organism does, and what the runtime
  * must not do on its behalf.
  */
-export const STIMULUS_TRANSIENT_EVENTS = new Set<AxonStimulusType>([
-    "cognet:stimulus:audio",
-    "cognet:stimulus:visual",
-])
+export const STIMULUS_TRANSIENT_EVENTS = new Set<AxonStimulusType>(
+    [...SENSORY_EVENTS].filter((type): type is AxonStimulusType => type.startsWith("cognet:stimulus:")),
+)
 
 /**
  * One enveloped stimulus — the shape CognetWake.stimuli actually delivers.

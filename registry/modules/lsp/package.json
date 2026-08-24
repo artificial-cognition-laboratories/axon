@@ -1,6 +1,13 @@
 {
   "name": "@axon/lsp",
   "description": "Language server integration — hover, definition, references, rename, diagnostics, and code actions across TypeScript, Python, Rust, Go, and C/C++.",
-  "version": "0.1.0",
-  "type": "module"
+  "version": "0.1.4",
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.139",
+    "@arcforge/engines": "2.0.139",
+    "@arcforge/cognet": "2.0.139",
+    "@arcforge/air": "2.0.139",
+    "h3": "^1.13.0"
+  }
 }

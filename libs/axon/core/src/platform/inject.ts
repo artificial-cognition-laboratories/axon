@@ -5,20 +5,52 @@ import type { AxonBlueprint, AxonHandle } from "@arcforge/types"
 const argsStorage = new AsyncLocalStorage<Record<string, unknown>>()
 
 /**
- * Fallback for the one place ALS cannot reach: a dynamic `import()`'s module
+ * Args for the one place ALS cannot reach: a dynamic `import()`'s module
  * evaluation.
  *
  * Scripts are invoked by importing them, and ALS context does NOT propagate
- * across that boundary in Bun — so `args` read at a script's top level saw an
- * empty object no matter what was passed. The config loader hit the same wall
- * and solved it the same way (see blueprint/scan/config.ts): register on the
- * ALS *and* on a serialized current, and read whichever is populated.
+ * across that boundary in Bun — neither into the synchronous top-level body
+ * nor after an `await` inside it, so `args` read at a script's top level saw
+ * an empty object no matter what was passed.
  *
- * Serialized rather than per-call because there is exactly one import in
- * flight per withArgs() — the ALS still owns the concurrent case, this only
- * covers the synchronous module-evaluation window the ALS misses.
+ * Keyed by RUN ID, not a single serialized slot. The slot version was a real
+ * race: `withArgs` saved the previous value and restored it in a `finally`,
+ * so two overlapping invocations interleaved on one variable — A sets, B sets,
+ * A reads B's args. Reproduced deterministically (A in flight reading
+ * `{who:"B"}`), and it surfaced as non-deterministic failures in
+ * tests/integration/handle/scripts.test.ts the moment the suite ran with
+ * --parallel. Nothing threw; a script simply ran against another call's args.
+ *
+ * The run ID is the cache-bust token the script specifier already carries
+ * (see runtime/source/scripts.ts), so the script reads its args back through
+ * `args` with no ambiguity about which invocation it belongs to, however many
+ * are in flight.
  */
-let currentArgs: Record<string, unknown> | null = null
+const runArgs = new Map<string, Record<string, unknown>>()
+
+/**
+ * Resolve the args for whichever run is asking.
+ *
+ * There is deliberately NO "current run" variable. Any single slot — however
+ * carefully saved and restored — is a race the moment two invocations overlap,
+ * which is exactly the bug this replaced. Instead the caller is identified from
+ * the stack: a script's frames carry its own specifier, and that specifier
+ * carries the run id (`...?run=<uuid>`), so each concurrent script resolves to
+ * its own entry with nothing shared between them.
+ *
+ * Falls back to the sole in-flight run when the stack carries no run id. That
+ * covers an `args` read from a helper the script imported (a separate module,
+ * its own frames) while keeping the ambiguous case honest: with more than one
+ * run in flight there is no defensible answer, so it yields `{}` rather than
+ * guessing and handing a script another call's args.
+ */
+function argsForCaller(): Record<string, unknown> | undefined {
+    const stack = new Error().stack ?? ""
+    for (const [runId, args] of runArgs) {
+        if (stack.includes(`run=${runId}`)) return args
+    }
+    return runArgs.size === 1 ? runArgs.values().next().value : undefined
+}
 
 /**
  * Owns every global mutation in the runtime. All globalThis writes live
@@ -29,9 +61,10 @@ let currentArgs: Record<string, unknown> | null = null
  *               Any call throws INJECT_OUTSIDE_RUNTIME.
  *   runtime() — swaps in the live handle once Axon() has fully built it.
  *
- * `args` is scoped per-invocation via AsyncLocalStorage instead of a bare
- * save/restore on globalThis — two concurrent script/tool calls each get
- * their own args, no race between them regardless of interleaving.
+ * `args` is scoped per-invocation: AsyncLocalStorage wherever context
+ * propagates, and a run-id-keyed map for the dynamic-import window where it
+ * does not (see runArgs above). Two concurrent script/tool calls each get
+ * their own args regardless of interleaving.
  */
 export function Inject() {
     function outsideRuntime(): never {
@@ -59,20 +92,26 @@ export function Inject() {
 
             Object.defineProperty(g, "args", {
                 configurable: true,
-                get: () => argsStorage.getStore() ?? currentArgs ?? {},
+                get: () => argsStorage.getStore() ?? argsForCaller() ?? {},
             })
 
             installToolGlobals(g, axon, blueprint)
         },
 
-        /** run fn with `args` scoped to this call only — safe under concurrency */
-        async withArgs<T>(args: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
-            const previous = currentArgs
-            currentArgs = args
+        /**
+         * Run fn with `args` scoped to this call only — safe under concurrency.
+         *
+         * `runId` must uniquely identify this invocation; callers importing a
+         * script pass the same token they cache-bust the specifier with, so a
+         * top-level read inside that module resolves to these args and no
+         * other in-flight call's.
+         */
+        async withArgs<T>(runId: string, args: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
+            runArgs.set(runId, args)
             try {
                 return await argsStorage.run(args, fn)
             } finally {
-                currentArgs = previous
+                runArgs.delete(runId)
             }
         },
     }

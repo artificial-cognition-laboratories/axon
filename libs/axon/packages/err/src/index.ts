@@ -9,4 +9,4 @@ export {
     type AxonErrorSeverity,
     type AxonErrorSource,
 } from "./map"
-export { errScope, type AxonErrorSink } from "./sink"
+export { errScope, observeErrors, type AxonErrorSink } from "./sink"

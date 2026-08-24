@@ -37,7 +37,7 @@ export async function runSetup(opts: {
     const started = Date.now()
 
     const disposers: Array<() => void | Promise<void>> = []
-    const axon = ModuleContext({ blueprint, hooks, onDispose: fn => disposers.push(fn) })
+    const axon = ModuleContext({ blueprint, hooks, session, onDispose: fn => disposers.push(fn) })
 
     // A module with no setup() is legal — it contributes tools/prompts
     // statically and needs no boot-time wiring.

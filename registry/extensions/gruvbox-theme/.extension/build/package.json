@@ -1,0 +1,11 @@
+{
+  "name": "@axon/gruvbox-theme",
+  "description": "Retro groove for the terminal — Gruvbox in three weights: medium, hard and light.",
+  "version": "1.0.3",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.133",
+    "@types/bun": "^1.2.0"
+  }
+}

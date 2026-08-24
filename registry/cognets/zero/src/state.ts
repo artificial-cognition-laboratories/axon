@@ -26,12 +26,12 @@ export const state: ZeroState = {
 }
 
 /**
- * Fold everything the log has that this mind hasn't — boot hydration and
- * steady-state ticking are the SAME operation with different cursors.
- * Everything zero causes or receives lands in the log (stimuli via ingest,
- * outputs/actions via the kernel's own commits), so syncing at each tick
- * start keeps the model lockstep with the durable record by construction.
- * Idempotent: the seq cursor makes double-folds no-ops.
+ * Fold everything committed since the last call into the resident model.
+ *
+ * The whole rehydration story for a log-derived mind, and the same verb at
+ * both call sites: boot (plugins/setup.ts) folds from seq -1, every tick
+ * folds the tail. Nothing is passed in — the cognet reads what it wants
+ * from its own episodic record.
  */
 export function sync(): void {
     for (const entry of kernel.store.session.get({ after: state.seq })) {

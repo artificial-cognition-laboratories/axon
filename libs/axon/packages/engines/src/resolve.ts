@@ -19,17 +19,18 @@ export function resolveEngine(config: EngineConfig): AxonEngineDef {
         case "axon":
             return Axon({
                 ...(ref.model !== undefined ? { model: ref.model } : {}),
+                ...(ref.effort !== undefined ? { effort: ref.effort } : {}),
                 ...(ref.optimize !== undefined ? { optimize: ref.optimize } : {}),
                 ...(ref.limit !== undefined ? { limit: ref.limit } : {}),
             })
         case "openrouter":
-            return OpenRouter({ model: ref.model })
+            return OpenRouter({ model: ref.model, ...(ref.effort !== undefined ? { effort: ref.effort } : {}) })
         case "codex":
-            return Codex(ref.model !== undefined ? { model: ref.model } : {})
+            return Codex({ ...(ref.model !== undefined ? { model: ref.model } : {}), ...(ref.effort !== undefined ? { effort: ref.effort } : {}) })
         case "ollama":
-            return Ollama({ model: ref.model })
+            return Ollama({ model: ref.model, ...(ref.effort !== undefined ? { effort: ref.effort } : {}) })
         case "mock":
-            return Mock()
+            return Mock({ ...(ref.effort !== undefined ? { effort: ref.effort } : {}) })
         default:
             throw new Error(
                 `ENGINE_PROVIDER_UNKNOWN: ${JSON.stringify(ref)} — known providers: axon, openrouter, codex, ollama, mock`

@@ -1,0 +1,15 @@
+{
+  "name": "@axon/hindsight",
+  "version": "0.1.1",
+  "description": "",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/air": "2.0.153",
+    "@arcforge/cognet": "2.0.153",
+    "@arcforge/engines": "2.0.153",
+    "@arcforge/types": "2.0.153",
+    "@vectorize-io/hindsight-client": "^0.9.1",
+    "h3": "^1.13.0"
+  }
+}

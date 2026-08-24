@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto"
 import { err } from "@arcforge/err"
-import type { CapsuleCommand } from "../../types"
+import type { CapsuleScope } from "@arcforge/types"
+import type { CapsuleCommand, CapsuleCommandOrigin } from "../../types"
 import type { CapsuleBusT } from "../../platform/bus"
+
+/**
+ * What one successful execution produced: its completion value, and the
+ * bindings it left in the sandbox. The scope is what a rendered template
+ * interpolates against; callers that only want the value ignore it.
+ */
+export type CapsuleExecResult = {
+    value: unknown
+    scope: CapsuleScope
+}
 
 type ExecOpts = {
     send(cmd: CapsuleCommand): void
@@ -25,6 +36,17 @@ type RunOpts = {
     signal?: AbortSignal
     /** Called for every console.* call made by this specific run, in order — never other concurrent runs'. */
     onConsole?: (level: "log" | "info" | "warn" | "error" | "debug", args: unknown[]) => void
+    /**
+     * Who asked for this code to run. Defaults to "cognet" — the agent's
+     * own reasoning, which is every command the runtime issues.
+     *
+     * "host" is a developer executing code directly against a live capsule
+     * (Fleet's capsule input). It is the SAME execution path under the SAME
+     * policy gate — the distinction is provenance, not privilege — but a
+     * reader of the session log must be able to tell the two apart, or the
+     * record claims the agent did something a human did.
+     */
+    origin?: CapsuleCommandOrigin
 }
 
 /**
@@ -40,9 +62,21 @@ export function Exec(opts: ExecOpts) {
     const { send, bus } = opts
     const graceMs = 250
 
-    let active: { id: string; abort: () => void } | null = null
+    /**
+     * Every in-flight command, by id.
+     *
+     * The subprocess dispatches commands CONCURRENTLY — its wire handler is
+     * `void run(cmd.id, cmd.code)`, with no queue — so the host must track
+     * them the same way. A single slot silently lost the previous command's
+     * abort handle the moment a second one started: interrupt() would abort
+     * only the newest, and the older command became unabortable for the rest
+     * of its life. That was invisible while the kernel was the only caller
+     * (it runs one at a time), and became reachable the moment a developer
+     * could execute code against a live capsule.
+     */
+    const active = new Map<string, () => void>()
 
-    function run(code: string, runOpts: RunOpts = {}): Promise<unknown> {
+    function exec(code: string, runOpts: RunOpts = {}): Promise<CapsuleExecResult> {
         const id = runOpts.id ?? randomUUID()
         const timeoutMs = runOpts.timeout ?? 300_000
 
@@ -52,7 +86,7 @@ export function Exec(opts: ExecOpts) {
             return Promise.reject(error)
         }
 
-        return new Promise((resolve, reject) => {
+        return new Promise<CapsuleExecResult>((resolve, reject) => {
             const offs: Array<() => void> = []
             let cancelling: "abort" | "timeout" | null = null
             let graceTimer: ReturnType<typeof setTimeout> | null = null
@@ -62,7 +96,7 @@ export function Exec(opts: ExecOpts) {
                 clearTimeout(timeoutTimer)
                 if (graceTimer) clearTimeout(graceTimer)
                 runOpts.signal?.removeEventListener("abort", onAbort)
-                if (active?.id === id) active = null
+                active.delete(id)
                 fn()
             }
 
@@ -103,7 +137,7 @@ export function Exec(opts: ExecOpts) {
                 bus.on("capsule:cmd:complete", e => {
                     if (e.id !== id) return
                     if (cancelling) settle(() => reject(cancellationError()))
-                    else settle(() => resolve(e.result))
+                    else settle(() => resolve({ value: e.result, scope: e.scope }))
                 }),
                 bus.on("capsule:cmd:failed", e => {
                     if (e.id !== id) return
@@ -130,7 +164,7 @@ export function Exec(opts: ExecOpts) {
                 }),
             )
 
-            active = { id, abort: onAbort }
+            active.set(id, onAbort)
 
             if (runOpts.signal?.aborted) {
                 onAbort()
@@ -139,16 +173,38 @@ export function Exec(opts: ExecOpts) {
             runOpts.signal?.addEventListener("abort", onAbort, { once: true })
 
             // Send last — everything is listening before the subprocess can reply.
-            send({ type: "cmd:run", id, code })
+            send({ type: "cmd:run", id, code, ...(runOpts.origin ? { origin: runOpts.origin } : {}) })
         })
     }
 
     return {
-        run,
+        /**
+         * Run code and return its completion value — the long-standing
+         * surface, unchanged. Most callers want a value and nothing else.
+         */
+        run(code: string, runOpts: RunOpts = {}): Promise<unknown> {
+            return exec(code, runOpts).then(r => r.value)
+        },
 
-        /** Abort the in-flight run, if any. No-op when idle. */
-        interrupt() {
-            active?.abort()
+        /**
+         * Run code and return its completion value AND the bindings it left
+         * behind. Separate from run() because the scope is only meaningful to
+         * a caller that is about to render a template against it; every other
+         * caller would have to unwrap a field it never reads.
+         */
+        exec,
+
+        /**
+         * Abort a run. With an id, that one command; without, every
+         * in-flight command — which is what a caller with no id can mean
+         * now that several can be running at once.
+         */
+        interrupt(id?: string) {
+            if (id !== undefined) {
+                active.get(id)?.()
+                return
+            }
+            for (const abort of [...active.values()]) abort()
         },
     }
 }

@@ -20,6 +20,8 @@ const ABANDON_MS = 30_000
 
 type StreamInput = {
     content?: string | string[]
+    /** The surface the message arrived on — see the ingest below. */
+    channel?: string
 }
 
 /**
@@ -62,7 +64,22 @@ export function Invocation(opts: InvocationOpts) {
                     : Array.isArray(input.content) ? input.content : [input.content]
                 for (const content of contents) {
                     const entry = await opts.session.stimuli.ingest("cognet:stimulus:text", {
-                        source: { channel: "user" },
+                        // The SURFACE the message arrived on, which is also
+                        // the address a reply goes back to.
+                        //
+                        // It was hardcoded `"user"`, which answered the wrong
+                        // question: every other channel value (`telegram:8199`,
+                        // `discord:…`) names a line, not a person, and the tag
+                        // already says `from="user"`. So the rendered turn read
+                        // `<text from="user" channel="user">` — the same fact
+                        // twice, and no way for a second surface to identify
+                        // itself.
+                        //
+                        // Named by the caller because the kernel cannot know
+                        // which surface it is embedded in. `terminal` is the
+                        // default for a caller that says nothing, which a
+                        // direct `request()` effectively is.
+                        channel: input.channel ?? "terminal",
                         content,
                     })
                     yield entry

@@ -34,9 +34,13 @@ export function Scripts(opts: ScriptsOpts) {
         const entry = find(name)
         // cache-bust: a script is top-level code, not a function — re-running
         // it means re-executing that code, but dynamic import() caches by
-        // resolved specifier, so a second call would silently no-op without this
-        const specifier = `${entry.filePath}?run=${crypto.randomUUID()}`
-        return opts.inject.withArgs(args, () => import(specifier))
+        // resolved specifier, so a second call would silently no-op without this.
+        // The same token identifies this invocation's args (see Inject.withArgs):
+        // ALS does not survive import(), so the run id is what a top-level
+        // `args` read resolves through.
+        const runId = crypto.randomUUID()
+        const specifier = `${entry.filePath}?run=${runId}`
+        return opts.inject.withArgs(runId, args, () => import(specifier))
     }
 
     return {

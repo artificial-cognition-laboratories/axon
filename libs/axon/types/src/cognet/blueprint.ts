@@ -1,5 +1,6 @@
 import type { AxonEntryEvent } from "../session/events/entries"
 import type { CognetDefinition } from "./cognet"
+import type { EngineRequirements } from "../inference"
 
 /**
  * The cognet slot in the agent blueprint — how a brain reaches the runtime.
@@ -36,6 +37,19 @@ export type CognetBlueprint = {
      * time and the runtime cannot tell the difference.
      */
     models?: Readonly<Record<string, string>>
+
+    /**
+     * The inference roles this brain declared, carried from its own
+     * cognet.config.ts.
+     *
+     * Here rather than read off the loaded definition because resolution has
+     * to happen BEFORE the cognet loads: a required role with nothing to
+     * fill it must stop the boot, and a brain that has already begun running
+     * is a brain that will reach for an engine that is not there. The
+     * bundle's own copy stays authoritative for what it was built against;
+     * this is the copy the runtime plans with.
+     */
+    engines?: EngineRequirements
 } & (
     | {
         /** Absolute path to the compiled bundle — <agent>/.agent/cognet/cognet.mjs. */

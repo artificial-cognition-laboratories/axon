@@ -1,100 +1,136 @@
 /**
  * Long-polling loop for the Telegram Bot API.
  *
- * Calls getUpdates with a 30s timeout, dispatches each update to registered
- * handlers, then immediately polls again. No webhooks needed — works behind
- * NAT, on localhost, anywhere.
+ * Owns one concern: producing inbound updates. Calls getUpdates with a long
+ * timeout, hands each update to `onUpdate`, and immediately polls again. No
+ * webhook, so no public URL — works behind NAT, on localhost, anywhere
+ * outbound HTTPS is allowed.
  *
- * Only one poller should run per agent process. Start with `startPolling()`,
- * stop with `stopPolling()`.
+ * Offset is per-instance state, not module-global: two agents in one process
+ * poll independently rather than silently consuming each other's updates.
  */
 
-import { api } from "./client.js"
+import type { TelegramClientT } from "./client.js"
 
-export type TelegramMessage = {
-    messageId: number
+/** One inbound text message, flattened out of the Bot API's update shape. */
+export type TelegramInbound = {
     chatId: number
     userId: number
-    username: string | null
+    /** Sender's @username, or their display name when no username is set. */
+    from: string
     text: string
-    /** True if the text starts with a / command */
-    isCommand: boolean
 }
 
-export type TelegramCallbackQuery = {
-    queryId: string
-    chatId: number
-    userId: number
-    messageId: number
-    data: string
+export type TelegramPollerOpts = {
+    client: TelegramClientT
+    onUpdate: (msg: TelegramInbound) => Promise<void>
 }
 
-type UpdateHandler = {
-    onMessage: (msg: TelegramMessage) => Promise<void>
-    onCallback: (query: TelegramCallbackQuery) => Promise<void>
-}
+export type TelegramPollerT = ReturnType<typeof TelegramPoller>
 
-let running = false
-let offset = 0
+/** Long-poll timeout, seconds. Telegram holds the request open this long. */
+const POLL_TIMEOUT_S = 30
 
-export function startPolling(handler: UpdateHandler): void {
-    if (running) return
-    running = true
-    void poll(handler)
-}
+/** Backoff after a failed poll, so a persistent outage doesn't spin. */
+const BACKOFF_MS = 5_000
 
-export function stopPolling(): void {
-    running = false
-}
+export function TelegramPoller(opts: TelegramPollerOpts) {
+    const { client, onUpdate } = opts
 
-async function poll(handler: UpdateHandler): Promise<void> {
-    while (running) {
-        try {
-            const updates = await api<any[]>("getUpdates", {
-                offset,
-                timeout: 30,
-                allowed_updates: ["message", "callback_query"],
-            })
+    let offset = 0
+    let running = false
+    let abort: AbortController | null = null
+    let loop: Promise<void> | null = null
 
-            for (const update of updates ?? []) {
-                offset = update.update_id + 1
-                await dispatch(update, handler)
+    async function poll(): Promise<void> {
+        while (running) {
+            try {
+                const updates = await client.call<TelegramUpdate[]>("getUpdates", {
+                    offset,
+                    timeout: POLL_TIMEOUT_S,
+                    allowed_updates: ["message"],
+                }, { signal: abort?.signal })
+
+                for (const update of updates ?? []) {
+                    // Advance past this update BEFORE handling it. Telegram
+                    // redelivers anything below the offset, so advancing after
+                    // a handler that throws would replay the same message
+                    // forever.
+                    offset = update.update_id + 1
+
+                    const inbound = toInbound(update)
+                    if (!inbound) continue
+
+                    try {
+                        await onUpdate(inbound)
+                    } catch (cause) {
+                        // Isolated per update: one bad message must not kill
+                        // the agent's hearing. Loud, never silent.
+                        console.error("[telegram] failed to deliver update:", cause)
+                    }
+                }
+            } catch (cause) {
+                // stop() aborts the in-flight request — an expected shutdown,
+                // not a fault.
+                if (!running) return
+                console.error("[telegram] poll failed:", cause instanceof Error ? cause.message : cause)
+                await sleep(BACKOFF_MS)
             }
-        } catch (err) {
-            // Log and backoff — don't crash the polling loop on transient errors
-            console.error("[telegram] poll error:", err instanceof Error ? err.message : err)
-            await sleep(5_000)
         }
+    }
+
+    return {
+        start(): void {
+            if (running) return
+            running = true
+            abort = new AbortController()
+            loop = poll()
+        },
+
+        /** Stop polling and wait for the in-flight request to unwind. */
+        async stop(): Promise<void> {
+            if (!running) return
+            running = false
+            abort?.abort()
+            await loop?.catch(() => { })
+            abort = null
+            loop = null
+        },
     }
 }
 
-async function dispatch(update: any, handler: UpdateHandler): Promise<void> {
-    try {
-        if (update.message?.text) {
-            const msg = update.message
-            await handler.onMessage({
-                messageId: msg.message_id,
-                chatId: msg.chat.id,
-                userId: msg.from?.id ?? 0,
-                username: msg.from?.username ?? null,
-                text: msg.text,
-                isCommand: msg.text.startsWith("/"),
-            })
-        } else if (update.callback_query) {
-            const q = update.callback_query
-            await handler.onCallback({
-                queryId: q.id,
-                chatId: q.message?.chat?.id ?? 0,
-                userId: q.from?.id ?? 0,
-                messageId: q.message?.message_id ?? 0,
-                data: q.data ?? "",
-            })
-        }
-    } catch (err) {
-        console.error("[telegram] dispatch error:", err instanceof Error ? err.message : err)
+/**
+ * Narrow an update to the one kind this module senses: a text message.
+ *
+ * Everything else (edits, joins, photos, callback queries) is not yet part of
+ * the agent's sense surface and is dropped here rather than half-modelled.
+ */
+function toInbound(update: TelegramUpdate): TelegramInbound | null {
+    const msg = update.message
+    if (!msg?.text) return null
+
+    const from = msg.from?.username
+        ?? [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(" ")
+        ?? null
+
+    return {
+        chatId: msg.chat.id,
+        userId: msg.from?.id ?? 0,
+        from: from || "unknown",
+        text: msg.text,
     }
 }
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+type TelegramUpdate = {
+    update_id: number
+    message?: {
+        message_id: number
+        text?: string
+        chat: { id: number }
+        from?: { id: number; username?: string; first_name?: string; last_name?: string }
+    }
 }

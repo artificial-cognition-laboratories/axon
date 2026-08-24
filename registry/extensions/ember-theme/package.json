@@ -1,0 +1,11 @@
+{
+  "name": "@axon/ember-theme",
+  "description": "A warm terminal palette in three weights — glow, dark and light.",
+  "version": "1.0.4",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.126",
+    "@types/bun": "^1.2.0"
+  }
+}

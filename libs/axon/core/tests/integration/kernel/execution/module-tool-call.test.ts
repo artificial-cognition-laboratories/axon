@@ -1,5 +1,6 @@
 import { Axon } from "../../../setup/axon"
-import { Mock, run } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
+import { run } from "@arcforge/engines/mock"
 import type { AxonTool } from "@arcforge/types"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -34,7 +35,7 @@ describe("kernel execution: module-origin tool calls", () => {
 
             const runtime = await Axon({
                 blueprint: {
-                    config: { engine: Mock({ "/go": [run(`greeter.hello("world")`), "done"] }) },
+                    config: { providers: [Mock({ "/go": [run(`greeter.hello("world")`), "done"] })] },
                     tools: [moduleTool],
                 },
             })

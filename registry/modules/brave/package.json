@@ -1,7 +1,0 @@
-{
-  "name": "@axon/brave",
-  "version": "0.1.0",
-  "description": "Brave Search API",
-  "type": "module",
-  "private": false
-}

@@ -1,3 +1,4 @@
+import type { EscalationCall } from "./policy"
 import type { AxonEntry, AxonKernelEvent, AxonSessionEvent, AxonStimulusEvent, AxonStimulusType } from "./session"
 import type { AxonOutputEvent } from "./session/events/stdio/output"
 import type { AxonScript } from "./scripts"
@@ -23,6 +24,45 @@ import type { AxonAmbient } from "./session/events/activity"
 export type AxonRequestInput = {
     /** One stimulus, or an ordered batch committed before a single wake. */
     prompt: string | string[]
+    /**
+     * The surface this message arrived on — and the address a reply goes back
+     * to. `terminal`, `axon-cli`, `telegram:8199237521`.
+     *
+     * Supplied by the host, because the runtime cannot know which surface it
+     * is embedded in. A channel module reaching the agent names its own line
+     * the same way, which is what lets the agent answer on the line it was
+     * asked. Defaults to `terminal`.
+     */
+    channel?: string
+    /**
+     * The shape this response must have, as a TypeScript type.
+     *
+     *   output: "{ files: number, issues: { file: string }[] }"
+     *   output: "type Issue = { file: string }\ntype Output = { issues: Issue[] }"
+     *
+     * Either a type expression, or declarations whose target is named
+     * `Output` — the second form is how a recursive or shared shape is
+     * expressed. TypeScript rather than a schema library because the agent's
+     * whole model-facing surface is already TypeScript declarations: the
+     * model sees its target in the same language as its tools, and there is
+     * nothing new for anyone to learn or install.
+     *
+     * Checked before the model is called (an invalid type throws at the call
+     * site, costing no inference), rendered into the model's context, and
+     * enforced against the script it writes. A mismatch returns to the model
+     * as a real TypeScript diagnostic — which it repairs far more reliably
+     * than schema-validator prose.
+     */
+    output?: string
+    /**
+     * Further attempts allowed after a response fails its `output` check.
+     * Defaults to 2, so a request makes at most 3 model calls. On
+     * exhaustion the invocation throws with the accumulated diagnostics —
+     * it never returns a response that does not satisfy the contract.
+     *
+     * Ignored when `output` is absent: there is nothing to fail.
+     */
+    retries?: number
 }
 
 /** Result of a completed agent invocation. */
@@ -72,6 +112,21 @@ export type AxonHost = {
         signal: AbortSignal
     }): Promise<unknown>
 }
+
+/**
+ * The platform's answer to a capsule's "may I?".
+ *
+ * Deliberately NOT a method on AxonHost. That is the GUEST-facing channel —
+ * sandboxed code calls through it — and a guest able to invoke the policy
+ * decider could raise its own escalations, or answer them. This is host-side
+ * code asking host-side code, on the trusted side of the same boundary the
+ * mediator enforces.
+ *
+ * Absent means no decider, which the capsule already treats as deny. That is
+ * the honest state for a headless run and for any embedder that never wired
+ * one.
+ */
+export type AxonEscalate = (call: EscalationCall) => Promise<boolean>
 
 export type EngineDelegate = {
     /** Tool execution target. Absent/undefined = no capsule attached; capsule RPCs reject loudly. */
@@ -143,6 +198,64 @@ export type AxonHandle = {
     /** Render a prompt by name. Static .md returns as-is; dynamic .vue renders with props. */
     prompt(name: string, props?: Record<string, unknown>): Promise<string>
 
+    /**
+     * This agent's installed modules, as configured.
+     *
+     * The door a MODULE PLUGIN reads its own options through. A module's
+     * `server/plugins/` is merged into the agent's, so its plugin receives
+     * this same handle — but a plugin file has no idea which module shipped
+     * it and no way to reach the options the agent wrote for it. Without
+     * this, a hardware module could open a device but never be told WHICH
+     * device, which is the entire configuration surface of a sensor.
+     *
+     * ```ts
+     * // modules/mouse/server/plugins/mouse.ts
+     * const { hz = 20 } = axon.modules.options<{ hz?: number }>("mouse")
+     * ```
+     *
+     * Read-only and already validated against the module's declared
+     * `optionsSchema` — a plugin gets what the agent configured or the
+     * declared default, never a raw config bag.
+     */
+    modules: {
+        /** Every installed module's name, in declaration order. */
+        list(): string[]
+        /**
+         * Validated options for one module. Empty object when the module is
+         * installed and configured nothing; THROWS when no such module is
+         * installed, because a plugin asking for options by a name that is
+         * not there is a wiring mistake and silence would hide it.
+         *
+         * Returns the FIRST instance when a module is listed several times.
+         * A plugin that can serve multiple devices reads `all()` instead.
+         */
+        options<T extends Record<string, unknown> = Record<string, unknown>>(name: string): T
+        /**
+         * Every instance's options, in declaration order.
+         *
+         * An agent may list one module several times to attach it to several
+         * devices — two screens, two cameras, two microphones:
+         *
+         * ```ts
+         * modules: [
+         *     [Screen, { output: "DP-2" }],
+         *     [Screen, { output: "DP-0" }],
+         * ]
+         * ```
+         *
+         * The module's code is scanned and its plugin runs ONCE; this is how
+         * that one run learns it has two devices to open. The platform
+         * deliberately invents no identity for the copies — what
+         * distinguishes two screens is the output name, and only the module
+         * knows that, so it derives its own channels from these options.
+         *
+         * Always at least one entry for an installed module (an unconfigured
+         * instance is `{}`); throws for a module that is not installed, for
+         * the same reason `options()` does.
+         */
+        all<T extends Record<string, unknown> = Record<string, unknown>>(name: string): T[]
+    }
+
     /** Prompt enumeration — every prompt the blueprint declares. Rendering stays on `prompt(name)`. */
     prompts: {
         list(): AxonPrompt[]
@@ -159,9 +272,11 @@ export type AxonHandle = {
      * environment reaches cognition.
      *
      * ```ts
-     * axon.stim("cognet:stimulus:field", {
-     *     source: { channel: "light:left" },
-     *     reading: { value: 0.42, unit: "lux" },
+     * axon.stim("cognet:stimulus:vector", {
+     *     channel: "light",
+     *     values: [0.42, 0.38],
+     *     unit: "lux",
+     *     labels: ["left", "right"],
      * })
      * ```
      *
@@ -218,7 +333,7 @@ export type AxonHandle = {
     //   // server/plugins/body.ts — sense, unconditionally
     //   setInterval(async () => {
     //       world.step(dt)
-    //       await axon.stim("cognet:stimulus:field", { ... })
+    //       await axon.stim("cognet:stimulus:vector", { ... })
     //   }, 16)
     //   ```
     //

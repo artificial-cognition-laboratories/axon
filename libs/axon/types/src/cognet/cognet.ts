@@ -1,6 +1,7 @@
 import type { AxonBlueprint } from "../blueprint"
 import type { KernelAbi, CognetWake } from "../kernel/abi"
 import type { AxonEntryEvent } from "../session/events/entries"
+import type { EngineRequirements } from "../inference"
 
 /**
  * A cognet definition — one cognition artifact, what defineCognet()
@@ -57,41 +58,50 @@ export type CognetConfig = {
     /** Default wake mask — overridable by the blueprint's wakeOn. Absent = wake on everything. */
     wakeOn?: Array<keyof AxonEntryEvent>
 
-    /** Hard safety bound for one wake. Strategy may stop earlier; default is 8 ticks. */
+    /**
+     * Hard safety bound for one wake. Omitted means UNBOUNDED, which is the
+     * default and the right one for most cognets.
+     *
+     * A ceiling cannot distinguish a runaway loop from a long job — the only
+     * difference is whether the ticks accomplish anything, which a count
+     * cannot see. Zero capped this at 32 and killed a run mid-verification
+     * after forty clean turns of real work.
+     *
+     * Set it only where a wake is genuinely expected to converge in a known
+     * number of steps (a classifier, a fixed pipeline), so exceeding it really
+     * is a bug. For open-ended work, what bounds a wake is `<done/>`, the
+     * user's interrupt, and the engine failing loudly.
+     */
     maxTicksPerWake?: number
 
     /**
-     * Model weights this brain needs, by the name IT calls them.
+     * The inference this brain needs, by the names IT calls them.
      *
      * ```ts
-     * models: {
-     *     vad: "hf:runanywhere/silero-vad-v5/silero_vad.onnx",
-     *     asr: "hf:ggerganov/whisper.cpp/ggml-base.en.bin",
+     * engines: {
+     *     main:    { type: "generate", in: "text", out: "text", context: 100_000 },
+     *     percept: { type: "generate", in: "text", out: "text", parallel: true, optional: true },
      * }
      * ```
      *
-     * Weights are DATA, not code — a `.onnx` file is inert until something
-     * reads it. The runtime that executes it (onnxruntime, llama.cpp) is an
-     * ordinary npm dependency the cognet imports, chosen by the author. This
-     * field only says which bytes are needed; how to run them is cognition.
+     * The demand half of the same indirection `models:` makes for weights:
+     * the key is the cognet's private vocabulary and the user never types it,
+     * because a user who had to name a brain's roles would be wiring one
+     * specific brain into their setup. `kernel.engine("percept")` says what
+     * the engine is FOR; what fills it is decided at boot against whatever
+     * providers the user declared.
      *
-     * That is also why there is no unified `runModel()`: every model has its
-     * own tensor signature, so a generic invoke could only pass `unknown`
-     * through. Acquisition collapses to one mechanism; inference cannot.
+     * Constraints are STRUCTURAL — the things that break a brain rather than
+     * slow it down. There is deliberately no way to demand a good model:
+     * quality is the user's tradeoff, and a cognet that could refuse one
+     * would be overruling the person whose machine it is running on.
      *
-     * A MAP, not a list, because the key is the brain's own vocabulary.
-     * `kernel.models.vad` says what the weight is FOR; the specifier says
-     * where it came from. Swapping to a different VAD is one line here rather
-     * than an edit at every call site — and a brain that referenced its
-     * supply chain at every use would have learned something it does not
-     * need to know.
-     *
-     * Axon fetches, verifies and caches these; the resolved paths arrive at
-     * load through `kernel.models`, never read from this config. A path is
-     * environmental, and a cognet learns nothing about its environment except
-     * through the kernel.
+     * A required role with nothing to fill it fails at `axon prepare`, never
+     * at the first tick. An optional one is the degradation path — the cognet
+     * asks `kernel.engine.has(name)` and takes a cheaper route.
      */
-    models?: Record<string, ModelRef>
+    engines?: EngineRequirements
+
 }
 
 /**

@@ -1,0 +1,14 @@
+{
+  "name": "@axon/search",
+  "version": "0.1.2",
+  "description": "Web search that cascades across Tavily, Brave and Google — set one key or several.",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.124",
+    "@arcforge/engines": "2.0.124",
+    "@arcforge/cognet": "2.0.124",
+    "@arcforge/air": "2.0.124",
+    "h3": "^1.13.0"
+  }
+}

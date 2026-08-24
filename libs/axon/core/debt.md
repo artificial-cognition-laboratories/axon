@@ -92,3 +92,53 @@ and rebound on reload.
 - libs/axon/core/src/platform/inject.ts — installToolGlobals(), define()
 - libs/axon/kernel/src/scope-dts.ts — doc comment
 - apps/axon.arclabs.it/content/docs/v2/api/tools.md
+
+## [ ] Prepare phase has ~120ms of untraced inter-span gaps
+**Severity:** medium
+**Description:**
+The boot trace's interior is now fully accounted for, but the BUILD phase that
+precedes it is not. Between `build:framework:complete` → `build:modules:start`
+(26ms), `build:modules:complete` → `build:cognet:start` (47ms), and
+`build:cognet:complete` → `build:typegen:start` (48ms) roughly 120ms passes with
+no span open — likely dynamic `import()` of build machinery, but nothing measures
+it so this is inference rather than fact. The same accountability rule the
+runtime now enforces (see the gap guard in tests/integration/ontology/spans.test.ts)
+should extend to the build recorder, which has its own `span()` helper already.
+The clean version is a span around whatever occupies those gaps, and the gap
+guard widened to cover `build:*` as well as `axon:boot`.
+**References:**
+- libs/axon/packages/session/src/build.ts — span(), BuildRecorder
+- libs/axon/types/src/session/events/build.ts — BuildEventMap
+- libs/axon/core/tests/integration/ontology/spans.test.ts — GAP_BUDGET_MS guard
+
+## [ ] Model catalogue cache cannot revalidate with ETag
+**Severity:** low
+**Description:**
+`CatalogueStore` stores an `etag` field and its `load` callback accepts one, but
+nothing populates it: `HttpClient.get()` returns parsed JSON only and does not
+expose response headers, so there is no way to read an ETag or send
+`If-None-Match` without widening that boundary. Today the cache is purely
+time-based (1h fresh / 30d stale-while-revalidate), which is sufficient — the
+revalidation happens off the critical path, so its cost is invisible to boot.
+The value of adding ETags is bandwidth on the background refresh, not latency.
+Worth doing only if `HttpClient` grows a header-returning variant for other
+reasons; punching a hole through that seam for this alone is not justified.
+**References:**
+- libs/cloud/src/registry/models/store.ts — Entry.etag, get()
+- libs/cloud/src/platform/http.ts — get() returns parsed body only
+
+## [ ] Two span() helpers with the same contract
+**Severity:** low
+**Description:**
+`libs/axon/packages/session/src/build.ts` and the new `session.span()` implement
+the same guarantee — emit `:start`, always close with `:complete` or `:failed`,
+carry `durationMs`, repeat opening facts on the closing half. They differ only in
+what they commit through (a BuildRecorder vs the session) and in that the build
+version needs `as never` casts because its event-name union is hand-written while
+the session version is typed against AxonEventMap. This is one idea implemented
+twice; the two must not drift, because the flame graph and the gap guard read
+both. The clean version is one generic helper parameterized by its emitter, with
+the build recorder passing itself in.
+**References:**
+- libs/axon/packages/session/src/build.ts — span()
+- libs/axon/packages/session/src/session.ts — session.span()

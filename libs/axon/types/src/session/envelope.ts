@@ -54,16 +54,41 @@ export type AxonEventContext = {
  * `K` narrows to one event type.
  */
 export type AxonEvent<M, K extends keyof M = keyof M, C extends object = AxonEventContext> = {
-    /** UUIDv7 — globally unique and time-sortable. Idempotent ingest. */
-    id: string
     type: K
     time: {
         /** Wall clock ms since epoch. */
         ms: number
-        /** Monotonic per-session counter — authoritative ordering, immune to clock skew. */
+        /**
+         * Monotonic per-session counter — authoritative ordering, immune to
+         * clock skew, and the event's IDENTITY.
+         *
+         * There used to be a UUIDv7 `id` alongside this. It was removed:
+         * measured on a real 1M-event session it cost 8.8MB (14% of the
+         * file) to express something `seq` already expressed better —
+         * verified unique and monotonic across 300k consecutive events, and
+         * never read back by the runtime. A session log is a sequence, and
+         * a sequence numbers its members.
+         *
+         * Unique within one session. A consumer needing global uniqueness
+         * (cloud ingest) pairs it with the session id from the header.
+         */
         seq: number
     }
-    context: C
+    /**
+     * Correlation ids for this event.
+     *
+     * Optional ONLY for the session envelope, whose context is
+     * `AxonEventContext` — there, most events have no correlation at all,
+     * and an empty object on every line is exactly the kind of constant
+     * this format exists to stop writing. What is true of the WHOLE FILE
+     * (agent, session) lives in the header line instead; only
+     * `runId`/`spanId`, which genuinely vary per event, are carried here.
+     *
+     * A stream that supplies its own context type — bench, test — keeps it
+     * required, because for those it identifies WHICH run or case the event
+     * belongs to and an event without it would be unattributable.
+     */
+    context: AxonEventContext extends C ? C | undefined : C
     /** Typed payload — the registry map is the single source of payload truth. */
     data: M[K]
 }

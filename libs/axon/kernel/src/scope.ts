@@ -81,9 +81,23 @@ export function toScope(blueprint: AxonBlueprint): AxonScope {
         if (members.length > 0) modules.push({ ...module, members })
     }
 
+    // A module that loaded without part of its surface. Read from the
+    // blueprint rather than inferred from missing tools: "has no tools" and
+    // "its tools would not compile" are different facts, and only the second
+    // is worth telling the model about.
+    //
+    // `modules` is optional on a partial blueprint — a programmatic one built
+    // from tools alone has none — so this must not assume the array exists.
+    const unavailable = (blueprint.modules ?? [])
+        .filter(module => module.degraded)
+        .map(module => ({ name: module.packageName ?? module.name, reason: module.degraded! }))
+
     // Restore blueprint order: the filtering above needs agent-first, but the
     // rendered scope should read in the order the blueprint declares.
-    return { modules: modules.sort((a, b) => order(loadable, a) - order(loadable, b)) }
+    return {
+        modules: modules.sort((a, b) => order(loadable, a) - order(loadable, b)),
+        ...(unavailable.length > 0 ? { unavailable } : {}),
+    }
 }
 
 /** Agent-authored tools outrank module tools when both claim a callable name. */

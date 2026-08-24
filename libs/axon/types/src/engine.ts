@@ -7,15 +7,13 @@ import { AxonEngineEvent } from "./session/events/engine"
  * resolved to a live driver by the runtime's Engine() manager — the one
  * seam every boot path shares — via @arcforge/engines' resolveEngine().
  *
- * ```ts
- * export default defineAgent({
- *     engine: { provider: "axon", model: "claude-sonnet-4-6" },
- *     // or, for advanced wiring:
- *     // engine: Axon({ model: "claude-sonnet-4-6", url: "ws://localhost:8787" }),
- * })
- * ```
+ * NOT an `axon.config.ts` field. `engine:` is deprecated there — an agent
+ * declares `providers:` (sources) and `model:` (a cortex preference), and
+ * resolution picks a driver per role from that pool. This type is the
+ * INTERNAL shape a resolved driver is built from, which is why it still
+ * exists and why nothing user-facing should reference it.
  *
- * @see https://axon.arclabs.it/docs/v2/api/config/engine
+ * @see https://axon.arclabs.it/docs/v2/agent/config
  */
 export type EngineConfig = AxonEngineDef | EngineRef
 
@@ -24,12 +22,15 @@ export type EngineConfig = AxonEngineDef | EngineRef
  * workspace writes, what a model pick in the TUI serializes, and the form
  * the product contract promises: swap the reference, zero code changes.
  */
+/** Requested reasoning effort. Unsupported engines accept and ignore it. */
+export type EngineEffort = "low" | "medium" | "high" | "xhigh"
+
 export type EngineRef =
-    | { provider: "axon"; model?: string; optimize?: EngineAutoWeights; limit?: EngineAutoLimits }
-    | { provider: "openrouter"; model: string }
-    | { provider: "codex"; model?: string }
-    | { provider: "ollama"; model: string }
-    | { provider: "mock" }
+    | { provider: "axon"; model?: string; effort?: EngineEffort; optimize?: EngineAutoWeights; limit?: EngineAutoLimits }
+    | { provider: "openrouter"; model: string; effort?: EngineEffort }
+    | { provider: "codex"; model?: string; effort?: EngineEffort }
+    | { provider: "ollama"; model: string; effort?: EngineEffort }
+    | { provider: "mock"; effort?: EngineEffort }
 
 /**
  * Axon({ model: "auto" }) weighting — resolved server-side against a
@@ -57,6 +58,21 @@ export type AxonEngineDef = {
      * resolves server-side, per call; a client showing it should say so.
      */
     model?: string
+    /** Requested reasoning effort, if configured. Unsupported providers ignore it. */
+    effort?: EngineEffort
+    /**
+     * Auto-selection weighting, when the constructor was given it. Only
+     * meaningful alongside model: "auto".
+     *
+     * On the DEF rather than only inside the driver's closure because with
+     * "auto" these are what decides the real model, so a client asking
+     * "what am I running on" (cloud.engine.resolve) must be able to read
+     * them — resolving without them answers for the default, not for this
+     * agent.
+     */
+    optimize?: EngineAutoWeights
+    /** Hard ceilings applied before scoring. Only meaningful alongside model: "auto". */
+    limit?: EngineAutoLimits
     create(res: EngineResources): AxonEngineDriver
 }
 
@@ -95,6 +111,32 @@ export type EngineCloud = {
             }
         }
     }
+    registry: {
+        models: {
+            /**
+             * The merged public catalogue — one entry per canonical model,
+             * every route it can be run through attached.
+             *
+             * Here because a provider now has to answer "what can I supply"
+             * before any model is chosen, and the answer for a hosted route
+             * lives in the registry. Same reason the rest of this type
+             * exists: @arclabs/cloud depends on this package, so the client
+             * cannot be imported and the slice engines need is spelled at
+             * the seam instead.
+             */
+            all(): Promise<CloudModelCatalog>
+
+            /**
+             * Did the last `all()` answer come off disk rather than the wire?
+             *
+             * Part of the seam because the boot trace reports it: a slow boot
+             * has to be able to say whether it paid for a cold catalogue
+             * fetch. Optional so an embedder supplying its own minimal cloud
+             * stub is not forced to implement caching it does not do.
+             */
+            wasCached?(): boolean
+        }
+    }
     cloud: {
         engine: {
             /**
@@ -110,6 +152,27 @@ export type EngineCloud = {
             request(input: EngineCloudStream): Promise<AxonEngineResponse>
         }
     }
+}
+
+/**
+ * The registry's merged model catalogue, as engines consume it.
+ *
+ * Structurally the same shape @arclabs/cloud returns; spelled here for the
+ * same reason as EngineCloud itself. `modality` is OpenRouter's own
+ * `"text+image->text"` string — carried rather than pre-parsed so the
+ * classification table stays in one place.
+ */
+export type CloudModelCatalog = {
+    models: Array<{
+        id: string
+        name: string
+        context: number
+        /** e.g. "text+image->text". Absent when the upstream source omits it. */
+        modality?: string
+        routes: Array<{ via: string; model: string }>
+    }>
+    /** A source that failed — never silently a shorter list. */
+    failures: Array<{ source: string; message: string }>
 }
 
 /** One managed-inference call — the request plus how to route it. */
@@ -147,7 +210,65 @@ export type CodexToken = {
  * handles, never model-visible content.
  */
 export type AxonEngineDriver = {
+    /**
+     * Absent on the generate driver, deliberately.
+     *
+     * Every driver this package has ever built is a generate driver, and
+     * requiring an existing one to declare `kind: "generate"` would break
+     * every published adapter for a discriminant the union can infer from
+     * `stream` being present. The two new kinds declare theirs.
+     */
+    readonly kind?: "generate"
     stream(req: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent>
+}
+
+/**
+ * What a provider builds for one resolved capability.
+ *
+ * A union keyed on the capability's type, mirroring KernelEngine on the ABI:
+ * the kernel wraps whichever of these it is given with telemetry and hands
+ * the matching handle to the cognet. One construction seam
+ * (`AxonProvider.create`) rather than three, because who picked the model is
+ * not the transport's business and splitting the seam would mean three places
+ * every boot path has to agree about.
+ *
+ * These are DUMB. A driver knows how to talk to one model; it does not parse
+ * a grammar, touch the bus, or commit anything — the runtime's Engine()
+ * manager owns all of that, so the AIR protocol is implemented exactly once.
+ */
+export type AxonDriver = AxonEngineDriver | AxonTransformDriver | AxonStreamDriver
+
+/**
+ * One shot in, one shot out.
+ *
+ * `input` and the result are BOTH unknown here, deliberately: what a depth
+ * map or an embedding means is the cognet's business, and a driver contract
+ * that named those shapes would be the transport layer growing an opinion
+ * about tensor semantics. Adapters per model family are where that knowledge
+ * lives.
+ */
+export type AxonTransformDriver = {
+    readonly kind: "transform"
+    transform(input: unknown, opts?: { onProgress?: (progress: { fraction?: number; message?: string }) => void }): Promise<unknown>
+}
+
+/**
+ * A stateful sequential feed.
+ *
+ * `open()` is where the expensive part happens once — building the execution
+ * graph — and every push after it shares the model's hidden state. That is
+ * the whole reason this is not a transform: Silero's LSTM is what lets it
+ * tell a pause mid-sentence from silence, and N independent calls destroy it.
+ */
+export type AxonStreamDriver = {
+    readonly kind: "stream"
+    open(): AxonDriverSession
+}
+
+export type AxonDriverSession = {
+    push(input: unknown): Promise<unknown>
+    reset(): void
+    close(): void
 }
 
 /**
@@ -169,10 +290,86 @@ export type AxonEngineRawEvent =
  */
 export type AxonEngine = {
     /** Stream block events in real time, terminated by a single agent:done. */
-    stream: (req: AxonEngineRequest) => AsyncGenerator<AxonEngineEvent>
+    stream: (req: AxonEngineCall) => AsyncGenerator<AxonEngineEvent>
     /** Single-shot completion. Same response shape as the stream's done event. */
-    request: (req: AxonEngineRequest) => Promise<AxonEngineResponse>
+    request: (req: AxonEngineCall) => Promise<AxonEngineResponse>
 }
+
+/**
+ * One call through the engine MANAGER — the driver request plus the grammar
+ * to parse the reply with.
+ *
+ * Protocol lives here rather than on AxonEngineRequest because a driver is a
+ * dumb token pipe that never parses anything; only the manager runs the AIR
+ * parser. It is per-call rather than per-runtime so one cognet can hold a
+ * cortex loop on "classic" and a one-shot classification on "raw" against the
+ * same kernel.
+ *
+ * Omitted means the manager's default. The caller that rendered the context
+ * owns this: a cognet rendering one grammar while the kernel parses another
+ * would silently discard every block the model emitted.
+ */
+export type AxonEngineCall = AxonEngineRequest & {
+    /**
+     * Which of the cognet's declared roles serves this call.
+     *
+     * The brain's own word — "main", "percept", "compress" — never a model or
+     * a provider. What fills it was decided at boot against whatever the user
+     * declared, so the same source runs on a frontier route for one person
+     * and a local model for another with nothing in the cognet changing.
+     *
+     * Omitted uses the agent's single `engine:`, which is what every cognet
+     * that never declared roles does.
+     */
+    role?: string
+
+    /** The output grammar to parse the reply with. Must match what the caller rendered. */
+    protocol?: AirProtocolName
+    /**
+     * The shape this response must produce, already compiled.
+     *
+     * Structural rather than a named type because @arcforge/types must not
+     * depend on @arcforge/air (which depends on it) — the compiled contract
+     * is `CompiledOutput` there, and this is the same shape spelled at the
+     * seam. The engine enforces it and retries a response that misses it; no
+     * cognet ever sees the check.
+     */
+    output?: {
+        declaration: string
+        check(script: string): readonly { message: string; line?: number }[]
+    }
+    /** Attempts after a response fails `output`. Ignored without one. Default 2. */
+    retries?: number
+    /**
+     * Re-render the request from the session, for a retry.
+     *
+     * A retry has to show the model its own rejected reply and the correction
+     * it earned, and those are session ENTRIES — so the only honest way to put
+     * them in front of the model is to render the document again now that they
+     * exist. Appending the correction to the finished messages instead put a
+     * `<system>` block AFTER `</timeline>`, outside every structure the
+     * context had just taught, in the highest-attention position on the wire.
+     * A model shown a floating block immediately before being told not to emit
+     * floating blocks does the obvious thing.
+     *
+     * Supplied by the caller because rendering belongs to cognition: the
+     * engine owns the retry budget and knows a reply failed, but has no view
+     * of a timeline and must not grow one.
+     *
+     * Optional — a caller that renders nothing (an internal one-shot) has no
+     * document to re-render, and the engine falls back to reusing the
+     * messages it was given.
+     */
+    rerender?(): Promise<AxonEngineMessage[]>
+}
+
+/**
+ * The named AIR output grammars. Declared here, not imported from
+ * @arcforge/air: the kernel ABI is ring 0 and must not depend on a library
+ * above it. The two are kept in step by AirProtocolName in air/types.ts
+ * being assignable to this — one is the library's, this is the contract's.
+ */
+export type AirProtocolName = "classic" | "raw"
 
 export type AxonEngineMessage = {
     role: "user" | "assistant" | "system"

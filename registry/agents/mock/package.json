@@ -1,0 +1,20 @@
+{
+  "name": "@axon/mock",
+  "description": "A deterministic agent with a canonical command set for exercising anything that talks to Axon.",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.153",
+    "@arcforge/engines": "2.0.153",
+    "h3": "^1.13.0",
+    "@arcforge/cognet": "2.0.153",
+    "@arcforge/air": "2.0.153",
+    "@axon/zero": "^1.0.34"
+  },
+  "axon": {
+    "trackedFrom": {
+      "@axon/zero": "http://127.0.0.1:3099"
+    }
+  }
+}

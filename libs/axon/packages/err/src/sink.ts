@@ -31,7 +31,60 @@ export const errScope = {
     },
 }
 
-/** err()'s delivery call — the current scope's sink, or nothing (see module doc). */
+/**
+ * Observers that see EVERY error, regardless of scope.
+ *
+ * Separate from the scoped sink above because they answer a different
+ * question. The scoped sink asks "whose durable record does this belong
+ * to" — attribution, where being wrong is a lie on disk, which is why it is
+ * exclusive and innermost-wins. An observer asks "did this happen at all",
+ * where the failure mode of getting it wrong is a missing report, not a
+ * false one.
+ *
+ * Making crash reporting a second scope would have meant either competing
+ * with the session for the same slot (whichever ran last wins, errors
+ * vanish) or two AsyncLocalStorage contexts to keep in sync at every entry
+ * point. A flat observer list has neither problem: it fires for errors
+ * constructed inside a session scope AND for the ones outside it, which are
+ * exactly the CLI and tooling failures a session log could never see.
+ *
+ * Deliberately NOT given the ability to suppress or alter the error. An
+ * observer is told, not consulted.
+ */
+const observers = new Set<AxonErrorSink>()
+
+/**
+ * Watch every error constructed anywhere in this process.
+ *
+ * Returns an unsubscribe function. Intended for ONE caller per process —
+ * the host's crash reporter — established at startup. A leaf reaching for
+ * this is a design error: leaves throw, hosts observe.
+ */
+export function observeErrors(observer: AxonErrorSink): () => void {
+    observers.add(observer)
+    return () => observers.delete(observer)
+}
+
+/**
+ * err()'s delivery call — the current scope's sink, then every observer.
+ *
+ * An observer that throws must never break error CONSTRUCTION: err() is on
+ * the failure path by definition, and a reporter that turns one failure
+ * into two (the original plus its own) is worse than no reporter. Each is
+ * isolated so one bad observer cannot starve the rest.
+ *
+ * The scoped sink is called first and is deliberately NOT wrapped — it is
+ * the runtime's own durable record, and a failure to write it is a real
+ * problem the runtime should see, not something this function should hide.
+ */
 export function emitError(error: AxonError): void {
     storage.getStore()?.(error)
+
+    for (const observer of observers) {
+        try {
+            observer(error)
+        } catch {
+            // See above — an observer's fault never propagates into err().
+        }
+    }
 }

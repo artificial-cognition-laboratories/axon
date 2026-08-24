@@ -1,10 +1,12 @@
-import type { AxonEngineDef, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
+import type { AxonEngineDef, EngineEffort, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
 import { Collect } from "../shared"
 import { OpenRouterBackend } from "./backend"
 
 export type OpenRouterOptions = {
     /** Model ID as listed on openrouter.ai e.g. "openai/gpt-4o", "anthropic/claude-sonnet-4-6" */
     model: string
+    /** Requested reasoning effort. OpenRouter may ignore it for models without reasoning controls. */
+    effort?: EngineEffort
     /** Override base URL. Defaults to https://openrouter.ai/api/v1/chat/completions */
     baseUrl?: string
 }
@@ -20,7 +22,7 @@ export type OpenRouterOptions = {
  * import { OpenRouter } from "@arcforge/engines"
  *
  * export default defineAgent({
- *     engine: OpenRouter({ model: "openai/gpt-4o" }),
+ *     providers: [OpenRouter()],
  * })
  * ```
  *
@@ -30,6 +32,7 @@ export function OpenRouter(options: OpenRouterOptions): AxonEngineDef {
     return {
         name: "openrouter",
         model: options.model,
+        ...(options.effort !== undefined ? { effort: options.effort } : {}),
 
         create({ env, cloud }): AxonEngineDriver {
             // Explicit agent env wins; otherwise the account vault supplies

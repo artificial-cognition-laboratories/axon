@@ -21,6 +21,36 @@ export type PolicyRule =
     }
 
 
+
+/**
+ * A whole enforcement surface's policy — one rule for everything in it, or a
+ * rule per key.
+ *
+ * The bare form is what makes "lock this down" expressible. Keyed alone, a
+ * blanket statement had to be written out as one entry per installed module —
+ * a list that is complete the day it is written and silently stale the moment
+ * anything else is installed. `tools: "escalate"` cannot go stale, because it
+ * names the surface rather than its current contents.
+ *
+ * Deliberately NOT offered at the top level of `CapsulePolicy`. That object
+ * also holds `isolation`, `fs` and `limits`, which are OS facts with no
+ * verdict to give — so a bare `policy: "deny"` would have to mean "the
+ * permission-ish subset of these keys", a scope a reader has to be told rather
+ * than read. Each key here names exactly one surface, so a rule on it is
+ * unambiguous.
+ *
+ * The two forms compose: `{ "*": "escalate", fs: true }` is the keyed form
+ * with a wildcard, and a named key beats it — ordinary glob precedence, within
+ * one layer. Across layers the profile's blanket still wins outright; see
+ * `intersect`.
+ *
+ * AUTHORING ONLY. `CapsulePolicy` — the wire type the capsule enforces — stays
+ * keyed, because the mediator should never have to ask which shape it was
+ * handed on a hot path. The bare form is normalised into `{ "*": rule }` at
+ * the one seam that already normalises everything else.
+ */
+export type PolicyBucket = PolicyRule | Record<string, PolicyRule>
+
 /**
  * Capsule-level wire type. Describes what the sandbox subprocess is allowed to
  * do. Passed directly to the capsule on boot or via `capsule.update()`.
@@ -110,6 +140,43 @@ export type CapsulePolicy = {
     tools?: Record<string, PolicyRule>
 }
 
+
+/**
+ * Which layer produced a verdict.
+ *
+ * The ceiling model resolves two independently-authored policies, and a user
+ * reading a denial has to know WHICH said no — a profile denying `**\/secrets/**`
+ * while an agent allows `./data/**` denies `data/secrets/key`, and without the
+ * source that reads as the agent's own rule misbehaving.
+ *
+ * "grant" is a standing approval satisfying an escalation that would otherwise
+ * have prompted. Reported so an allow that came from a remembered decision is
+ * distinguishable from one the policy always permitted — the two look identical
+ * at the call site and mean very different things to someone auditing.
+ */
+export type PolicyLayer = "profile" | "agent" | "grant"
+
+/**
+ * Why an operation was denied or escalated — structured, never a string.
+ *
+ * This replaced `rule: String(rule)`, which stringified the object form to
+ * "[object Object]": the one case that carries the actual patterns was the one
+ * case that reported nothing. Every surface that has to explain a decision
+ * (the timeline, an escalation prompt, Fleet's policy view) reads this.
+ */
+export type PolicyVerdictSource = {
+    /** Which policy layer decided. */
+    layer: PolicyLayer
+    /** The subject matched against — a command, host, or tool namespace. */
+    subject: string
+    /**
+     * The specific pattern that matched, when the rule was glob-shaped.
+     * Absent for a bare `true`/`false`/`"escalate"`, which has no pattern.
+     */
+    pattern?: string
+    /** The rule as authored, for a surface that wants to show it verbatim. */
+    rule: PolicyRule
+}
 
 /** Command sent back to the capsule to allow or deny a pending escalation. */
 export type PolicyResponseCommand = {

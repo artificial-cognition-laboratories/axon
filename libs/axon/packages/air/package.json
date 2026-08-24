@@ -1,0 +1,28 @@
+{
+    "name": "@arcforge/air",
+    "version": "2.0.155",
+    "description": "AIR — the Agent Intermediate Representation: one grammar, rendered for a model and parsed from its reply",
+    "type": "module",
+    "private": false,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts",
+        "./output": "./src/output.ts",
+        "./grammar.json": "./src/air.tmLanguage.json"
+    },
+    "files": [
+        "src"
+    ],
+    "scripts": {
+        "test": "bun test",
+        "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
+    },
+    "dependencies": {
+        "@arcforge/err": "workspace:*",
+        "@arcforge/types": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5"
+    }
+}

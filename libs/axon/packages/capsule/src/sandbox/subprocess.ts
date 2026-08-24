@@ -136,6 +136,8 @@ export function CapsuleSubprocess(opts: SubprocessOpts) {
 
         // execution
         run: exec.run,
+        /** run() plus the bindings the submission left — for template rendering. */
+        exec: exec.exec,
         interrupt: exec.interrupt,
 
         // managed child processes — live mirror

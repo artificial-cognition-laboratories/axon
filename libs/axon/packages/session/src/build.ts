@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import type { AxonError, BuildEventMap, BuildEventName } from "@arcforge/types"
 import { home } from "./home"
 
@@ -34,24 +33,41 @@ export function BuildRecorder(opts: {
     sessionId: string
     /** The agent's registry identity, once known. Absent until build:load has run. */
     agentId?: string
+    /**
+     * Observe every event on its way to the log.
+     *
+     * The log is the durable record, written through an async chain; a
+     * surface reporting live progress needs the event as it HAPPENS, not
+     * after it lands on disk. One observer here covers every emitter —
+     * span() and the prepare reporter alike — so no call site has to be
+     * intercepted individually.
+     *
+     * Never allowed to affect the build: it is called inside a try/catch and
+     * its failure is swallowed, same as a write failure. This is telemetry
+     * about a build that is trying to happen.
+     */
+    onEmit?: (type: BuildEventName, data: unknown) => void
 }) {
     let seq = 0
-    let agentId = opts.agentId ?? null
     /** The runtime's committer, once it owns the file. See handOver(). */
     let delegate: ((type: BuildEventName, data: unknown) => void) | null = null
     let chain: Promise<void> = Promise.resolve()
 
     /**
-     * node:crypto rather than Bun.randomUUIDv7.
+     * The header goes down FIRST, before any event can append.
      *
-     * The recorder runs wherever a build does, and that includes the Fleet
-     * extension host, which is Node — `Bun` is simply undefined there. The
-     * v7 ordering property is not load-bearing: `time.seq` is what readers
-     * sort on, and it is assigned here.
+     * It can only ever be line 1 — the log is append-only, and by the time
+     * the scan reports which agent this is, thousands of lines may already
+     * exist. So the file is opened with a null agent and `identify()` fills
+     * it in a moment later, rather than the header waiting for a name it
+     * cannot have yet.
+     *
+     * Queued on the same chain as the events, which is what guarantees the
+     * ordering: every emit() below chains behind this.
      */
-    function id(): string {
-        return randomUUID()
-    }
+    chain = chain
+        .then(() => home.data.sessions.open(opts.root, opts.sessionId, opts.agentId ?? null))
+        .catch(() => {})
 
     return {
         /**
@@ -63,25 +79,41 @@ export function BuildRecorder(opts: {
          * known" from "an agent actually called that".
          */
         identify(name: string): void {
-            agentId = name
+            // Fills the null the header was opened with. Still cheap: this
+            // runs during the build, when the file is a few hundred bytes.
+            //
+            // A build whose scan fails before `build:load` leaves the header
+            // with a null agent, which is the honest answer — that build
+            // never found out which agent it was for.
+            chain = chain
+                .then(() => home.data.sessions.identify(opts.root, opts.sessionId, name))
+                .catch(() => {})
         },
 
         /** One build event, enveloped and appended. Never throws — see below. */
         emit<K extends BuildEventName>(type: K, data: BuildEventMap[K]): void {
+            // Observers see everything, including after handOver() — a live
+            // surface cares about the event, not which writer owns the file.
+            if (opts.onEmit) {
+                try {
+                    opts.onEmit(type, data)
+                } catch {
+                    // An observer's fault is never the build's.
+                }
+            }
             // Once the runtime owns the file, everything goes through its
             // writer — see handOver().
             if (delegate) {
                 delegate(type, data)
                 return
             }
+            // Same envelope as the runtime's: no per-event uuid, and no
+            // constant ids — those live in the header (see home.ts). A
+            // build event has no runId or spanId, so it carries no context
+            // key at all.
             const event = {
-                id: id(),
                 type,
                 time: { ms: Date.now(), seq: seq++ },
-                context: {
-                    ...(agentId ? { agentId } : {}),
-                    sessionId: opts.sessionId,
-                },
                 data,
             }
             // Fire-and-forget onto the chain, and swallowing the write

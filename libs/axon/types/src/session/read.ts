@@ -20,7 +20,8 @@ import { isSpanEnd, isSpanStart, spanStem } from "./events/span"
 export type ReadableEvent = {
     type: string
     time: { seq: number; ms: number }
-    context: { runId?: string }
+    /** Optional: most events carry no correlation at all — see AxonEvent. */
+    context?: { runId?: string }
     data: Record<string, unknown>
 }
 
@@ -67,7 +68,7 @@ function bracketKey(event: ReadableEvent): string {
         const value = d[field]
         if (typeof value === "string" || typeof value === "number") parts.push(`${field}:${value}`)
     }
-    const spanId = (event.context as { spanId?: string }).spanId
+    const spanId = (event.context as { spanId?: string } | undefined)?.spanId
     if (spanId) parts.push(`span:${spanId}`)
     return parts.join("|")
 }

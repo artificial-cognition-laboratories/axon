@@ -12,6 +12,7 @@
         "test:coverage": "bun test --coverage"
     },
     "dependencies": {
+        "@arcforge/air": "workspace:*",
         "@arcforge/cognet": "workspace:*",
         "@arcforge/engines": "workspace:*",
         "@arcforge/err": "workspace:*",

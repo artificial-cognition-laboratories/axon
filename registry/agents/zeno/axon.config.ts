@@ -3,9 +3,7 @@ export default defineAgent({
     modules: [
         "@axon/fs",
         "@axon/subagent",
+        "@axon/search",
+        "@axon/docs",
     ],
-
-    engine: Axon({
-        model: "auto",
-    }),
 })

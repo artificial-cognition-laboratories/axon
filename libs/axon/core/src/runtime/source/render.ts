@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { err } from "@arcforge/err"
 import type { vstr as Vstr } from "@axon/vstr"
-import { AxonBlueprint } from "@arcforge/types"
+import { AxonBlueprint, type AxonPrompt } from "@arcforge/types"
 import { promptContext } from "./context"
 
 /**
@@ -34,9 +34,24 @@ type PromptOpts = {
 export function Prompt(opts: PromptOpts) {
     async function render(name: string, props?: Record<string, unknown>) {
         const entry = opts.blueprint.prompts.find(p => p.name === name)
-
         if (!entry) throw err("PROMPT_NOT_FOUND", { context: { name } })
+        return renderEntry(entry, props)
+    }
+
+    /**
+     * Render a prompt this agent does not declare.
+     *
+     * The scope is still this agent's — `promptContext` below hands the
+     * template the live `axon` handle and the agent's own resolved env, which
+     * is the whole reason rendering belongs in the runtime. What it does NOT
+     * need is a blueprint entry: a prompt is content, addressed by an absolute
+     * path, and the only thing installing one ever bought was getting that
+     * path into `blueprint.prompts`. Cached prompts (~/.axon/cache/prompts)
+     * come through here instead of being installed into the agent.
+     */
+    async function renderEntry(entry: AxonPrompt, props?: Record<string, unknown>) {
         if (!entry.filePath) throw err("PROMPT_FILE_NOT_FOUND", { context: { path: entry.filePath ?? "" } })
+        const name = entry.name
 
         if (entry.kind === "static") {
             return await readFile(entry.filePath, "utf-8")
@@ -63,6 +78,9 @@ export function Prompt(opts: PromptOpts) {
 
     return {
         render: render,
+
+        /** Render a prompt entry this agent doesn't declare — a cached registry prompt. */
+        renderEntry: renderEntry,
 
         /** Every prompt declared in the blueprint — name + kind, for enumeration (axon.prompts.list()). */
         list() {

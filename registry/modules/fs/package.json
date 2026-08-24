@@ -1,6 +1,6 @@
 {
   "name": "@axon/fs",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Filesystem tools — search, read, write, and surgically patch files in the agent's workspace.",
   "type": "module",
   "private": false

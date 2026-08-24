@@ -3,26 +3,47 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "zeno",
+      "name": "@axon/zeno",
       "dependencies": {
-        "@arcforge/cognet": "2.0.111",
-        "@arcforge/engines": "2.0.111",
-        "@arcforge/types": "2.0.111",
-        "@axon/zero": "^0.1.6",
+        "@arcforge/air": "2.0.153",
+        "@arcforge/cognet": "2.0.153",
+        "@arcforge/engines": "2.0.153",
+        "@arcforge/types": "2.0.153",
+        "@axon/docs": "^1.0.1",
+        "@axon/fs": "^0.1.7",
+        "@axon/search": "^0.1.1",
+        "@axon/subagent": "^0.1.1",
+        "@axon/zero": "^1.0.42",
         "h3": "^1.13.0",
       },
     },
   },
   "packages": {
-    "@arcforge/cognet": ["@arcforge/cognet@2.0.111", "", { "dependencies": { "@arcforge/err": "2.0.111", "@arcforge/types": "2.0.111", "hookable": "^5.5.3" } }, "sha512-tJ/k3ProW01gST9wpA7qiS+4YLfFFPO4G6x/Mnh7Yj9PZ7DkByP6QNlq/C+0DabO9DrMB5fxluB7d74vmgDciA=="],
+    "@arcforge/air": ["@arcforge/air@2.0.153", "", { "dependencies": { "@arcforge/err": "2.0.153", "@arcforge/types": "2.0.153" } }, "sha512-oDfinQkbseLL6MEl7pbAVBQrG9rKGxitjJiHc0TbfYvNhPy3+9xRQo6nrVm+3Xj65pqP3hjVsEhiI2UlwregKg=="],
 
-    "@arcforge/engines": ["@arcforge/engines@2.0.111", "", { "dependencies": { "@arcforge/types": "2.0.111" } }, "sha512-WeOKxn4aVyUWG9HfXBP2jkw7gPIEYMK3UE+eZhR0Ql12W71BGkM89yMFz5Yc80GyxliyEcL6GqNj2M+spgoEKw=="],
+    "@arcforge/cognet": ["@arcforge/cognet@2.0.153", "", { "dependencies": { "@arcforge/err": "2.0.153", "@arcforge/types": "2.0.153", "hookable": "^5.5.3" } }, "sha512-Mb6zGNIwrs6KneaHeDus2lpRdVVje4Tv05mxv6hxHfvSoIGWU2QIVGvRyLiQzsfM8UdD8OFO5qwkuvFgEu7CLg=="],
 
-    "@arcforge/err": ["@arcforge/err@2.0.111", "", { "dependencies": { "@arcforge/types": "2.0.111" } }, "sha512-CMcAMMTMz3kd5vLXGB8eor1/zxMwtlbEiVnSDhzvCc0CxAhYKF+ikpAZd4s8j6HVpbkXlETXGSxdV96a1rltgg=="],
+    "@arcforge/engines": ["@arcforge/engines@2.0.153", "", { "dependencies": { "@arcforge/types": "2.0.153" } }, "sha512-7LNd/ftm/wZSEuh8+CeaAur6ru1H0hY6QoFKELQcSqh/j72nYWi/jymGHvu/tC2yJoEIToI/XohKd2mfx7n99g=="],
 
-    "@arcforge/types": ["@arcforge/types@2.0.111", "", { "dependencies": { "h3": "^1.13.0" } }, "sha512-xKmqvkDvdfiiDXC+qSNxiD/1RKhkBHYTHqTvIRw6kJ9ocnLqmhCYkN8vw65EnyCxCb6LS6C5/wR8sO32ycuudw=="],
+    "@arcforge/err": ["@arcforge/err@2.0.153", "", { "dependencies": { "@arcforge/types": "2.0.153" } }, "sha512-clZaHtu0jsF2LSOm9j8adeq5AYOlFSpj9jnXkzWymLhQsat1uEd68YaPoN0SadekbnfDa2EiDNjvYA4Nm96I2g=="],
 
-    "@axon/zero": ["@axon/zero@0.1.8", "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/@axon/zero/-/zero-0.1.8.tgz", { "peerDependencies": { "@arcforge/cognet": "*" } }, "sha512-LH7k/aNUAzTj3hHubmoa69B9Wwj/rooOJiLSxDdZezkp9ytpHmY5kCDWBjd7wxAvnki/SWkqRiU2CzD7LE7QZQ=="],
+    "@arcforge/types": ["@arcforge/types@2.0.153", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-6tbJT5xbjARmIrhuMillw9pZdZg3D/QxyxZPWv2Ew5bc67tRWMxfv/69ZoCEIfX+MI9Pu695RU2iihQCmJ97BA=="],
+
+    "@axon/docs": ["@axon/docs@1.0.7", "http://127.0.0.1:3099/api/registry/npm/@axon/docs/-/docs-1.0.7.tgz", { "dependencies": { "@arcforge/air": "2.0.141", "@arcforge/cognet": "2.0.141", "@arcforge/engines": "2.0.141", "@arcforge/types": "2.0.141", "h3": "^1.13.0" } }, "sha512-ZVhvs9Xi/uRPZJaPf68Mr4DIuJabCPLHz3w8JuQ9AYnK0MVfOOs+e0N9e9Ers8IxkUb9T/Bsj/x+fyyM4t74Vw=="],
+
+    "@axon/fs": ["@axon/fs@0.1.8", "http://127.0.0.1:3099/api/registry/npm/@axon/fs/-/fs-0.1.8.tgz", {}, "sha512-H9CeN+gpGukIcmngupa3JCz/eSldAzjfvDcxAgJcqJkbvPWsPQ5F0CqDjR8e1GQMiP/i5HSG3s8XPENXwJNYQA=="],
+
+    "@axon/search": ["@axon/search@0.1.1", "http://127.0.0.1:3099/api/registry/npm/@axon/search/-/search-0.1.1.tgz", { "dependencies": { "@arcforge/air": "2.0.124", "@arcforge/cognet": "2.0.124", "@arcforge/engines": "2.0.124", "@arcforge/types": "2.0.124", "h3": "^1.13.0" } }, "sha512-d7/O6EBy7nyUEVKE9fIqbi+aekC9Pbk1k3u/ow/8rU/K1u1bGIes1pJ90mpX1xf7ZzjVaQBEflZGid3unEgh6Q=="],
+
+    "@axon/subagent": ["@axon/subagent@0.1.4", "http://127.0.0.1:3099/api/registry/npm/@axon/subagent/-/subagent-0.1.4.tgz", {}, "sha512-Ohiw+Uf3piYxuy8ZgmTyBswyKDfi6nALpTia/CYP5RBby2TfouhHic4IezSigaG6/sDPZY8ggBbYOPGEpVRpow=="],
+
+    "@axon/zero": ["@axon/zero@1.0.42", "http://127.0.0.1:3099/api/registry/npm/@axon/zero/-/zero-1.0.42.tgz", { "dependencies": { "@arcforge/air": "2.0.148", "@arcforge/cognet": "2.0.148", "@arcforge/engines": "2.0.148", "@arcforge/types": "2.0.148", "h3": "^1.13.0" } }, "sha512-fv/PGEI6cTkc+2z7Mp2FAMR4idrGyJ25TmSFFnsIdHJN/X6u9Sy0NBr9Qv+CIP14Q4Fz74l1j+PdTYuYxpTOAw=="],
+
+    "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
+
+    "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
     "cookie-es": ["cookie-es@1.2.3", "", {}, "sha512-lXVyvUvrNXblMqzIRrxHb57UUVmqsSWlxqt3XIjCkUP0wDAf6uicO6KMbEgYrMNtEvWgWHwe42CKxPu9MYAnWw=="],
 
@@ -45,5 +66,43 @@
     "ufo": ["ufo@1.6.4", "", {}, "sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA=="],
 
     "uncrypto": ["uncrypto@0.1.3", "", {}, "sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q=="],
+
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+
+    "@axon/docs/@arcforge/air": ["@arcforge/air@2.0.141", "", { "dependencies": { "@arcforge/err": "2.0.141", "@arcforge/types": "2.0.141" } }, "sha512-sckmOjLpK9SYvwPIh5A7+s0UAgkDblW4xtKJ8dr2NZ711JwbFlYWf/SikGuBE783P8ljHA58gjV767rVSShTnw=="],
+
+    "@axon/docs/@arcforge/cognet": ["@arcforge/cognet@2.0.141", "", { "dependencies": { "@arcforge/err": "2.0.141", "@arcforge/types": "2.0.141", "hookable": "^5.5.3" } }, "sha512-bWsXM6ywtaMpDVtxBpSlabbplLu87Vw4q7MOWXEC71hn+scNhw8L/B8/iwaMsM2KDs87GPm1xx4UecjN6hYrvQ=="],
+
+    "@axon/docs/@arcforge/engines": ["@arcforge/engines@2.0.141", "", { "dependencies": { "@arcforge/types": "2.0.141" } }, "sha512-bKv3mcZIndHT7yvMWNr1g57Qmn3OBvQNKvyo5gxr6TPNc5U6zZlyVJCIpo59CqcUp9clGVmpM/kCwjcHuZawxw=="],
+
+    "@axon/docs/@arcforge/types": ["@arcforge/types@2.0.141", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-pj4nrcmjjnVSLQ/cFA5QOArHR/9hvVdQnkrvkvBLtb2K6nJQXs1AZCYiHU7giUAggZwj3UZitJIVU8FbVAigbw=="],
+
+    "@axon/search/@arcforge/air": ["@arcforge/air@2.0.124", "", { "dependencies": { "@arcforge/err": "2.0.124", "@arcforge/types": "2.0.124" } }, "sha512-CWwx4Kifla3BaCrKUiUqt3yv3w5PIpBgvJxbbP/zQOjnmRqsXzyrTIHc5mZziNQXj+AeA62Q8ovGtfGBq3LJ2Q=="],
+
+    "@axon/search/@arcforge/cognet": ["@arcforge/cognet@2.0.124", "", { "dependencies": { "@arcforge/err": "2.0.124", "@arcforge/types": "2.0.124", "hookable": "^5.5.3" } }, "sha512-C9IwftCSovIZzpjyHbBo0jDuvbhloBKULoJfYtyqLHZ5IiQL4NZth90k/sYNbf9L8j+m+HGP8+PFrv/nkAQ4qA=="],
+
+    "@axon/search/@arcforge/engines": ["@arcforge/engines@2.0.124", "", { "dependencies": { "@arcforge/types": "2.0.124" } }, "sha512-TAx+cAoDaC8Hk3732zMzTASnGC8XzKA3Sg0wAeP5XYsixIWSp5z8pLDRL1EUVmyVF120ufyaHCaQosCLsjhY4g=="],
+
+    "@axon/search/@arcforge/types": ["@arcforge/types@2.0.124", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-CCNDfqCVslHcqBg+8D4F7v6Dz5iBkEZ1K6gd+BUpZWbrbPIY4BVBMvEsrpqM5lHf18bhdNASdRpmbFB6bIEtng=="],
+
+    "@axon/zero/@arcforge/air": ["@arcforge/air@2.0.148", "", { "dependencies": { "@arcforge/err": "2.0.148", "@arcforge/types": "2.0.148" } }, "sha512-QjZXnpCL4fGJ7/bKrWvTdZnL8/0ZzAgLNBmvnGRjSo6npi+WnQYTwZwNHlFJxPPxfccu06UJRjDHA6DumDxZTQ=="],
+
+    "@axon/zero/@arcforge/cognet": ["@arcforge/cognet@2.0.148", "", { "dependencies": { "@arcforge/err": "2.0.148", "@arcforge/types": "2.0.148", "hookable": "^5.5.3" } }, "sha512-3bb6VJjrXB/BQ6MYQtuHMwF+kAhhts2fNmR8uj5ZiddfXR7XE05+HmCQycJg6Z0jOn6LIxD1AmSyMf1Vxw3OKw=="],
+
+    "@axon/zero/@arcforge/engines": ["@arcforge/engines@2.0.148", "", { "dependencies": { "@arcforge/types": "2.0.148" } }, "sha512-8x5XrfWdKWO463l3uNEAdj/ju2gN7geNnq/xXw6TZljEoMux5m2Eu+GUfnwF/JJJl4iOPy4JT5rOfFnoULAQFg=="],
+
+    "@axon/zero/@arcforge/types": ["@arcforge/types@2.0.148", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-blYOpb2o59CalXjKPbmB0GU8J5i8zMCc9MgN7jOb0DfUD9UFlMtXo4S+/vUHIUPWuzSBb4zhebJXoAkcPxTluQ=="],
+
+    "@axon/docs/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.141", "", { "dependencies": { "@arcforge/types": "2.0.141" } }, "sha512-OcKNqt1M/h/zG4VpV40vbm9GV//0Bnz4XycENte5vO/SAJWUlsT/BBA+598MVsjXnuAxWSU34tRooC6kVSxqWg=="],
+
+    "@axon/docs/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.141", "", { "dependencies": { "@arcforge/types": "2.0.141" } }, "sha512-OcKNqt1M/h/zG4VpV40vbm9GV//0Bnz4XycENte5vO/SAJWUlsT/BBA+598MVsjXnuAxWSU34tRooC6kVSxqWg=="],
+
+    "@axon/search/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.124", "", { "dependencies": { "@arcforge/types": "2.0.124" } }, "sha512-pwmnNj5+FkVbPUkF4FgJXnJYkTGqUHs0w2v7unrl7Kuo7kDZoVjm+rSG2QZB2maPkXmhFdrN/JPPgtU88n+57Q=="],
+
+    "@axon/search/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.124", "", { "dependencies": { "@arcforge/types": "2.0.124" } }, "sha512-pwmnNj5+FkVbPUkF4FgJXnJYkTGqUHs0w2v7unrl7Kuo7kDZoVjm+rSG2QZB2maPkXmhFdrN/JPPgtU88n+57Q=="],
+
+    "@axon/zero/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.148", "", { "dependencies": { "@arcforge/types": "2.0.148" } }, "sha512-PMKaNqWjdfQGpQpFUAtIBl3nxt7X3lukHowt5nkrYyARSXv0wgejrTGKjL6HqEjNQxj8CaM+ZurONXKryl+CzA=="],
+
+    "@axon/zero/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.148", "", { "dependencies": { "@arcforge/types": "2.0.148" } }, "sha512-PMKaNqWjdfQGpQpFUAtIBl3nxt7X3lukHowt5nkrYyARSXv0wgejrTGKjL6HqEjNQxj8CaM+ZurONXKryl+CzA=="],
   }
 }

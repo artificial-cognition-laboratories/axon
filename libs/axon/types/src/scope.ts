@@ -26,4 +26,17 @@ export type AxonScopeModule = {
 /** The complete TypeScript scope implemented by one live capsule. */
 export type AxonScope = {
     modules: readonly AxonScopeModule[]
+    /**
+     * Capabilities the agent declares but does NOT have this session.
+     *
+     * A module whose tools failed to compile contributes nothing to `modules`
+     * — correct, because the model must never be told about a tool the capsule
+     * cannot load. But that absence is silent: the agent has no way to know it
+     * lost something, so it answers as though the capability never existed, or
+     * worse, claims it does.
+     *
+     * Rendered alongside the scope so the model can say "I cannot search arXiv
+     * right now" rather than guessing. Empty in the normal case.
+     */
+    unavailable?: readonly { name: string; reason: string }[]
 }

@@ -46,6 +46,21 @@ export type AxonSession = {
  */
 export type AxonEventMap = AxonKernelEventMap & AxonRuntimeEvent & CognetEventMap & CapsuleEventMap & BuildEventMap
 
+/**
+ * Every bracketed operation's STEM — "axon:boot", "cognet:tick", and so on.
+ *
+ * Derived from the event map rather than listed, so a span declared through
+ * AxonSpan<> is immediately callable through session.span() and a stem that
+ * was never declared is a compile error. This is what lets that helper type
+ * its own payloads: given a stem it can look up `${K}:start` and
+ * `${K}:complete` directly, which a bare `K extends string` cannot do.
+ */
+export type AxonSpanName = {
+    [K in keyof AxonEventMap]: K extends `${infer Stem}:start`
+        ? `${Stem}:complete` extends keyof AxonEventMap ? Stem : never
+        : never
+}[keyof AxonEventMap]
+
 // ── Enveloped unions (what actually sits in the JSONL) ──────────────────────
 
 /** One line in the session's kernel log — internal telemetry, never rendered to the user. */

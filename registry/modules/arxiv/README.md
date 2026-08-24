@@ -1,20 +1,21 @@
-# @axon/arxiv
 
 arXiv paper search and retrieval. Gives your agent a clean interface to 2M+ papers across CS, math, physics, stats, biology, and economics — no API key required.
 
+[video of axon agent fetching from arxiv](./assets/demo.mp4)
+
 ## Install
 
+**tui**
 ```bash
-axon install @axon/arxiv
-axon prepare
+: module install @axon/arxiv
 ```
 
+**cli**
+```bash
+axon install @axon/arxiv
+
 No environment variables required.
-
-## Tools
-
-After `axon prepare`, tools are available on `axon.tools.arxiv.*`.
-
+```
 ---
 
 ### `arxiv.search(query, opts?)`
@@ -29,29 +30,6 @@ const { papers } = await arxiv.search("au:LeCun AND cat:cs.LG", {
     limit: 20,
 })
 ```
-
-**Field prefixes:**
-
-| Prefix | Searches |
-|--------|----------|
-| `ti:`  | Title |
-| `au:`  | Author |
-| `abs:` | Abstract |
-| `cat:` | Category |
-| `all:` | All fields (default) |
-
-**Operators:** `AND`, `OR`, `NOT`. Multi-word phrases must be quoted: `ti:"graph neural networks"`.
-
-**Options:**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `limit` | `number` | `10` | Max results (capped at 100) |
-| `offset` | `number` | `0` | Pagination offset |
-| `sortBy` | `"relevance" \| "submittedDate" \| "lastUpdatedDate"` | `"relevance"` | Sort field |
-| `sortOrder` | `"ascending" \| "descending"` | `"descending"` | Sort direction |
-
-**Returns:** `{ papers: Paper[], total: number }`
 
 ---
 

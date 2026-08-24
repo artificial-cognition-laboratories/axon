@@ -1,4 +1,4 @@
-import { clientForFile } from "../lsp/router.js"
+import { clientForFile, clientForWorkspace } from "../lsp/router.js"
 import { readLine, toUri, fromUri } from "../lsp/client.js"
 
 /**
@@ -70,10 +70,35 @@ export type TextEdit = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * The directory a language server is rooted at.
+ *
+ * WORKING DIRECTORY FIRST, deliberately. These tools analyse THE CODE THE USER
+ * IS WORKING ON, and that is where the session was started — a repo root, with
+ * the agent invoked from inside it. `AXON_HOME` is the agent's OWN folder
+ * (`~/.axon/profiles/…/agents/<name>/`), which holds the agent's config and
+ * almost never the code anyone wants indexed.
+ *
+ * Rooting at AXON_HOME also breaks the server outright for a second reason:
+ * typescript-language-server resolves TypeScript from the workspace it is
+ * initialized with, and an agent folder has no `typescript` dependency because
+ * an agent is not a TypeScript project. A repo root does.
+ *
+ * `AXON_HOME` remains the fallback for the case it is right about — an agent
+ * spawned with no meaningful cwd, where its own directory is the only workspace
+ * there is.
+ *
+ * (Before either of these it read `AXON_WORKSPACE_ROOT`, which nothing in the
+ * platform, runtime or capsule sets — so every call threw before doing any
+ * work, on every machine, since the module was written.)
+ */
 function workspaceRoot(): string {
-    const root = process.env.AXON_WORKSPACE_ROOT
-    if (!root) throw new Error("AXON_WORKSPACE_ROOT is not set — LSP tools require a workspace root")
-    return root
+    // `process.cwd()` always returns a path, so the fallback is reached only
+    // when it names somewhere that cannot host a workspace — "/" when a process
+    // was spawned with no meaningful directory. Anything real wins.
+    const cwd = process.cwd()
+    if (cwd && cwd !== "/") return cwd
+    return process.env.AXON_HOME ?? cwd
 }
 
 async function lspClient(file: string) {
@@ -121,10 +146,13 @@ export const lsp = {
      * // → [{ file: "src/types.ts", line: 14, col: 12, preview: "export type AuthToken = ..." }]
      */
     async symbol(name: string, maxResults = 20): Promise<Location[]> {
-        // workspace/symbol is the standard LSP equivalent of tsserver navto
-        const client = await lspClient(workspaceRoot() + "/index.ts").catch(() => {
-            throw new Error("lsp.symbol() requires a TypeScript workspace root file to resolve the server. Use lsp.definition() with a specific file instead.")
-        })
+        // workspace/symbol asks the SERVER'S INDEX, not a document — so this
+        // needs a server rooted at the workspace and nothing else. It used to
+        // request a client for `<root>/index.ts`, a file no real agent has,
+        // and then swallow the resulting "cannot read file" behind a message
+        // blaming the workspace root. The error every user saw was a guess
+        // about a cause the code had already discarded.
+        const client = await clientForWorkspace(".ts", workspaceRoot())
 
         const body = await client.request("workspace/symbol", {
             query: name,
@@ -224,15 +252,33 @@ export const lsp = {
      * // → [{ severity: "error", line: 42, col: 18, code: 2345, message: "Type 'string' is not assignable..." }]
      */
     async diagnostics(file: string): Promise<Diagnostic[]> {
-        // Standard LSP doesn't have a pull diagnostic request in all servers.
-        // We use the optional textDocument/diagnostic method (LSP 3.17+) with
-        // fallback to an empty result — servers that don't support it return null.
+        // Diagnostics are PUSHED, not requested. Every TypeScript server
+        // publishes `textDocument/publishDiagnostics` after a document opens;
+        // the pull request (`textDocument/diagnostic`, LSP 3.17) is optional
+        // and typescript-language-server answers it with `Unhandled method`.
+        //
+        // This asked for the pull and swallowed the rejection with
+        // `.catch(() => null)`, so it returned [] for every file on every
+        // server — including files with real type errors, which is the one
+        // answer a diagnostics tool must never give wrongly.
         const client = await lspClient(file)
-        const body = await client.request("textDocument/diagnostic", {
-            textDocument: { uri: toUri(file) },
-        }, 10_000).catch(() => null) as any
+        const uri = toUri(file)
 
-        const items = body?.items ?? []
+        // Opening the document is what triggers the publish; the wait is for
+        // the first batch to land.
+        let items = await client.waitForDiagnostics(uri) as any[]
+
+        // A server that genuinely implements pull diagnostics answers here.
+        // Tried second because it is the rarer capability — and its failure is
+        // no longer hidden: a rejection leaves the pushed result standing
+        // rather than replacing it with silence.
+        if (items.length === 0) {
+            const pulled = await client.request("textDocument/diagnostic", {
+                textDocument: { uri },
+            }, 10_000).then(body => (body as any)?.items ?? [], () => []) as any[]
+            if (pulled.length > 0) items = pulled
+        }
+
         return items.map((d: any) => ({
             severity: d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "hint",
             line: d.range.start.line + 1,

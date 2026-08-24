@@ -1,10 +1,10 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 describe("Axon shutdown", () => {
     it("commits axon:shutdown:start then axon:shutdown:complete to the session log", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         await runtime.shutdown()
@@ -19,7 +19,7 @@ describe("Axon shutdown", () => {
 
     it("axon:shutdown:complete carries a non-negative durationMs", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         await runtime.shutdown()
@@ -31,7 +31,7 @@ describe("Axon shutdown", () => {
 
     it("commits axon:session:closed as part of shutdown", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         await runtime.shutdown()
@@ -42,7 +42,7 @@ describe("Axon shutdown", () => {
 
     it("shutdown accepts an optional reason and records it on axon:shutdown:start", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         await runtime.shutdown("test teardown")

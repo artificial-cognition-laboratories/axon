@@ -1,10 +1,10 @@
 import { Axon } from "../../setup/axon"
-import { Mock } from "@arcforge/engines/mock"
+import { Mock } from "@arcforge/engines"
 
 describe("axon.stream", () => {
     it("returns an object with a stream field, not a bare generator", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi there" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi there" })] } },
         })
 
         const result = runtime.axon.stream("hello")
@@ -20,7 +20,7 @@ describe("axon.stream", () => {
 
     it("yields entries as they're produced, ending with the agent's text", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi there" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi there" })] } },
         })
 
         const { stream } = runtime.axon.stream("hello")
@@ -34,7 +34,7 @@ describe("axon.stream", () => {
 
     it("accepts an ordered prompt batch as one stream", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         const { stream } = runtime.axon.stream({ prompt: ["hello", "and this too"] })
@@ -50,7 +50,7 @@ describe("axon.stream", () => {
 
     it("a second stream() call while the first is still open throws RUN_IN_PROGRESS", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock({ hello: "hi" }) } },
+            blueprint: { config: { providers: [Mock({ hello: "hi" })] } },
         })
 
         const first = runtime.axon.stream("hello")
@@ -62,13 +62,15 @@ describe("axon.stream", () => {
     })
 
     it("rejects (throws on iteration) when the engine fails", async () => {
-        const runtime = await Axon()
+        const runtime = await Axon({
+            blueprint: { config: { providers: [Mock(() => { throw new Error("engine down") })] } },
+        })
 
         const { stream } = runtime.axon.stream("hello")
 
         await expect((async () => {
             for await (const _ of stream) { /* noop */ }
-        })()).rejects.toThrow(/No Engine Configured/)
+        })()).rejects.toThrow(/engine down/)
 
         await runtime.shutdown()
     })

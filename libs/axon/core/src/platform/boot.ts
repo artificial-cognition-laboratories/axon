@@ -82,23 +82,69 @@ export function Boot(opts: BootOpts) {
         }
     }
 
+    /**
+     * The last render that succeeded, for a boot.vue that has since broken.
+     *
+     * Null until one has. See render() for why this exists at all.
+     */
+    let lastGood: string | null = null
+
     async function render(): Promise<string | undefined> {
         if (blueprint.boot !== undefined) return blueprint.boot
         if (blueprint.bootFilePath === undefined) return undefined
 
         const restore = captureConsole()
         try {
-            return await (await loadVstr()).vstr(blueprint.bootFilePath, {
+            const rendered = await (await loadVstr()).vstr(blueprint.bootFilePath, {
                 context: promptContext(blueprint),
                 noCache: true,
             }).render()
+            lastGood = rendered
+            return rendered
         } catch (cause) {
             // vstr (generic tool, no @axon/err) throws plain on a malformed
             // boot.vue — wrap at the boundary into the structured code.
-            throw err("BOOT_SCRIPT_INVALID", { cause, context: { path: blueprint.bootFilePath } })
+            const failure = err("BOOT_SCRIPT_INVALID", { cause, context: { path: blueprint.bootFilePath } })
+
+            // ── Never throw from here ───────────────────────────────────────
+            //
+            // render() is called by kernel.base() on EVERY tick, inside the
+            // cognet's render phase. A throw does not merely fail the boot: it
+            // kills the wake, so a typo saved mid-session stops the agent
+            // answering at all — while the user is editing the very file they
+            // would use it to fix.
+            //
+            // Falling back to the last good render is strictly better than
+            // empty: the agent keeps the identity and instructions it had a
+            // moment ago, which is almost always still what its author meant.
+            if (lastGood !== null) {
+                return `${lastGood}\n\n${degradedNote(failure.message, true)}`
+            }
+
+            // Nothing to fall back to — a boot.vue broken before it ever
+            // rendered. The agent runs WITHOUT its identity, which is a real
+            // loss and must not be silent: an agent with empty context answers
+            // confidently as a generic assistant, and the user cannot tell
+            // why it stopped sounding like theirs.
+            return degradedNote(failure.message, false)
         } finally {
             restore()
         }
+    }
+
+    /**
+     * What the model is told when boot.vue would not render.
+     *
+     * Written to the MODEL, not the user — the user sees the structured error
+     * card. This is the sentence that stops the agent behaving as though
+     * nothing happened, and it says which of the two situations it is in
+     * because they call for different behaviour: stale instructions are worth
+     * following, no instructions are worth admitting to.
+     */
+    function degradedNote(reason: string, stale: boolean): string {
+        return stale
+            ? `<system-note>Your boot context failed to reload and the text above is the last version that worked. It may be out of date. Reason: ${reason}</system-note>`
+            : `<system-note>Your boot context could not be loaded, so you are running without the identity and instructions its author wrote. Say so if asked who you are or what you are for. Reason: ${reason}</system-note>`
     }
 
     return {

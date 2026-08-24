@@ -1,0 +1,8 @@
+{
+  "kind": "extension",
+  "name": "@axon/ember-theme",
+  "version": "1.0.4",
+  "public": true,
+  "builtAt": "2026-08-13T16:40:44.297Z",
+  "description": "A warm terminal palette in three weights — glow, dark and light."
+}

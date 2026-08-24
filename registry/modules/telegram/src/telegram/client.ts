@@ -1,62 +1,71 @@
 /**
- * Raw Telegram Bot API client.
+ * Raw Telegram Bot API transport.
  *
- * No dependencies — thin fetch wrapper over the Bot API REST interface.
- * All methods throw on API errors. Never swallows.
+ * Owns one concern: turning a Bot API method call into a result or a loud
+ * error. Knows nothing about stimuli, channels, or the agent.
  *
  * https://core.telegram.org/bots/api
  */
 
-let _token: string | null = null
-
-export function token(): string {
-    if (!_token) {
-        const t = process.env.TELEGRAM_BOT_TOKEN
-        if (!t) throw new Error(
-            "TELEGRAM_BOT_TOKEN is not set.\n" +
-            "Create a bot with @BotFather on Telegram and add the token to your .env."
-        )
-        _token = t
-    }
-    return _token
+export type TelegramClientOpts = {
+    /** Bot token from @BotFather. */
+    token: string
 }
 
-export function resetClient(): void {
-    _token = null
-}
+export type TelegramClientT = ReturnType<typeof TelegramClient>
 
 const BASE = "https://api.telegram.org"
 
-export async function api<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const url = `${BASE}/bot${token()}/${method}`
+export function TelegramClient(opts: TelegramClientOpts) {
+    const base = `${BASE}/bot${opts.token}`
 
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-    })
-
-    const json = await res.json() as { ok: boolean; result?: T; description?: string; error_code?: number }
-
-    if (!json.ok) {
-        throw new Error(`Telegram API error [${method}]: ${json.description ?? "unknown"} (code ${json.error_code ?? res.status})`)
+    /** Unwrap the Bot API's { ok, result } envelope, throwing on ok:false. */
+    function unwrap<T>(json: TelegramResponse<T>, method: string, status: number): T {
+        if (!json.ok) {
+            throw new Error(
+                `Telegram API error [${method}]: ${json.description ?? "unknown"} (code ${json.error_code ?? status})`,
+            )
+        }
+        return json.result as T
     }
 
-    return json.result as T
+    return {
+        /** Call a Bot API method with a JSON body. */
+        async call<T = unknown>(method: string, params: Record<string, unknown> = {}, init?: { signal?: AbortSignal }): Promise<T> {
+            const res = await fetch(`${base}/${method}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(params),
+                ...(init?.signal ? { signal: init.signal } : {}),
+            })
+            return unwrap(await res.json() as TelegramResponse<T>, method, res.status)
+        },
+
+        /**
+         * Call a Bot API method with one attached file (multipart).
+         *
+         * `field` is the Bot API's parameter name for the upload and differs
+         * per method — `document` for sendDocument, `photo` for sendPhoto.
+         */
+        async upload<T = unknown>(
+            method: string,
+            field: string,
+            fields: Record<string, string>,
+            file: { name: string; data: Uint8Array; mimeType: string },
+        ): Promise<T> {
+            const form = new FormData()
+            for (const [key, value] of Object.entries(fields)) form.append(key, value)
+            form.append(field, new Blob([file.data as BlobPart], { type: file.mimeType }), file.name)
+
+            const res = await fetch(`${base}/${method}`, { method: "POST", body: form })
+            return unwrap(await res.json() as TelegramResponse<T>, method, res.status)
+        },
+    }
 }
 
-/** Upload a file as multipart/form-data. Used for sendDocument, sendPhoto etc. */
-export async function apiUpload<T = unknown>(method: string, fields: Record<string, string>, file: { name: string; data: Uint8Array; mimeType: string }): Promise<T> {
-    const form = new FormData()
-    for (const [k, v] of Object.entries(fields)) form.append(k, v)
-    form.append("document", new Blob([file.data], { type: file.mimeType }), file.name)
-
-    const res = await fetch(`${BASE}/bot${token()}/${method}`, { method: "POST", body: form })
-    const json = await res.json() as { ok: boolean; result?: T; description?: string; error_code?: number }
-
-    if (!json.ok) {
-        throw new Error(`Telegram API error [${method}]: ${json.description ?? "unknown"} (code ${json.error_code ?? res.status})`)
-    }
-
-    return json.result as T
+type TelegramResponse<T> = {
+    ok: boolean
+    result?: T
+    description?: string
+    error_code?: number
 }

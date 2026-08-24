@@ -1,0 +1,8 @@
+{
+  "kind": "extension",
+  "name": "@axon/gruvbox-theme",
+  "version": "1.0.3",
+  "public": true,
+  "builtAt": "2026-08-13T16:40:13.393Z",
+  "description": "Retro groove for the terminal — Gruvbox in three weights: medium, hard and light."
+}

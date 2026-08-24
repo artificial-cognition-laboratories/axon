@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { pathToFileURL } from "node:url"
 import { readFile } from "node:fs/promises"
 import type { AxonModule, ModuleConfig, ModuleOptionSchema } from "@arcforge/types"
 import { err } from "@arcforge/err"
@@ -32,7 +33,16 @@ export async function loadModule(module: AxonModule): Promise<LoadedModule> {
         // Cache-bust so watch-mode reloads re-evaluate. randomUUID (not a
         // timestamp) — repeated imports in one millisecond would otherwise
         // share Bun's module cache and silently serve stale bytes.
-        const imported = (await import(`${module.configPath}?t=${crypto.randomUUID()}`)) as { default?: ModuleConfig }
+        //
+        // pathToFileURL FIRST. Appending a query to a bare filesystem path
+        // makes the runtime read the whole string as a URL, and a module
+        // imported by URL resolves its own bare specifiers against that URL
+        // rather than by walking node_modules from its directory. A module
+        // importing only relative paths survived that; one importing a real
+        // dependency (`discord.js`) failed with "Cannot find package" naming
+        // the cache-busted path — the query string was the tell.
+        const url = `${pathToFileURL(module.configPath).href}?t=${crypto.randomUUID()}`
+        const imported = (await import(url)) as { default?: ModuleConfig }
         if (!imported.default || typeof imported.default !== "object") {
             throw new Error("module.config.ts has no default export")
         }
