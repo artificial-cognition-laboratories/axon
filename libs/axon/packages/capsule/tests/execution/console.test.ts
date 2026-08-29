@@ -1,9 +1,9 @@
-import { Capsule } from "@axon/capsule"
-import type { CapsuleEvent } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
+import type { CapsuleEvent } from "@arcforge/capsule"
 
 function collectConsoleEvents(capsule: ReturnType<typeof Capsule>) {
-    const events: CapsuleEvent["capsule:console"][] = []
-    capsule.on("capsule:console", e => events.push(e))
+    const events: CapsuleEvent["process:console"][] = []
+    capsule.on("process:console", e => events.push(e))
     return events
 }
 
@@ -83,7 +83,7 @@ describe("Capsule console", () => {
         const capsule = Capsule()
         const events = collectConsoleEvents(capsule)
         const parseErrors: unknown[] = []
-        capsule.on("capsule:parse:error", e => parseErrors.push(e))
+        capsule.on("process:parse:error", e => parseErrors.push(e))
         await capsule.boot()
 
         const result = await capsule.run(`console.log("must not corrupt the wire"); "done"`)
@@ -99,7 +99,7 @@ describe("Capsule console", () => {
         const capsule = Capsule()
         const events = collectConsoleEvents(capsule)
         const parseErrors: unknown[] = []
-        capsule.on("capsule:parse:error", e => parseErrors.push(e))
+        capsule.on("process:parse:error", e => parseErrors.push(e))
         await capsule.boot()
 
         // No newline is deliberate: this previously glued raw JSON directly

@@ -1,5 +1,5 @@
 /**
- * @axon/theme — shared syntax highlighting theme and UI palette.
+ * @arcforge/theme — shared syntax highlighting theme and UI palette.
  *
  * Source of truth for the Arcnight Shiki theme and the Axon UI color palette.
  * Consumed by VTerm's highlighter, the debugger webview, and any future

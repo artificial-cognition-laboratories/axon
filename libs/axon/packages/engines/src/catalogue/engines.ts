@@ -5,7 +5,7 @@ import type {
     EngineRequirements,
     EngineResolution,
 } from "@arcforge/types"
-import { resolveEngines, primaryRole } from "../resolver"
+import { resolveEngines, primaryRole, preference } from "../resolver"
 import { matchesPin, parsePin } from "../resolver/pin"
 import { EngineFailure } from "../shared"
 import type { AxonProvider } from "./provider"
@@ -14,7 +14,14 @@ type EnginesOpts = {
     requirements: EngineRequirements
     /** Everything the user's providers can supply — already gathered. */
     capabilities: readonly EngineCapability[]
-    /** Providers by name, for building a driver once a role is bound. */
+    /**
+     * Providers by name, for building a driver once a role is bound.
+     *
+     * ITERATION ORDER IS LOAD-BEARING: it is the order the user declared
+     * their providers in, and it settles which route wins when one model is
+     * reachable through several. A Map preserves insertion order, so the
+     * pool must be built in declaration order — see `preference()`.
+     */
     providers: ReadonlyMap<string, AxonProvider>
     /**
      * The user's cortex choice — `"codex:gpt-5.6-terra"` or `"gpt-5.6-terra"`.
@@ -46,7 +53,12 @@ type Live = {
  * already happened before the cognet's first wake.
  */
 export function Engines(opts: EnginesOpts) {
-    const resolution = resolveEngines(opts.requirements, opts.capabilities, { ...(opts.model !== undefined ? { model: opts.model } : {}) })
+    const order = [...opts.providers.keys()]
+    const rank = preference(order)
+    const resolution = resolveEngines(opts.requirements, opts.capabilities, {
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
+        order,
+    })
     const live = new Map<string, Live>()
 
     /**
@@ -105,9 +117,13 @@ export function Engines(opts: EnginesOpts) {
     for (const binding of resolution.bound) {
         live.set(binding.role, { binding, driver: build(binding.capability) })
 
-        const others = opts.capabilities.filter(
-            candidate => candidate.id !== binding.capability.id && candidate.type === binding.requirement.type,
-        )
+        // Ranked the same way resolution ranked, not left in catalogue
+        // order: these are what a picker offers and what a failed binding
+        // falls back to, so "best first" has to mean the same thing here as
+        // it did when the winner was chosen.
+        const others = opts.capabilities
+            .filter(candidate => candidate.id !== binding.capability.id && candidate.type === binding.requirement.type)
+            .sort(rank)
         alternates.set(binding.role, others)
     }
 

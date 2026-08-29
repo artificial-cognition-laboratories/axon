@@ -1,0 +1,53 @@
+{
+    "name": "@arcforge/link",
+    "version": "2.0.165",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        },
+        "./confine": {
+            "types": "./src/confine/index.ts",
+            "default": "./src/confine/index.ts"
+        }
+    },
+    "files": [
+        "src/**/*.ts"
+    ],
+    "scripts": {
+        "test": "bun test --parallel=4",
+        "typecheck": "tsc --noEmit",
+        "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
+    },
+    "dependencies": {
+        "@arcforge/err": "workspace:*",
+        "@arcforge/types": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "description": "The supervisor ↔ agent transport for the Axon runtime — framed messaging across the confinement boundary.",
+    "homepage": "https://axon.arclabs.it/docs/v2/concepts/kernel-and-policy",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/packages/link"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
+}

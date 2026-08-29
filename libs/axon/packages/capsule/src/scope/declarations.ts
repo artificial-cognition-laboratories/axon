@@ -11,7 +11,6 @@ import type { AxonScopeModule } from "@arcforge/types"
 export const CAPSULE_SCOPE_MODULE: AxonScopeModule = {
     name: "capsule",
     description: "Globals provided by the Axon capsule TypeScript runtime.",
-    flat: true,
     ambientTypes: [
         `type ProcOutputStream = "stdout" | "stderr"`,
         `type ProcRunResult = {

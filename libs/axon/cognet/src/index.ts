@@ -1,7 +1,7 @@
 // @arcforge/cognet — the cognet runtime.
 //
 // Everything that executes INSIDE a compiled brain. The kernel that loads the
-// brain lives in @axon/core and is private; this is the public half, and it is
+// brain lives in @arcforge/core and is private; this is the public half, and it is
 // what the generated entry imports.
 //
 // Root export is deliberately minimal: a cognet cannot exist without the host,

@@ -3,11 +3,16 @@ import { since, snapshot } from "./bindings"
 import type { CapsuleCommand, CapsuleCommandOrigin } from "../../types"
 import type { ConsoleT } from "./console"
 import type { ScopeT } from "./scope"
-import type { SandboxWireT } from "./wire"
+import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
 import type { ExecutionT } from "./execution"
 import type { ActivitiesT } from "./activities"
 
 type RunnerOpts = {
+    /**
+     * Subscribe to a command wire. False in-process, where the manager calls
+     * `run`/`kill` directly and there is no channel to read from.
+     */
+    dispatch?: boolean
     scope: ScopeT
     wire: SandboxWireT
     console: ConsoleT
@@ -148,6 +153,13 @@ export function describeFailure(cause: unknown): string {
     return [cause instanceof Error ? cause.message : "Parse error", ...lines, ...more].join("\n")
 }
 
+/** The rejection an aborted eval settles with — classified by the catch below. */
+function abortSignalError(): Error {
+    const error = new Error("capsule run aborted")
+    error.name = "AbortError"
+    return error
+}
+
 export function Runner(opts: RunnerOpts) {
     const { scope, wire, console: sandboxConsole, execution, activities } = opts
     const aborts = new Map<string, AbortController>()
@@ -215,7 +227,7 @@ export function Runner(opts: RunnerOpts) {
         const cwd = process.cwd()
         if (cwd === lastCwd) return
         lastCwd = cwd
-        wire.emit("capsule:cwd", { cwd })
+        wire.emit("process:cwd", { cwd })
     }
 
     async function run(id: string, code: string, origin?: CapsuleCommandOrigin): Promise<void> {
@@ -227,7 +239,7 @@ export function Runner(opts: RunnerOpts) {
         // the log sees it at the same place. Omitted when absent rather
         // than defaulted to "cognet" here — the type already says absent
         // means cognet, and writing it would bloat every ordinary command.
-        wire.emit("capsule:cmd:start", { id, ...(origin ? { origin } : {}) })
+        wire.emit("process:cmd:start", { id, ...(origin ? { origin } : {}) })
 
         const toolNames = syncToolGlobals()
         // Taken AFTER tool globals land so they are already part of the
@@ -242,29 +254,73 @@ export function Runner(opts: RunnerOpts) {
             // its own sync/async wrapper and hoists declarations outside it;
             // awaiting handles both forms without changing their semantics.
             const indirectEval: typeof eval = eval
-            const result = await execution.run(id, controller.signal, () =>
+            /**
+             * The eval, RACED against its own cancellation.
+             *
+             * Subprocess-side the race was unnecessary: `cmd:kill` ended the
+             * process and the pending eval died with it. In one heap nothing
+             * ends it, so awaiting the eval alone meant an interrupted run
+             * resolved normally whenever the model was sitting in a plain
+             * `await` — a timer, a fetch, anything not routed through a
+             * mediated call that checks the signal itself.
+             *
+             * Racing settles the CALLER promptly and correctly. The eval
+             * itself keeps running to whatever it was awaiting — it is
+             * ordinary JavaScript in this heap and there is nothing to
+             * unschedule — but its result is discarded and the command
+             * reports interrupted, which is the contract callers were
+             * written against.
+             */
+            const evaluation = execution.run(id, controller.signal, () =>
                 sandboxConsole.run(id, async () => await completionValue(await indirectEval(prepared))),
             )
+            const result = await Promise.race([
+                evaluation,
+                new Promise<never>((_resolve, reject) => {
+                    if (controller.signal.aborted) { reject(abortSignalError()); return }
+                    controller.signal.addEventListener("abort", () => reject(abortSignalError()), { once: true })
+                }),
+            ])
             // Activities the script left open settle BEFORE the command does —
             // the wire (and every fold downstream) reads: rows close, then the run closes.
             activities.settle(id)
-            wire.emit("capsule:cmd:complete", {
+            // The move is reported BEFORE the span closes, for the same reason
+            // activities settle first: a command's terminal event is what every
+            // consumer waits on, so anything caused BY the command has to be on
+            // the wire ahead of it. Emitting after meant capsule.run() resolved
+            // and a caller could read a stale cwd — the host tracking this
+            // stream would learn about the move only on some later event.
+            reportCwd()
+            const produced = since(before, toolNames)
+            // Track EVERY name this submission introduced, not only those whose
+            // values crossed. An oversized or unserializable binding is still a
+            // real variable on globalThis — recording only `values` left
+            // exactly those behind for the next capsule to trip over, which is
+            // the case the scope-budget test catches.
+            for (const name of Object.keys(produced.values)) declared.add(name)
+            for (const entry of produced.unavailable) declared.add(entry.name)
+            wire.emit("process:cmd:complete", {
                 id,
                 result,
-                scope: since(before, toolNames),
+                scope: produced,
                 durationMs: Date.now() - startedAt,
             })
         } catch (cause) {
             const message = describeFailure(cause)
             if (controller.signal.aborted) {
                 activities.settle(id, "interrupted")
-                wire.emit("capsule:cmd:interrupted", { id, durationMs: Date.now() - startedAt })
+                reportCwd()
+                wire.emit("process:cmd:interrupted", { id, durationMs: Date.now() - startedAt })
             } else {
                 // The activity row carries the bare message — it is a render
                 // hint for a UI row, not a diagnostic. The event carries the
                 // full structured error.
                 activities.settle(id, message)
-                wire.emit("capsule:cmd:failed", {
+                // Same ordering as the success path — code that chdir'd and
+                // then threw still moved the process, and the move must reach
+                // the wire before the failure that follows it.
+                reportCwd()
+                wire.emit("process:cmd:failed", {
                     id,
                     error: capsuleFault("CAPSULE_CMD_FAILED", { message, context: { commandId: id }, cause }),
                     durationMs: Date.now() - startedAt,
@@ -272,21 +328,62 @@ export function Runner(opts: RunnerOpts) {
             }
         } finally {
             aborts.delete(id)
-            // After the command settles, however it settled — code that
-            // chdir'd and then threw still moved the process.
-            reportCwd()
         }
     }
 
-    wire.onCommand((cmd: CapsuleCommand) => {
-        if (cmd.type === "cmd:run") {
-            void run(cmd.id, cmd.code, cmd.origin)
-        } else if (cmd.type === "cmd:kill") {
-            aborts.get(cmd.id)?.abort()
-        }
-    })
+    /**
+     * Command dispatch, when there is a command channel to dispatch from.
+     *
+     * Subprocess-side this is the only entry: commands arrive over stdin
+     * because the guest cannot be called directly. In-process the manager
+     * holds `run`/`kill` and calls them, so it never subscribes — see
+     * inproc/emitter.ts, whose onCommand() throws rather than register a
+     * listener nobody serves.
+     */
+    if (opts.dispatch !== false) {
+        wire.onCommand((cmd: CapsuleCommand) => {
+            if (cmd.type === "cmd:run") {
+                void run(cmd.id, cmd.code, cmd.origin)
+            } else if (cmd.type === "cmd:kill") {
+                aborts.get(cmd.id)?.abort()
+            }
+        })
+    }
 
-    return {}
+    /**
+     * Names this runner put on `globalThis` — everything model code declared.
+     *
+     * Tracked so shutdown can remove them. Each subprocess had its own global
+     * object, so a capsule's bindings died with it for free; in one heap they
+     * outlive their capsule and the NEXT one sees them as pre-existing. A
+     * binding that already exists is excluded from the scope diff (correctly —
+     * it belongs to an earlier block), so the second capsule silently reported
+     * nothing for a name the first had declared.
+     */
+    const declared = new Set<string>()
+
+    return {
+        /** Execute one submission. The only real verb this owns. */
+        run,
+
+        /**
+         * Remove every binding this runner declared.
+         *
+         * Restores the isolation the process boundary used to provide: a fresh
+         * capsule starts against a global object with none of the previous
+         * one's variables on it.
+         */
+        dispose(): void {
+            for (const name of declared) {
+                try { delete g[name] } catch { /* non-configurable — never ours */ }
+            }
+            declared.clear()
+        },
+        /** Cancel a running submission cooperatively — mediated calls observe the signal. */
+        kill(id: string): void {
+            aborts.get(id)?.abort()
+        },
+    }
 }
 
 export type RunnerT = ReturnType<typeof Runner>

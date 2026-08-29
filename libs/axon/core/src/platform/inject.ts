@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { err } from "@arcforge/err"
+import { defineArgs, defineAxonPlugin, defineMiddleware, defineModule, defineProps, definePrompt } from "@arcforge/types"
 import type { AxonBlueprint, AxonHandle } from "@arcforge/types"
 
 const argsStorage = new AsyncLocalStorage<Record<string, unknown>>()
@@ -75,6 +76,28 @@ export function Inject() {
         macros() {
             const g = globalThis as Record<string, unknown>
 
+            /**
+             * The AUTHORING globals a config file calls at module scope.
+             *
+             * `module.config.ts` starts with `export default defineModule({…})`,
+             * so importing one needs `defineModule` to already exist. The
+             * platform's blueprint scanner installs these during the build —
+             * which is fine while the build and the runtime share a process,
+             * and wrong the moment they do not: a confined agent imports its
+             * modules in its OWN process, where nothing had installed them, and
+             * boot died with "defineModule is not defined".
+             *
+             * Installed here because this is the one place that owns globalThis
+             * writes, and `??=` so the scanner's copies win where both run —
+             * they are the same identity functions either way.
+             */
+            g.defineModule ??= defineModule
+            g.definePrompt ??= definePrompt
+            g.defineArgs ??= defineArgs
+            g.defineProps ??= defineProps
+            g.defineMiddleware ??= defineMiddleware
+            g.defineAxonPlugin ??= defineAxonPlugin
+
             g.axon = new Proxy({}, {
                 get: outsideRuntime,
             })
@@ -85,17 +108,58 @@ export function Inject() {
             })
         },
 
-        runtime(axon: AxonHandle, blueprint?: AxonBlueprint) {
+        /**
+         * `loaded` is a THUNK returning the live tool scope, not a value: a
+         * hot reload rebuilds that scope, and a captured map would keep
+         * serving the tool the author just deleted.
+         */
+        runtime(axon: AxonHandle, blueprint?: AxonBlueprint, loaded?: () => Record<string, unknown>) {
             const g = globalThis as Record<string, unknown>
 
-            g.axon = axon
+            /**
+             * `globalThis.axon` serves TWO audiences that used to live in
+             * different processes.
+             *
+             * Script-land sees the AxonHandle — `axon.request()`,
+             * `axon.tools.*`, the curated surface agent-authored code is
+             * written against. TOOL code sees the capsule's ambient, whose
+             * only member is `activity()`: write-only telemetry that grants
+             * nothing, which a tool calls as `globalThis.axon?.activity(...)`.
+             *
+             * Two objects, one name, and it never mattered while the capsule
+             * had its own global object. In one heap whichever installs last
+             * wins — and the runtime installs after the capsule, so every tool
+             * calling `activity()` hit "not a function" on a handle that had
+             * no such member.
+             *
+             * Merged rather than ordered: an install order that happens to
+             * work is not a contract, and a tool has no way to reach a
+             * different global. The ambient's members are carried forward, so
+             * both audiences find what they were promised on the one name they
+             * both use.
+             */
+            const ambient = g.axon as { activity?: unknown } | undefined
+            g.axon = ambient?.activity
+                // A PROXY, not a spread: the handle exposes `tools` and
+                // `ready` as GETTERS that a reload replaces, and copying them
+                // would freeze both at their boot values — a script would keep
+                // calling the tool map from before the author's edit. Every
+                // miss forwards to the live handle; `activity` is the one own
+                // member.
+                ? new Proxy(axon as object, {
+                    get: (target, key, receiver) => key === "activity"
+                        ? ambient.activity
+                        : Reflect.get(target, key, target),
+                    has: (target, key) => key === "activity" || Reflect.has(target, key),
+                }) as AxonHandle
+                : axon
 
             Object.defineProperty(g, "args", {
                 configurable: true,
                 get: () => argsStorage.getStore() ?? argsForCaller() ?? {},
             })
 
-            installToolGlobals(g, axon, blueprint)
+            installToolGlobals(g, loaded?.() ?? {})
         },
 
         /**
@@ -123,64 +187,50 @@ export function Inject() {
 let installedToolGlobals: string[] = []
 
 /**
- * Tool exports as globals in host-side code — scripts, routes, hooks.
+ * Tool exports as globals — the agent's whole scope, in one heap.
  *
- * A script author should not have to know a capsule subprocess exists. They
- * wrote `export function add()` in src/tools/; they should be able to call
- * `add(1, 2)`. That is the whole reason tools are globals in the agent's own
- * scope, and the same reasoning applies to the code the author writes around
- * the agent. `.agent/tool-globals.d.ts` has always declared them this way, so
- * until now an editor typechecked `kanban.list()` in a script while the runtime
- * threw "kanban is not defined".
+ * Everything exported from `src/tools/*.ts` (a module's included) lands here
+ * under its OWN export name, unaugmented. Filenames group; they do not
+ * namespace. `export function add()` is `add()`; `export const fs = {...}`
+ * is `fs.read()`. That is the entire rule, and it is the same one the
+ * generated `.agent/tool-globals.d.ts` declares.
  *
- * These are BINDINGS, not a second code path: each one delegates to the
- * matching axon.tools.* proxy, so mediation, policy, tracing and the capsule
- * round trip are byte-for-byte the calls that surface already makes. Nothing
- * here can drift from it, because there is nothing here to drift.
+ * ONE INSTALLER, ONE SOURCE. These come from the loaded tool scope — the
+ * same `scope.globals()` the model's own code executes against — so
+ * script-land, prompts, routes, hooks and model-emitted code cannot see
+ * different shapes of the same tool. There used to be a second installer
+ * here projecting `axon.tools.<file>.<export>`, which double-wrapped a
+ * module exporting one object (`fs` became `{ fs: {...} }`) and silently
+ * clobbered the correct binding. Both the projection and the surface it
+ * read are gone.
  *
- * Placement follows `flat`, exactly as the capsule installs it: the agent's own
- * src/tools/ exports land as top-level globals (`add`), a module's tools land
- * under their namespace (`github.openPr`).
+ * The values are ALREADY MEDIATED — the loader wraps every export before it
+ * reaches this scope — so policy, tracing and escalation are enforced by
+ * calling them, not by any wrapping done here.
  *
  * Binding is to the runtime that owns this process — one agent, one global
- * scope. A script driving a second instance addresses it explicitly through
- * that instance's own handle rather than through these globals, which is the
- * only unambiguous answer available while `globalThis` is process-wide.
+ * scope. Cross-agent tool calls are deliberately not a thing: a second
+ * agent is a second process, and a global that could mean either agent's
+ * tool is a footgun rather than a feature.
  */
-function installToolGlobals(g: Record<string, unknown>, axon: AxonHandle, blueprint?: AxonBlueprint): void {
-    // A reload rebuilds the handle. Retract the previous set first so a tool
-    // the author deleted does not linger as a callable global pointing at a
-    // capsule namespace that no longer exists.
+function installToolGlobals(g: Record<string, unknown>, loaded: Record<string, unknown>): void {
+    // A reload rebuilds the scope. Retract the previous set first so a tool
+    // the author deleted does not linger as a callable global.
     for (const name of installedToolGlobals) delete g[name]
     installedToolGlobals = []
 
-    const tools = axon.tools as Record<string, Record<string, unknown>> | undefined
-    if (!tools) return
-
-    for (const [namespace, members] of Object.entries(tools)) {
-        if (!members || typeof members !== "object") continue
-
-        const flat = (blueprint?.tools ?? []).find(tool => tool.name === namespace)?.flat === true
-        if (!flat) {
-            // Namespaced: one global per module, holding its members.
-            define(g, namespace, members)
-            continue
+    for (const [name, value] of Object.entries(loaded)) {
+        // Tool vs tool is fatal: two files exporting the same name give the
+        // author no way to say which they meant, and last-one-wins picks
+        // silently. Tool vs HOST BUILTIN is not a collision — `@axon/fs`
+        // exporting `fs` is the author's explicit declaration and the whole
+        // point of installing it, so the tool takes the name. The builtin
+        // stays reachable the correct way, by importing `node:fs`.
+        if (installedToolGlobals.includes(name)) {
+            throw err("TOOL_GLOBAL_COLLISION", { context: { name } })
         }
-
-        for (const [member, fn] of Object.entries(members)) define(g, member, fn)
+        g[name] = value
+        installedToolGlobals.push(name)
     }
 }
 
-/**
- * Define one global without clobbering something that already owns the name.
- *
- * A tool called `fetch`, `console` or `process` must not silently replace the
- * host builtin that agent-authored code around it depends on — the tool stays
- * reachable through axon.tools.*, which is never ambiguous. Skipping is the
- * conservative half of a decision that is otherwise irreversible at runtime.
- */
-function define(g: Record<string, unknown>, name: string, value: unknown): void {
-    if (name in g && !installedToolGlobals.includes(name)) return
-    g[name] = value
-    installedToolGlobals.push(name)
-}

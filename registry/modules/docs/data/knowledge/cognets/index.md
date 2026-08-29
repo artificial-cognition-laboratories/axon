@@ -49,7 +49,7 @@ my-cognet/
 ├── src/
 │   ├── main.ts        # the brain — declares loop()      (scaffolded)
 │   └── state.ts       # resident memory, shaped however you like
-├── cognet.config.ts   # identity and ABI version         (scaffolded)
+├── cognet.config.ts   # what it declares — mode, engines      (scaffolded)
 └── package.json       #                                  (scaffolded)
 ```
 
@@ -94,8 +94,6 @@ agent, anything conversational: it sleeps until there's something to think about
 
 ```ts
 export default defineCognet({
-    name: "reviewer",
-    abi: "10",
     mode: { kind: "invocation" },
 })
 ```
@@ -106,8 +104,6 @@ the world spoke to it.
 
 ```ts
 export default defineCognet({
-    name: "gait",
-    abi: "10",
     mode: { kind: "continuous" },
 })
 ```

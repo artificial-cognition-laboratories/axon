@@ -8,7 +8,7 @@
     ],
     "dependencies": {
         "@arcforge/platform": "workspace:*",
-        "@axon/core": "workspace:*",
+        "@arcforge/core": "workspace:*",
         "crossws": "^0.3.5",
         "h3": "^1.13.0"
     },

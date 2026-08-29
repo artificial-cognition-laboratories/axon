@@ -6,7 +6,7 @@ Everything that executes **inside** a compiled brain. Public, published, and
 installed into every agent — the generated entry imports it by bare specifier,
 so the bundler resolves it from the agent's own node_modules.
 
-The counterpart is `@axon/core`, which **loads** brains and stays private. The
+The counterpart is `@arcforge/core`, which **loads** brains and stays private. The
 dividing question for any file: *does this run inside the brain, or does it load
 the brain?*
 

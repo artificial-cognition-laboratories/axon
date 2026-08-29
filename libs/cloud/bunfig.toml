@@ -1,0 +1,12 @@
+[test]
+timeout = 30000
+preload = ["./tests/setup/preload.ts"]
+
+coveragePathIgnorePatterns = [
+  # External packages and workspace deps — covered by their own test suites
+  "**/node_modules/**",
+  "../**",
+
+  # Test files themselves
+  "**/*.test.ts",
+]

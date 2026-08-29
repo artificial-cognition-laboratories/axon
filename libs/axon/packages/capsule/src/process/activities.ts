@@ -1,6 +1,6 @@
 import type { ActivityHandle, ActivityPayloads, ActivityType, AxonAmbient } from "@arcforge/types"
 import type { ExecutionT } from "./execution"
-import type { SandboxWireT } from "./wire"
+import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
 
 type ActivitiesOpts = {
     wire: SandboxWireT
@@ -34,13 +34,13 @@ export function Activities(opts: ActivitiesOpts) {
         const id = crypto.randomUUID()
         let settled = false
 
-        wire.emit("capsule:activity", { commandId, id, activity: type, phase: "declared", data })
+        wire.emit("process:activity", { commandId, id, activity: type, phase: "declared", data })
 
         function settleWith(phase: "done" | "failed", settleData: Partial<ActivityPayloads[T]>, error?: string): void {
             if (settled) return
             settled = true
             if (commandId) open.get(commandId)?.delete(id)
-            wire.emit("capsule:activity", { commandId, id, activity: type, phase, data: settleData, ...(error !== undefined ? { error } : {}) })
+            wire.emit("process:activity", { commandId, id, activity: type, phase, data: settleData, ...(error !== undefined ? { error } : {}) })
         }
 
         if (commandId) {

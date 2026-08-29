@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule run", () => {
     it("returns the value the code returns", async () => {

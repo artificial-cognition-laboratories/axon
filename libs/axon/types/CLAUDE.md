@@ -5,8 +5,8 @@
 Every shape that crosses a boundary in Axon. Types only — no behavior, no
 runtime beyond a handful of pure predicates that must not fork (`classifyEvent`,
 `isSpanStart`, `readSession`). Published, and depended on by every other
-package: `@axon/core`, `@arcforge/kernel`, `@arcforge/cognet`, `@axon/capsule`,
-`@arclabs/cloud`, the TUI, the backend.
+package: `@arcforge/core`, `@arcforge/kernel`, `@arcforge/cognet`, `@arcforge/capsule`,
+`@arcforge/cloud`, the TUI, the backend.
 
 The dividing question for any file: *is this a contract two things agree on, or
 is it one thing's implementation?* Contracts live here. `AxonError`'s shape is
@@ -174,7 +174,7 @@ completion with no duration, or invents a bespoke lifecycle verb.
 ## Known Debt
 
 - **The capsule's error shape is duplicated.** Guest code (`src/process/**` in
-  `@axon/capsule`) cannot import `@arcforge/err` — the workspace symlink points
+  `@arcforge/capsule`) cannot import `@arcforge/err` — the workspace symlink points
   out of the confined filesystem, so the subprocess dies at startup with ENOENT.
   It builds `AxonErrorJSON` by hand in `src/process/fault.ts`, with seven error
   definitions inlined. Codes are the join key across the pipe; they can drift.

@@ -1,5 +1,5 @@
-import { Capsule } from "@axon/capsule"
-import type { CapsuleEvent } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
+import type { CapsuleEvent } from "@arcforge/capsule"
 import { join } from "path"
 
 const FIXTURES = join(import.meta.dir, "fixtures")
@@ -8,9 +8,9 @@ const mathScope = {
     members: [{ name: "add", declaration: "function add(): unknown" }],
 }
 
-type FnStart = CapsuleEvent["capsule:fn:start"]
-type FnComplete = CapsuleEvent["capsule:fn:complete"]
-type FnFailed = CapsuleEvent["capsule:fn:failed"]
+type FnStart = CapsuleEvent["process:fn:start"]
+type FnComplete = CapsuleEvent["process:fn:complete"]
+type FnFailed = CapsuleEvent["process:fn:failed"]
 
 /**
  * capsule:fn:* is the tool-call span — the record of every mediated call a
@@ -26,11 +26,11 @@ describe("Capsule fn spans", () => {
         })
         const starts: FnStart[] = []
         const completes: FnComplete[] = []
-        capsule.on("capsule:fn:start", e => starts.push(e))
-        capsule.on("capsule:fn:complete", e => completes.push(e))
+        capsule.on("process:fn:start", e => starts.push(e))
+        capsule.on("process:fn:complete", e => completes.push(e))
         await capsule.boot()
 
-        const result = await capsule.run("math.add(1, 2)")
+        const result = await capsule.run("add(1, 2)")
         expect(result).toBe(3)
 
         expect(starts).toHaveLength(1)
@@ -64,11 +64,11 @@ describe("Capsule fn spans", () => {
         })
         const completes: FnComplete[] = []
         const failures: FnFailed[] = []
-        capsule.on("capsule:fn:complete", e => completes.push(e))
-        capsule.on("capsule:fn:failed", e => failures.push(e))
+        capsule.on("process:fn:complete", e => completes.push(e))
+        capsule.on("process:fn:failed", e => failures.push(e))
         await capsule.boot()
 
-        await expect(capsule.run("boom.explode()")).rejects.toThrow()
+        await expect(capsule.run("explode()")).rejects.toThrow()
 
         expect(completes).toHaveLength(0)
         expect(failures).toHaveLength(1)
@@ -89,12 +89,12 @@ describe("Capsule fn spans", () => {
             policy: { tools: { math: false } },
         })
         const starts: FnStart[] = []
-        const denials: CapsuleEvent["capsule:policy:denied"][] = []
-        capsule.on("capsule:fn:start", e => starts.push(e))
-        capsule.on("capsule:policy:denied", e => denials.push(e))
+        const denials: CapsuleEvent["process:policy:denied"][] = []
+        capsule.on("process:fn:start", e => starts.push(e))
+        capsule.on("process:policy:denied", e => denials.push(e))
         await capsule.boot()
 
-        await expect(capsule.run("math.add(1, 2)")).rejects.toThrow()
+        await expect(capsule.run("add(1, 2)")).rejects.toThrow()
 
         // the denial is recorded, but no bracket was opened — an unpaired
         // :start would hang open in every flame graph forever
@@ -110,13 +110,13 @@ describe("Capsule fn spans", () => {
             policy: { tools: { math: true } },
         })
         const completes: FnComplete[] = []
-        capsule.on("capsule:fn:complete", e => completes.push(e))
+        capsule.on("process:fn:complete", e => completes.push(e))
         await capsule.boot()
 
         // Mediated calls are always async — policy may escalate to the host
         // before a call is admitted — so tool calls are awaited, as agent
         // code must do.
-        const result = await capsule.run("(await math.add(1, 2)) + (await math.add(3, 4))")
+        const result = await capsule.run("(await add(1, 2)) + (await add(3, 4))")
         expect(result).toBe(10)
 
         expect(completes).toHaveLength(2)

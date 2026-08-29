@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "skipLibCheck": true,
+        "allowImportingTsExtensions": true,
+        "noEmit": true,
+        "lib": ["ESNext"],
+        "paths": {
+            "@arcforge/types": ["../types/src/index.ts"]
+        }
+    },
+    "include": [
+        "src/**/*",
+        "tests/**/*.ts"
+    ],
+    "exclude": [
+        "tests/fixtures/agent-src"
+    ]
+}

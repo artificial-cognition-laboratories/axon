@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { evaluateRule, policyGlobMatch, resolveIsolation, resolveVerdict } from "../src/policy-resolve"
+import { isRulePair } from "../src/policy"
 
 /**
  * The ceiling: a profile bounds every agent, an agent can only narrow.
@@ -185,4 +186,44 @@ describe("the glob matcher matches the capsule's", () => {
             expect(policyGlobMatch(pattern, value)).toBe(expected)
         })
     }
+})
+
+/**
+ * The ceiling under two GLOB rules — the case that used to leak.
+ *
+ * `pairRule` collapsed here: when both layers were glob-shaped it returned the
+ * agent's rule and dropped the profile's, so an agent allowlist silently
+ * widened past its profile. These assert the pair is carried instead, and that
+ * evaluating it re-applies the ceiling at the moment there is a subject.
+ */
+describe("a carried rule pair", () => {
+    const pair = { profile: { allow: ["git status"] }, agent: { allow: ["git push --force"] } }
+
+    test("denies a command only the agent allowed", () => {
+        // THE BUG: this returned allow, and the force-push ran.
+        expect(evaluateRule(pair, "git push --force", "agent")?.verdict).toBe("deny")
+    })
+
+    test("denies a command only the profile allowed", () => {
+        expect(evaluateRule(pair, "git status", "agent")?.verdict).toBe("deny")
+    })
+
+    test("allows only what BOTH layers admit", () => {
+        const both = { profile: { allow: ["git *"] }, agent: { allow: ["git status"] } }
+        expect(evaluateRule(both, "git status", "agent")?.verdict).toBe("allow")
+        expect(evaluateRule(both, "git push", "agent")?.verdict).toBe("deny")
+    })
+
+    test("names the layer that produced the denial", () => {
+        const both = { profile: { allow: ["git *"] }, agent: { allow: ["git status"] } }
+        expect(evaluateRule(both, "git push", "agent")?.source?.layer).toBe("agent")
+        expect(evaluateRule(pair, "npm install", "agent")?.source?.layer).toBe("profile")
+    })
+
+    test("is recognised as a pair rather than a glob rule", () => {
+        expect(isRulePair(pair)).toBe(true)
+        expect(isRulePair({ allow: ["git *"] })).toBe(false)
+        expect(isRulePair(true)).toBe(false)
+        expect(isRulePair(undefined)).toBe(false)
+    })
 })

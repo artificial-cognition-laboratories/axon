@@ -284,8 +284,8 @@ export type AxonRuntimeEvent =
     "axon:session:closed": {}
 
     // ── Capsule attachment (one capsule per session; telemetry lives in the capsule package) ──
-    "capsule:attach": { capsuleId: string; cwd: string }
-    "capsule:detach": { capsuleId: string; reason: "shutdown" | "crash" | "reload" }
+    "process:attach": { capsuleId: string; cwd: string }
+    "process:detach": { capsuleId: string; reason: "shutdown" | "crash" | "reload" }
 
     // ── Server ───────────────────────────────────────────────────────────────
     "axon:server:request": { method: string; path: string; status: number; durationMs: number }

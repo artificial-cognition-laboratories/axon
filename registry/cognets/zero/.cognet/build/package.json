@@ -1,6 +1,6 @@
 {
   "name": "@axon/zero",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "description": "The default Axon cognet — the cognitive loop every agent runs unless it selects another.",
   "type": "module",
   "private": false,
@@ -18,10 +18,10 @@
     "@arcforge/air": "^2.0.0"
   },
   "dependencies": {
-    "@arcforge/types": "2.0.148",
-    "@arcforge/air": "2.0.148",
-    "@arcforge/engines": "2.0.148",
-    "@arcforge/cognet": "2.0.148",
+    "@arcforge/types": "2.0.163",
+    "@arcforge/air": "2.0.163",
+    "@arcforge/engines": "2.0.163",
+    "@arcforge/cognet": "2.0.163",
     "h3": "^1.13.0"
   }
 }

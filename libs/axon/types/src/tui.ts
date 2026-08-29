@@ -2049,14 +2049,15 @@ export type ProfileConfig = {
      * the capsule. Folding it in would widen that set's meaning to "anything
      * configurable" and lose the boundary it draws.
      *
-     * An agent narrows within this and can never widen it. Set `process.run`
-     * to `false` here and no agent on the machine gets a shell, whatever its
-     * own axon.config.ts says. Set a rule to `"escalate"` and every agent asks
-     * you — an agent author cannot suppress the prompt by allowing it.
+     * An agent narrows within this and can never widen it. Set `shell` to
+     * `false` here and no agent on the machine gets a shell, whatever its own
+     * axon.config.ts says. Set a rule to `"escalate"` and every agent asks you
+     * — an agent author cannot suppress the prompt by allowing it.
      *
      *     policy: {
-     *         process: { run: { allow: ["bun *", "git *"] }, spawn: false },
-     *         network: { "api.anthropic.com:443": true, "*": "escalate" },
+     *         shell: { allow: ["bun", "git"], raw: false },
+     *         net:   { allow: ["api.anthropic.com:443"] },
+     *         env:   { allow: ["GITHUB_TOKEN"] },
      *         tools: { github: "escalate" },
      *     }
      *
@@ -2116,18 +2117,36 @@ export type ProfilePolicy = {
         read?: string[]
         write?: string[]
     }
-    /** Network destinations, keyed by `host:port` glob. */
-    network?: Record<string, ProfilePolicyRule>
-    /** Shell access. `run` is a one-shot command, `spawn` a long-lived child. */
-    process?: {
-        spawn?: ProfilePolicyRule
-        run?: ProfilePolicyRule
+    /**
+     * Network destinations. An allow/deny list of `host` or `host:port`, never
+     * a glob map with verdicts — nftables filters addresses and cannot pause to
+     * ask, so the shape matches what the kernel will actually do.
+     */
+    net?: {
+        allow?: string[]
+        deny?: string[]
+        dns?: "allowlist" | "open" | "off"
+    }
+    /** Program execution. Names BINARIES, because a command string has four spellings. */
+    shell?: {
+        allow?: string[]
+        deny?: string[]
+        args?: Record<string, ProfilePolicyRule>
+        /** Whether a shell (`sh -c`) may be invoked — the bypass, named. */
+        raw?: boolean
+        spawn?: ProfilePolicyRule | { rule?: ProfilePolicyRule; max?: number }
+    }
+    /** Host environment variables an agent may receive. Absent = none. */
+    env?: {
+        allow?: string[]
     }
     /** OS resource caps, applied to the whole process tree. */
     limits?: {
         memory?: string
         cpu?: string
         pids?: number
+        disk?: string
+        wall?: string
     }
     /** Tool namespaces, keyed by the name a tool registers under. */
     tools?: Record<string, ProfilePolicyRule>

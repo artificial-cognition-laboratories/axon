@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 const MATH_SOURCE = `export default { exports: { add: (a, b) => a + b } }`
 const GREET_SOURCE = `export default { exports: { hello: (name) => "hello " + name } }`
@@ -16,7 +16,7 @@ describe("Capsule policy — tools namespace resolution", () => {
         })
         await capsule.boot()
 
-        const result = await capsule.run("math.add(1, 2)")
+        const result = await capsule.run("add(1, 2)")
         expect(result).toBe(3)
 
         await capsule.shutdown()
@@ -29,7 +29,7 @@ describe("Capsule policy — tools namespace resolution", () => {
         })
         await capsule.boot()
 
-        await expect(capsule.run("math.add(1, 2)")).rejects.toThrow("denied by policy")
+        await expect(capsule.run("add(1, 2)")).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })
@@ -44,10 +44,10 @@ describe("Capsule policy — tools namespace resolution", () => {
         })
         await capsule.boot()
 
-        const mathResult = await capsule.run("math.add(1, 2)")
+        const mathResult = await capsule.run("add(1, 2)")
         expect(mathResult).toBe(3)
 
-        await expect(capsule.run(`greet.hello("world")`)).rejects.toThrow("denied by policy")
+        await expect(capsule.run(`hello("world")`)).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })
@@ -59,10 +59,10 @@ describe("Capsule policy — tools namespace resolution", () => {
         })
         await capsule.boot()
 
-        const allowed = await capsule.run(`await greet.hello("world")`)
+        const allowed = await capsule.run(`await hello("world")`)
         expect(allowed).toBe("hello world")
 
-        await expect(capsule.run(`await greet.hello("admin")`)).rejects.toThrow("denied by policy")
+        await expect(capsule.run(`await hello("admin")`)).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })
@@ -77,10 +77,10 @@ describe("Capsule policy — tools namespace resolution", () => {
         })
         await capsule.boot()
 
-        const mathResult = await capsule.run("math.add(2, 2)")
+        const mathResult = await capsule.run("add(2, 2)")
         expect(mathResult).toBe(4)
 
-        await expect(capsule.run(`greet.hello("world")`)).rejects.toThrow("denied by policy")
+        await expect(capsule.run(`hello("world")`)).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })

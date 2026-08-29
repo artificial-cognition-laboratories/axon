@@ -1,0 +1,9 @@
+[test]
+parallel = true
+timeout = 30000
+preload = ["./tests/setup/preload.ts"]
+
+coveragePathIgnorePatterns = [
+  "node_modules",
+  "tests/setup"
+]

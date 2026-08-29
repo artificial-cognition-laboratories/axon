@@ -26,10 +26,15 @@ export type Catalogue = {
  * Ask every provider what it can supply, concurrently.
  *
  * One slow or unreachable source must not delay the rest, so these run in
- * parallel and settle independently. Order is preserved from the pool, which
- * is the user's declared preference — the resolver's ranking only ever
- * breaks ties among candidates that all satisfy a requirement, so this order
- * decides nothing that correctness depends on.
+ * parallel and settle independently. Results are collected in POOL ORDER
+ * rather than completion order — a provider that answered slowly must not
+ * outrank one the user listed first.
+ *
+ * That order is the user's declared preference and it is load-bearing: one
+ * model is reachable through several routes, those routes are identical on
+ * every ranking axis, and which one wins decides who pays for the call. The
+ * resolver settles it explicitly from the pool order rather than inheriting
+ * whatever this array happened to look like — see `preference()`.
  */
 export async function gather(providers: readonly AxonProvider[]): Promise<Catalogue> {
     const settled = await Promise.allSettled(providers.map(provider => provider.catalogue()))

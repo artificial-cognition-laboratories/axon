@@ -72,7 +72,6 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
                 tools: [{
                     name: "greeter",
                     origin: "src",
-                    flat: true,
                     fns: [{ name: "greet", declaration: "function greet(name: string): string" }],
                     source: `export default { name: "greeter", exports: { greet: (name) => "hello " + name } }`,
                 }],
@@ -108,7 +107,6 @@ describe("kernel boot: Vuedown (boot.vue)", () => {
                 tools: [{
                     name: "counter",
                     origin: "src",
-                    flat: true,
                     fns: [{ name: "read", declaration: "function read(): string" }],
                     source: `let n = 0; export default { name: "counter", exports: { read: () => String(++n) } }`,
                 }],

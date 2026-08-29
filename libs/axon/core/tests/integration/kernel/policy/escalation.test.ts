@@ -17,7 +17,6 @@ const greeterTool: AxonTool = {
     name: "greeter",
     fns: [{ name: "greet", declaration: "function greet(name: string): string" }],
     origin: "src",
-    flat: true,
     source: `
         export default {
             name: "greeter",

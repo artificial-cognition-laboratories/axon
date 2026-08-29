@@ -1,7 +1,7 @@
 {
     "name": "@arcforge/air",
-    "version": "2.0.155",
-    "description": "AIR — the Agent Intermediate Representation: one grammar, rendered for a model and parsed from its reply",
+    "version": "2.0.165",
+    "description": "AIR — the Agent Intermediate Representation: one grammar, rendered for a model and parsed from its reply.",
     "type": "module",
     "private": false,
     "main": "./src/index.ts",
@@ -24,5 +24,24 @@
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
-    }
+    },
+    "homepage": "https://axon.arclabs.it/docs/v2/concepts/air-format",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/packages/air"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
 }

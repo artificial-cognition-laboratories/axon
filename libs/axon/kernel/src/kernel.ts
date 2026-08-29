@@ -1,15 +1,16 @@
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonDriver, AxonEngineCall, AxonEngineEvent, AxonEntry, AxonEntryEvent, AxonEventMap, AxonRunResult, CapsuleCommandOrigin, EngineSession, KernelAbi, TransformOptions } from "@arcforge/types"
+import type { AxonBlueprint, AxonDriver, AxonEngineCall, AxonEngineDriver, CapsulePolicy, ResolvedCapsulePolicy, AxonEngineEvent, AxonEntry, AxonEntryEvent, AxonEventMap, AxonRunResult, CapsuleCommandOrigin, EngineSession, KernelAbi, TransformOptions } from "@arcforge/types"
 import { EMPTY_CAPSULE_SCOPE } from "@arcforge/types"
-import type { AxonCloudClient } from "@arclabs/cloud"
+import type { AxonCloudClient } from "@arcforge/cloud"
 import type { KernelBus } from "./contracts"
 import { Engine } from "./engine"
 import { asEngineFault } from "@arcforge/engines"
 import type { EnginesT } from "@arcforge/engines/catalogue"
 import type { AxonSessionT } from "@arcforge/session"
-import { AxonCapsule, type AxonCapsuleT } from "./capsule"
+import { AxonCapsule, defaultPolicy, type AxonCapsuleT } from "./capsule"
 import { Scheduler } from "./scheduler"
 import type { KernelCognet } from "./contracts"
+import { Mediation } from "./mediation"
 import { Store } from "./store"
 import { Knowledge } from "./knowledge"
 import type { AxonEscalate, AxonHost } from "@arcforge/types"
@@ -35,6 +36,14 @@ type KernelOpts = {
      */
     session: AxonSessionT
     /**
+     * Inference lives outside this process — see EngineOpts.remote.
+     *
+     * Threaded through rather than reached for, so the kernel never learns
+     * whether it is confined. Ring 0 asks for a driver by role and gets one;
+     * where that driver's tokens come from is the boundary's business.
+     */
+    remote?: (role: string) => AxonEngineDriver
+    /**
      * The agent's base identity text, rendered fresh per call — backs the
      * ABI's base(). Injected because rendering it is a PRESENTATION concern
      * (boot.vue, the vstr renderer, the prompt context) that ring 0 has no
@@ -58,6 +67,7 @@ type KernelOpts = {
      * deny — the honest state for a headless run.
      */
     escalate?: AxonEscalate
+
     /**
      * Resolved inference roles, when the cognet declared any.
      *
@@ -277,6 +287,17 @@ export async function Kernel(opts: KernelOpts) {
     const cognet = opts.cognet
     const session = opts.session
 
+    /**
+     * The blueprint currently live, kept in step by update().
+     *
+     * The kernel otherwise reads `opts.blueprint` directly, which is correct
+     * for everything resolved once at construction. Policy is not one of those
+     * things: a hot reload changes it, and mediation must enforce what the
+     * agent IS rather than what it was at boot.
+     */
+    let live = opts.blueprint
+    const blueprintNow = () => live
+
     const scheduler = Scheduler({
         bus: opts.bus,
         session: session,
@@ -293,8 +314,26 @@ export async function Kernel(opts: KernelOpts) {
         ...(opts.escalate ? { escalate: opts.escalate } : {}),
     })
 
+    /**
+     * The policy gate and audit trail for tools running IN this process.
+     *
+     * Built unconditionally — it costs nothing unloaded, and a runtime that
+     * had to decide whether to construct it would need to know whether it is
+     * confined, which is exactly the fact ring 0 is kept ignorant of.
+     */
+    const mediation = Mediation({
+        // Resolved from the LIVE blueprint on every call, through the same
+        // function the capsule is configured with — one resolution, so a tool
+        // cannot be permitted in-process and denied in the box.
+        policy: () => defaultPolicy(blueprintNow()) as ResolvedCapsulePolicy,
+        session,
+        ...(opts.escalate ? { escalate: opts.escalate } : {}),
+        run: () => scheduler.current(),
+    })
+
     const engine = Engine({
         ...(opts.engines ? { engines: opts.engines } : {}),
+        ...(opts.remote ? { remote: opts.remote } : {}),
         blueprint: opts.blueprint,
         session,
         cloud: opts.cloud,
@@ -508,28 +547,76 @@ export async function Kernel(opts: KernelOpts) {
      * an untraced second model would be exactly the observability hole this
      * whole layer is supposed to close.
      */
+    /**
+     * What the cognet DECLARED for a role.
+     *
+     * The authority when inference is remote: role resolution happened in the
+     * supervisor, so this process has no `bound` entry to read capability
+     * facts from. The declaration is the honest answer to "what did this role
+     * ask for" — and it is all a confined agent may know, since the resolved
+     * capability names a provider and a model the boundary exists to hide.
+     */
+    function declaredRole(role: string) {
+        return cognet.engines?.[role]
+    }
+
+    /**
+     * A declared requirement, as the ABI's EngineFacts.
+     *
+     * `in`/`out` accept a single modality as shorthand for one, so both are
+     * widened to arrays here — the ABI promises arrays and a consumer that had
+     * to test which it got would be reading the shorthand, not the fact.
+     *
+     * `slots` defaults to 1: the contract says at least one, and one is what a
+     * role gets unless resolution granted more. Claiming more than the
+     * supervisor actually allocated would let a cognet fan out past what its
+     * roles can serve.
+     */
+    function factsFromDeclaration(declared: NonNullable<ReturnType<typeof declaredRole>>) {
+        const list = <T>(value: T | T[]): T[] => (Array.isArray(value) ? value : [value])
+        return {
+            context: declared.context,
+            modalities: { in: list(declared.in), out: list(declared.out) },
+            slots: 1,
+        }
+    }
+
     const engineAbi = Object.assign(
         (role: string) => {
             const bound = opts.engines?.resolution.bound.find(entry => entry.role === role)
-            if (!bound) {
+            const declared = declaredRole(role)
+
+            // Remote inference has no local binding — and must not need one.
+            // The role's existence is settled by the cognet's own declaration;
+            // what fills it was settled by the supervisor before this process
+            // started.
+            if (!bound && !(opts.remote && declared)) {
                 throw err("ENGINE_ROLE_UNBOUND", {
                     detail: `no engine bound to "${role}" — declare it in engines: and check kernel.engine.has() for optional roles`,
                 })
             }
 
             // What the role ACTUALLY got, shared by every handle shape.
-            const facts = {
-                get context() { return bound.capability.context },
-                get modalities() { return { in: bound.capability.in, out: bound.capability.out } },
-                get slots() { return bound.slots },
-            }
+            //
+            // Resolved facts when there is a local binding; the DECLARATION
+            // otherwise. A confined agent reads what it asked for rather than
+            // what it was given, which is the same indirection that keeps
+            // cognition from learning which model is behind a role.
+            const facts = bound
+                ? {
+                    get context() { return bound.capability.context },
+                    get modalities() { return { in: bound.capability.in, out: bound.capability.out } },
+                    get slots() { return bound.slots },
+                }
+                : factsFromDeclaration(declared!)
+            const kind = bound?.requirement.type ?? declared?.type
 
             // The handle follows the DECLARED type, because that is what the
             // cognet's code was written against: a loop calling `.transform()`
             // cannot run against a `.stream()` handle however substitutable
             // the model behind it is. Resolution already refused anything
             // whose type disagrees, so this never has to reconcile them.
-            if (bound.requirement.type === "transform") {
+            if (kind === "transform") {
                 return {
                     ...facts,
                     type: "transform" as const,
@@ -538,7 +625,7 @@ export async function Kernel(opts: KernelOpts) {
                 }
             }
 
-            if (bound.requirement.type === "stream") {
+            if (kind === "stream") {
                 return {
                     ...facts,
                     type: "stream" as const,
@@ -559,8 +646,14 @@ export async function Kernel(opts: KernelOpts) {
             }
         },
         {
+            // A role EXISTS if something can serve it. Locally that means a
+            // binding; remotely it means the cognet declared it and the
+            // supervisor accepted the blueprint — an unfillable role would
+            // have failed the supervisor's own resolution before this process
+            // was ever spawned.
             has: (role: string): boolean =>
-                opts.engines?.resolution.bound.some(entry => entry.role === role) ?? false,
+                (opts.engines?.resolution.bound.some(entry => entry.role === role) ?? false)
+                || Boolean(opts.remote && declaredRole(role)),
         },
     )
 
@@ -893,6 +986,16 @@ export async function Kernel(opts: KernelOpts) {
             return opts.engines
         },
 
+        /**
+         * Policy + audit for in-process tools.
+         *
+         * On the public surface because the tool loader is above ring 0: it
+         * lives in @arcforge/core, which composes the runtime, while the policy it
+         * enforces and the log it writes to are the kernel's. Handing the pair
+         * out is narrower than handing out either the policy or the session.
+         */
+        mediation,
+
         /** Invoke on a stimulus arrival — invocation-mode cognets only; throws for continuous-mode. */
         stream: streamWithContract,
 
@@ -950,6 +1053,7 @@ export async function Kernel(opts: KernelOpts) {
          * Receives the full re-normalized blueprint from the runtime.
          */
         async update(next: AxonBlueprint) {
+            live = next
             engine.update(next)
             opts.onUpdate?.(next)
             await cognet.update(next)

@@ -1,4 +1,36 @@
 
+/**
+ * Every prompt this agent declares, as name → its props.
+ *
+ * EMPTY HERE ON PURPOSE. `axon prepare` writes
+ * `.agent/types/prompts.d.ts`, which augments this interface with one entry
+ * per discovered prompt — so `axon.prompt("propose")` is checked against
+ * what the agent actually has, and a typo is a compile error rather than a
+ * PROMPT_NOT_FOUND at runtime.
+ *
+ * The declaration has to live here for the augmentation to attach to
+ * anything: a `declare module` block targeting an interface that was never
+ * declared silently creates nothing, which is exactly what happened while
+ * the generator wrote entries no signature ever read.
+ *
+ * An agent with no generated frame falls back to `string` (see
+ * `AxonPromptName`), so hand-written and pre-prepare code still compiles.
+ */
+export interface AxonPromptMap {}
+
+/**
+ * A prompt name: constrained to the generated map when there is one, and
+ * any string when there is not.
+ *
+ * The fallback is what keeps this usable before `axon prepare` has run and
+ * in code written against no particular agent — narrowing to `never` there
+ * would make every call an error for the wrong reason.
+ */
+export type AxonPromptName = keyof AxonPromptMap extends never ? string : keyof AxonPromptMap
+
+/** The props one prompt takes, from the generated map. */
+export type AxonPromptProps<K> = K extends keyof AxonPromptMap ? AxonPromptMap[K] : Record<string, unknown>
+
 /** Prompt template discovered from an agent or module. */
 export type AxonPrompt = {
     /** Prompt name used with `axon.prompt(name)`. */

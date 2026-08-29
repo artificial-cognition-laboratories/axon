@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/err",
-    "version": "2.0.155",
+    "version": "2.0.165",
     "description": "Structured Axon errors — the code map every user-facing failure is rendered from.",
     "type": "module",
     "private": false,
@@ -20,5 +20,24 @@
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
-    }
+    },
+    "homepage": "https://axon.arclabs.it/docs/v2",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/packages/err"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
 }

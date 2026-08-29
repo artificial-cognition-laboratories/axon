@@ -90,23 +90,31 @@ resolving, nothing new can find it.
 
 The one thing that makes cognet publishing different from module publishing.
 
-```ts
-export default defineCognet({
-    abi: "10",
-})
-```
-
-Cognets version independently of the CLI now, so an agent can pin `@you/my-cognet@0.1.0`
+Cognets version independently of the CLI, so an agent can pin `@you/my-cognet@0.1.0`
 while its Axon moves forward. When the kernel ABI changes, an old cognet is genuinely
 incompatible — not degraded, incompatible.
 
-`axon prepare` checks the declared ABI against the kernel the installed Axon provides and
+**You usually declare nothing.** A cognet publishes as *source* and is compiled by the
+consumer against the kernel it will actually run on, so the compile step stamps in the ABI
+it built against. The registry records that on the version row, which is how it answers
+"newest version of this cognet that fits ABI 11" without downloading a tarball.
+
+Pin `abi` only to make a cognet **refuse** a kernel it hasn't been validated against:
+
+```ts
+export default defineCognet({
+    abi: "11",
+    mode: { kind: "invocation" },
+})
+```
+
+`axon prepare` then checks the pin against the kernel the installed Axon provides and
 fails there, naming both versions:
 
 ```bash
-COGNET_ABI_MISMATCH: cognet "@you/my-cognet" targets kernel ABI 9,
-but this Axon provides ABI 10 — install a cognet version built for
-ABI 10, or update Axon
+COGNET_ABI_MISMATCH: cognet "@you/my-cognet" pins kernel ABI 9,
+but this Axon provides ABI 11 — install a cognet version built for
+ABI 11, or update Axon
 ```
 
 At prepare time, with both numbers and the file to edit. Never at agent boot, from inside
@@ -151,8 +159,8 @@ The path comes from the import statement, resolved at prepare against the config
 directory. No install step, no registry lookup, no version — the source is whatever you
 have checked out, and edits to it hot-reload under `axon dev` like the agent's own files.
 
-The ABI is still checked, from the same `cognet.config.ts` either form ends at. Everything
-downstream is identical: the blueprint carries a compiled path and hash, and the runtime
+The ABI is resolved the same way either form ends at — a pin if the config carries one,
+this kernel otherwise. Everything downstream is identical: the blueprint carries a compiled path and hash, and the runtime
 cannot tell which origin produced it.
 
 ## Before you publish
@@ -161,8 +169,9 @@ A short list worth running through:
 
 **Does `axon cognet prepare` pass?** It regenerates the frame and type-checks the source.
 
-**Is `files` right in `package.json`?** Ship `cognet.config.ts`, `src`, and `plugins`.
-Leave out tests and scratch.
+**Is `files` right in `package.json`?** Ship `cognet.config.ts` (if you have one), `src`,
+and `plugins`. Leave out tests and scratch. `name` and `version` in this file ARE the
+cognet's identity — nothing else declares them.
 
 **Does it survive a cold start?** Kill the agent mid-wake and restart it. If your cognet
 needs a graceful shutdown to be correct, the state that mattered was in RAM when it should

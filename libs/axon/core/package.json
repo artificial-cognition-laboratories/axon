@@ -1,12 +1,14 @@
 {
-    "name": "@axon/core",
+    "name": "@arcforge/core",
     "version": "0.1.0",
     "type": "module",
-    "private": true,
     "main": "./src/index.ts",
     "exports": {
         ".": "./src/index.ts"
     },
+    "files": [
+        "src"
+    ],
     "scripts": {
         "test": "bun test",
         "test:coverage": "bun test --coverage"
@@ -19,9 +21,9 @@
         "@arcforge/kernel": "workspace:*",
         "@arcforge/session": "workspace:*",
         "@arcforge/types": "workspace:*",
-        "@arclabs/cloud": "workspace:*",
-        "@axon/capsule": "workspace:*",
-        "@axon/vstr": "workspace:*",
+        "@arcforge/cloud": "workspace:*",
+        "@arcforge/capsule": "workspace:*",
+        "@arcforge/vstr": "workspace:*",
         "crossws": "^0.3.5",
         "h3": "^1.13.0",
         "hookable": "^5.5.3",

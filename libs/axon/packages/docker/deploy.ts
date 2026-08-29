@@ -20,9 +20,6 @@ const IMAGE_NAME = "axon-base"
 const DOCKER_DIR = "libs/axon/packages/docker"
 const VERSION_FILE = join(DOCKER_DIR, "VERSION")
 const DOCKERFILE = join(DOCKER_DIR, "Dockerfile")
-// AXON_BASE_VERSION lives with the provisioner that stamps it onto each
-// deployed service's image tag.
-const CLOUDRUN_UTILS = "apps/backend/platform/gcloud/deployments.ts"
 
 // ── Args ─────────────────────────────────────────────────────────────────────
 
@@ -75,26 +72,42 @@ if (bumpArg) {
 
 console.log(`[deploy] axon-base v${version}`)
 
-// ── Sync version into backend ─────────────────────────────────────────────────
-// Keep AXON_BASE_VERSION in cloudrun.ts in sync with the image we're deploying.
-// Skip for --local builds (no push, no backend update needed).
+// ── Version consistency ───────────────────────────────────────────────────────
+//
+// Three files name this version and two of them cannot import the third:
+//
+//   libs/axon/packages/docker/VERSION            what this script tags
+//   libs/axon/types/src/deploy.ts                what the BUNDLER writes into a
+//                                                self-host Dockerfile
+//   apps/backend/.../gcloud/deployments.ts       what the PROVISIONER deploys
+//
+// The backend declares no @arcforge dependency — decoupled from the platform
+// packages deliberately — so it holds its own copy. Types holds the copy the
+// bundler reads, since @axon/docker depends on platform and importing it back
+// would be a cycle.
+//
+// So they are checked rather than synced. A rewrite-by-regex was what this
+// replaced: it WARNED when its pattern missed and otherwise let the two drift
+// in silence, which is how a provisioner ends up running a different runtime
+// than the one a user's Dockerfile pins. Failing here is loud, and the fix is
+// one edit per file.
 if (!isLocal) {
-    const src = readFileSync(CLOUDRUN_UTILS, "utf-8")
-    const updated = src.replace(
-        /export const AXON_BASE_VERSION = ["'][^"']+["']/,
-        `export const AXON_BASE_VERSION = "${version}"`
-    )
-    if (updated === src) {
-        console.warn(
-            `[deploy] warning: could not find AXON_BASE_VERSION in ${CLOUDRUN_UTILS} — update manually`
+    const mismatches: string[] = []
+    for (const [file, pattern] of [
+        ["libs/axon/types/src/deploy.ts", /AXON_BASE_VERSION = ["']([^"']+)["']/],
+        ["apps/backend/platform/gcloud/deployments.ts", /AXON_BASE_VERSION = ["']([^"']+)["']/],
+    ] as const) {
+        const found = pattern.exec(readFileSync(file, "utf-8"))?.[1]
+        if (found !== version) mismatches.push(`  ${file} says ${found ?? "nothing"}`)
+    }
+
+    if (mismatches.length > 0) {
+        console.error(
+            `[deploy] AXON_BASE_VERSION is ${version} here but:\n${mismatches.join("\n")}\n` +
+            `[deploy] update them and re-run — a provisioner and a self-host Dockerfile ` +
+            `must never name different runtimes.`,
         )
-    } else if (!dryRun) {
-        writeFileSync(CLOUDRUN_UTILS, updated)
-        console.log(`[deploy] updated AXON_BASE_VERSION → ${version} in ${CLOUDRUN_UTILS}`)
-    } else {
-        console.log(
-            `[deploy] dry-run: would update AXON_BASE_VERSION → ${version} in ${CLOUDRUN_UTILS}`
-        )
+        if (!dryRun) process.exit(1)
     }
 }
 

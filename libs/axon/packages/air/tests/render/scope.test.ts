@@ -24,7 +24,7 @@ describe("Air render: scope", () => {
                 name: "web",
                 members: [{ name: "fetch", declaration: "function fetch(url: string): Promise<string>" }],
             })
-            expect(out).toContain("declare namespace web {")
+            expect(out).toContain("declare function fetch(url: string): Promise<string>")
             expect(out).toContain("declare const result: { files: number }")
             expect(out).toContain("REQUIRED")
         })
@@ -53,23 +53,25 @@ describe("Air render: scope", () => {
         })
     })
 
-    it("renders a namespaced module", () => {
+    it("renders a module's members as top-level globals, never a namespace", () => {
         const out = rendered({
             name: "web",
             description: "Web access",
             members: [{ name: "fetch", declaration: "function fetch(url: string): Promise<string>", jsdoc: "Fetch a URL." }],
         })
         expect(out).toContain(`<scope lang="ts">`)
-        expect(out).toContain("declare namespace web {")
-        expect(out).toContain("function fetch(url: string): Promise<string>")
+        // The module NAME groups the block for the reader; it is never a
+        // namespace the model addresses through — every export is callable
+        // under its own name.
+        expect(out).not.toContain("declare namespace")
+        expect(out).toContain("declare function fetch(url: string): Promise<string>")
         expect(out).toContain("/** Fetch a URL. */")
         expect(out).toContain("/** Web access */")
     })
 
-    it("renders flat capsule globals and their ambient types", () => {
+    it("renders capsule globals and their ambient types", () => {
         const out = rendered({
             name: "capsule",
-            flat: true,
             ambientTypes: ["interface CapsuleProcess { cwd(): string }"],
             members: [{ name: "process", declaration: "const process: CapsuleProcess" }],
         })
@@ -82,7 +84,6 @@ describe("Air render: scope", () => {
         const out = rendered({
             name: "capsule",
             description: "Persistent native runtime",
-            flat: true,
             members: [{
                 name: "process",
                 declaration: "const process: NodeJS.Process & { run(command: string): Promise<unknown> }",

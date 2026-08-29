@@ -36,7 +36,7 @@ declare module "bun:test" {
 declare global {
     const bench: GeneratedBenchHandle
     const observe: GeneratedBenchHandle["observe"]
-    const Axon: () => Promise<Awaited<ReturnType<typeof import("@axon/core").Axon>> & { stop(): Promise<void> }>
+    const Axon: () => Promise<Awaited<ReturnType<typeof import("@arcforge/core").Axon>> & { stop(): Promise<void> }>
     const defineBench: typeof import("@arcforge/types").defineBench
 }
 

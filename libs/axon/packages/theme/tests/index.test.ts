@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { arcnight, palette } from "../src/index";
 
-describe("@axon/theme public exports", () => {
+describe("@arcforge/theme public exports", () => {
     test("provides the Arcnight dark Shiki theme contract", () => {
         expect(arcnight.name).toBe("arcnight");
         expect(arcnight.type).toBe("dark");

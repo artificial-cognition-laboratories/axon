@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule boot", () => {
     it("boots, reports ready, and can run code", async () => {

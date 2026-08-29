@@ -61,10 +61,54 @@ export function reject(req: EngineRequirement, cap: EngineCapability): string | 
  * Local first, deliberately: a user who has put a model on their own machine
  * has already expressed the preference, and it is the choice that keeps an
  * agent working with the network off. Then wider context, then more slots —
- * both "more headroom for the same job".
+ * both "more headroom for the same job". Then, last, the order the user
+ * declared their providers in.
+ *
+ * ── Why declaration order is a tie-break and not a footnote ────────────────
+ *
+ * One canonical model is reachable through several routes: Claude Sonnet is
+ * `axon` (metered), `openrouter` (BYOK), and `anthropic` (BYOK direct), and
+ * the three capabilities are IDENTICAL on every axis above — same model, so
+ * same context; all hosted, so none local; no slots ceiling unless the user
+ * set one. Every comparison returns 0 and the winner is whichever the
+ * gatherer happened to append first.
+ *
+ * That is not a cosmetic tie. Routes differ in who pays: binding a role to
+ * `axon` when the user declared `Anthropic()` with their own key spends their
+ * ledger instead of their key, decided by array order rather than by anything
+ * anyone wrote down. So the pool's order — the user's own list, in the order
+ * they wrote it — settles it. `providers: [Anthropic(), Axon()]` means what it
+ * reads as: my key first, managed as the fallback.
  */
-export function preference(a: EngineCapability, b: EngineCapability): number {
-    if (a.local !== b.local) return a.local ? -1 : 1
-    if ((a.context ?? 0) !== (b.context ?? 0)) return (b.context ?? 0) - (a.context ?? 0)
-    return (b.slots ?? Infinity) - (a.slots ?? Infinity)
+export function preference(order: ProviderOrder = EMPTY_ORDER) {
+    return (a: EngineCapability, b: EngineCapability): number => {
+        if (a.local !== b.local) return a.local ? -1 : 1
+        if ((a.context ?? 0) !== (b.context ?? 0)) return (b.context ?? 0) - (a.context ?? 0)
+        if ((a.slots ?? Infinity) !== (b.slots ?? Infinity)) return (b.slots ?? Infinity) - (a.slots ?? Infinity)
+        return rank(order, a.provider) - rank(order, b.provider)
+    }
+}
+
+/**
+ * Provider names in the order the user declared them.
+ *
+ * A list rather than a map because it is exactly what the caller already has
+ * — the pool — and asking for a precomputed index would make every call site
+ * build one.
+ */
+export type ProviderOrder = readonly string[]
+
+const EMPTY_ORDER: ProviderOrder = []
+
+/**
+ * Where a provider sits in the user's list.
+ *
+ * A name absent from the order sorts LAST rather than first. Absent means the
+ * caller ranked without a pool (a test, a bare `resolveEngines` call), and
+ * putting an unknown route ahead of a declared one would let a source the
+ * user never mentioned win a tie against one they did.
+ */
+function rank(order: ProviderOrder, provider: string): number {
+    const index = order.indexOf(provider)
+    return index === -1 ? order.length : index
 }

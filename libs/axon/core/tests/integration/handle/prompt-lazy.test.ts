@@ -5,7 +5,7 @@ import path from "node:path"
 /**
  * The Vue toolchain must not load until a .vue prompt actually renders.
  *
- * `@axon/vstr` pulls @vue/compiler-sfc, runtime-core, server-renderer and
+ * `@arcforge/vstr` pulls @vue/compiler-sfc, runtime-core, server-renderer and
  * turndown behind it — ~280ms of module evaluation. It used to be a top-level
  * import in `runtime/source/render.ts` and `platform/boot.ts`, so every agent
  * paid it at import time whether or not it had a single .vue prompt, and it was
@@ -24,7 +24,7 @@ const PKG_ROOT = path.join(import.meta.dir, "..", "..", "..")
 
 async function moduleGraphProbe(body: string): Promise<string> {
     // Written INSIDE the package, not /tmp: workspace specifiers like
-    // "@axon/core" resolve from the file's own location, so a probe in a
+    // "@arcforge/core" resolve from the file's own location, so a probe in a
     // temp dir cannot see the workspace at all.
     const dir = await mkdtemp(path.join(PKG_ROOT, ".lazy-probe-"))
     try {
@@ -60,7 +60,7 @@ const RESIDENT_MS = 40
 describe("prompt rendering loads the Vue toolchain lazily", () => {
     it("does not load vstr when only static prompts are rendered", async () => {
         const loaded = await moduleGraphProbe(`
-            const { Axon } = await import("@axon/core")
+            const { Axon } = await import("@arcforge/core")
             const { KERNEL_ABI_VERSION } = await import("@arcforge/types")
             const { TestCognet } = await import("${path.join(import.meta.dir, "..", "..", "setup", "cognet.ts")}")
             const { Mock } = await import("@arcforge/engines")
@@ -84,7 +84,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
 
             // If vstr were already resident this import is ~free; a real load costs ~280ms.
             const start = performance.now()
-            await import("@axon/vstr")
+            await import("@arcforge/vstr")
             console.log(performance.now() - start)
         `)
 
@@ -93,7 +93,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
 
     it("has loaded vstr once a dynamic prompt has rendered", async () => {
         const loaded = await moduleGraphProbe(`
-            const { Axon } = await import("@axon/core")
+            const { Axon } = await import("@arcforge/core")
             const { KERNEL_ABI_VERSION } = await import("@arcforge/types")
             const { TestCognet } = await import("${path.join(import.meta.dir, "..", "..", "setup", "cognet.ts")}")
             const { Mock } = await import("@arcforge/engines")
@@ -118,7 +118,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
 
             // Now resident — the render loaded it, so this import is a cache hit.
             const start = performance.now()
-            await import("@axon/vstr")
+            await import("@arcforge/vstr")
             console.log(performance.now() - start)
         `)
 

@@ -29,7 +29,6 @@ describe("kernel execution: module-origin tool calls", () => {
                 origin: "module",
                 modulePath: moduleRoot,
                 entryPath,
-                flat: true,
                 fns: [{ name: "greeter", declaration: "const greeter: { hello(name: string): string }" }],
             }
 

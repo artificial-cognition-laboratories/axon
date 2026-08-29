@@ -1,9 +1,6 @@
-// zero — identity only. Behavior lives in src/main.ts; this file is the
-// manifest the compile step composes it with.
+// zero — what this brain declares. Identity comes from package.json and
+// behavior from src/main.ts; the compile step composes the three.
 export default defineCognet({
-    name: "zero",
-    version: "0.1.2",
-    abi: "11",
     mode: { kind: "invocation" },
 
     engines: {

@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/engines",
-    "version": "2.0.155",
+    "version": "2.0.165",
     "type": "module",
     "private": false,
     "main": "./src/index.ts",
@@ -8,7 +8,8 @@
         ".": "./src/index.ts",
         "./mock": "./src/mock/index.ts",
         "./providers": "./src/providers/index.ts",
-        "./catalogue": "./src/catalogue/index.ts"
+        "./catalogue": "./src/catalogue/index.ts",
+        "./aisdk": "./src/aisdk/index.ts"
     },
     "files": [
         "src"
@@ -22,5 +23,73 @@
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
-    }
+    },
+    "peerDependencies": {
+        "@ai-sdk/anthropic": "^4.0.0",
+        "@ai-sdk/openai": "^4.0.0",
+        "@ai-sdk/google": "^4.0.0",
+        "@ai-sdk/groq": "^4.0.0",
+        "@ai-sdk/cerebras": "^3.0.0",
+        "@ai-sdk/mistral": "^4.0.0",
+        "@ai-sdk/deepseek": "^3.0.0",
+        "@ai-sdk/xai": "^4.0.0",
+        "@ai-sdk/perplexity": "^4.0.0",
+        "@ai-sdk/zai": "^3.0.0",
+        "@ai-sdk/openai-compatible": "^3.0.0"
+    },
+    "peerDependenciesMeta": {
+        "@ai-sdk/anthropic": {
+            "optional": true
+        },
+        "@ai-sdk/openai": {
+            "optional": true
+        },
+        "@ai-sdk/google": {
+            "optional": true
+        },
+        "@ai-sdk/groq": {
+            "optional": true
+        },
+        "@ai-sdk/cerebras": {
+            "optional": true
+        },
+        "@ai-sdk/mistral": {
+            "optional": true
+        },
+        "@ai-sdk/deepseek": {
+            "optional": true
+        },
+        "@ai-sdk/xai": {
+            "optional": true
+        },
+        "@ai-sdk/perplexity": {
+            "optional": true
+        },
+        "@ai-sdk/zai": {
+            "optional": true
+        },
+        "@ai-sdk/openai-compatible": {
+            "optional": true
+        }
+    },
+    "description": "Provider connections for the Axon agent runtime — Anthropic, OpenAI, Google, Groq, Ollama and more.",
+    "homepage": "https://axon.arclabs.it/docs/v2/providers",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/packages/engines"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
 }

@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto"
+import { splitCommand, type ShellDecision } from "@arcforge/types"
 import { capsuleFault } from "./fault"
 import { spawn as nodeSpawn } from "node:child_process"
 import type { CapsuleCommand, LiveProcHandle, ProcRunOptions, ProcRunResult, ProcSpawnOptions } from "../../types"
 import { wrapEntry, type ProcEntry } from "../sandbox/procs/handle"
 import type { MediatorT } from "./mediator"
-import type { SandboxWireT } from "./wire"
+import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
 
 type ProcsOpts = {
     mediator: MediatorT
@@ -92,17 +93,22 @@ export function SandboxProcs(opts: ProcsOpts) {
     async function mediateAndSpawn(entry: ProcEntry, command: string, spawnOpts?: ProcSpawnOptions): Promise<void> {
         const procId = entry.procId
 
-        const allowed = await mediator.check("process.spawn", command, [command])
+        // Two gates, because spawning is two privileges: may this PROGRAM run
+        // at all (the same question `run` asks), and may a long-lived child be
+        // held. Either refusing is a refusal.
+        const decision = await mediator.shell(splitCommand(command))
+        const allowed = decision.verdict === "allow"
+            && await mediator.check("shell.spawn", command, [command])
 
         if (killedBeforeSpawn.has(procId)) {
             killedBeforeSpawn.delete(procId)
-            wire.emit("capsule:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "killed before it could spawn", context: { procId, command } }) })
+            wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "killed before it could spawn", context: { procId, command } }) })
             markExited(entry, -1)
             return
         }
 
         if (!allowed) {
-            wire.emit("capsule:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "denied by policy", context: { procId, command } }) })
+            wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "denied by policy", context: { procId, command } }) })
             markExited(entry, -1)
             return
         }
@@ -115,14 +121,14 @@ export function SandboxProcs(opts: ProcsOpts) {
         })
 
         if (child.pid === undefined) {
-            wire.emit("capsule:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "spawn failed", context: { procId, command } }) })
+            wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "spawn failed", context: { procId, command } }) })
             markExited(entry, -1)
             return
         }
 
         entry.pid = child.pid
         entry.cwd = spawnOpts?.cwd ?? process.cwd()
-        wire.emit("capsule:proc:start", { procId, pid: child.pid, command, cwd: entry.cwd, kind: "managed" })
+        wire.emit("process:proc:start", { procId, pid: child.pid, command, cwd: entry.cwd, kind: "managed" })
 
         if (killedBeforeSpawn.has(procId)) {
             killedBeforeSpawn.delete(procId)
@@ -137,12 +143,12 @@ export function SandboxProcs(opts: ProcsOpts) {
             const data = chunk.toString()
             entry.stdout.push(data)
             notify(procId, data)
-            wire.emit("capsule:proc:stdout", { procId, data })
+            wire.emit("process:proc:stdout", { procId, data })
         })
         child.stderr?.on("data", (chunk: Buffer) => {
             const data = chunk.toString()
             entry.stderr.push(data)
-            wire.emit("capsule:proc:stderr", { procId, data })
+            wire.emit("process:proc:stderr", { procId, data })
         })
         // A managed child can fail after spawn returns (exec failure, IPC
         // break) and never emit "exit". Without this the span stays open
@@ -150,7 +156,7 @@ export function SandboxProcs(opts: ProcsOpts) {
         child.on("error", cause => {
             children.delete(procId)
             markExited(entry, -1)
-            wire.emit("capsule:proc:failed", {
+            wire.emit("process:proc:failed", {
                 procId,
                 error: capsuleFault("CAPSULE_PROC_FAILED", {
                     message: cause.message,
@@ -163,7 +169,7 @@ export function SandboxProcs(opts: ProcsOpts) {
         child.on("exit", code => {
             children.delete(procId)
             markExited(entry, code ?? -1)
-            wire.emit("capsule:proc:complete", { procId, code: code ?? -1, durationMs: Date.now() - entry.startedAt })
+            wire.emit("process:proc:complete", { procId, code: code ?? -1, durationMs: Date.now() - entry.startedAt })
         })
     }
 
@@ -174,10 +180,14 @@ export function SandboxProcs(opts: ProcsOpts) {
      */
     async function run(command: string, runOpts?: ProcRunOptions, signal?: AbortSignal): Promise<ProcRunResult> {
         if (signal?.aborted) throw abortError()
-        const allowed = await mediator.check("process.run", command, [command])
+        const decision = await mediator.shell(splitCommand(command))
+        const allowed = decision.verdict === "allow"
         if (signal?.aborted) throw abortError()
         if (!allowed) {
-            return { ok: false, exitCode: -1, stdout: "", stderr: "", err: "denied by policy" }
+            // The REASON, not just "denied": a model that tried `sh -c` can
+            // rewrite the call if it is told that shells are off, and cannot if
+            // it is told only that something was denied.
+            return { ok: false, exitCode: -1, stdout: "", stderr: "", err: shellDenial(decision) }
         }
 
         return new Promise<ProcRunResult>((resolve, reject) => {
@@ -199,7 +209,31 @@ export function SandboxProcs(opts: ProcsOpts) {
             }
 
             runChildren.set(procId, child)
-            wire.emit("capsule:proc:start", {
+
+            /**
+             * A blocking run is TRACKED too.
+             *
+             * The host-side mirror used to build these rows from the wire —
+             * `proc:start` created an entry whether it came from spawn() or
+             * run(), so both appeared in the process tree. That mirror is gone
+             * and this registry answers `list()` directly, so a run that
+             * registers nothing is a command the tree cannot see: observable
+             * while it streams, invisible the moment anyone asks what ran.
+             */
+            const entry: ProcEntry = {
+                procId,
+                kind: "run",
+                command,
+                pid: child.pid,
+                cwd: runOpts?.cwd ?? process.cwd(),
+                status: "running",
+                stdout: [],
+                stderr: [],
+                startedAt,
+            }
+            entries.set(procId, entry)
+
+            wire.emit("process:proc:start", {
                 procId,
                 pid: child.pid,
                 command,
@@ -223,12 +257,14 @@ export function SandboxProcs(opts: ProcsOpts) {
             child.stdout?.on("data", (chunk: Buffer) => {
                 const data = chunk.toString()
                 stdout += data
-                wire.emit("capsule:proc:stdout", { procId, data })
+                entry.stdout.push(data)
+                wire.emit("process:proc:stdout", { procId, data })
             })
             child.stderr?.on("data", (chunk: Buffer) => {
                 const data = chunk.toString()
                 stderr += data
-                wire.emit("capsule:proc:stderr", { procId, data })
+                entry.stderr.push(data)
+                wire.emit("process:proc:stderr", { procId, data })
             })
 
             // The span broke rather than settled: the child errored without
@@ -236,7 +272,7 @@ export function SandboxProcs(opts: ProcsOpts) {
             // fabricated -1. :failed says what actually happened.
             child.on("error", cause => {
                 runChildren.delete(procId)
-                wire.emit("capsule:proc:failed", {
+                wire.emit("process:proc:failed", {
                     procId,
                     error: capsuleFault("CAPSULE_PROC_FAILED", {
                         message: cause.message,
@@ -249,7 +285,8 @@ export function SandboxProcs(opts: ProcsOpts) {
             })
             child.on("exit", code => {
                 runChildren.delete(procId)
-                wire.emit("capsule:proc:complete", { procId, code: code ?? -1, durationMs: Date.now() - startedAt })
+                markExited(entry, code ?? -1)
+                wire.emit("process:proc:complete", { procId, code: code ?? -1, durationMs: Date.now() - startedAt })
                 settle(() => resolve({ ok: code === 0, exitCode: code ?? -1, stdout, stderr }))
             })
 
@@ -282,7 +319,7 @@ export function SandboxProcs(opts: ProcsOpts) {
     function stdin(procId: string, data: string): void {
         const child = children.get(procId)
         if (!child?.stdin?.writable) {
-            wire.emit("capsule:proc:stdin:error", { procId, error: capsuleFault("CAPSULE_PROC_STDIN_FAILED", { message: "process not running or stdin closed", context: { procId } }) })
+            wire.emit("process:proc:stdin:error", { procId, error: capsuleFault("CAPSULE_PROC_STDIN_FAILED", { message: "process not running or stdin closed", context: { procId } }) })
             return
         }
         child.stdin.write(data)
@@ -305,6 +342,24 @@ export function SandboxProcs(opts: ProcsOpts) {
 
         /** In-sandbox only path: blocking, observable, never throws except cancellation. */
         run,
+
+        /**
+         * Every managed child, live.
+         *
+         * The host-side mirror used to answer this by folding wire events into
+         * its own copy of the tree. In one heap there is no mirror and no copy
+         * — this registry IS the tree, so the handles are the same objects the
+         * spawner holds rather than a reconstruction that can fall behind.
+         */
+        list(): LiveProcHandle[] {
+            return [...entries.values()].map(entry => wrapEntry(entry, impl(entry.procId)))
+        },
+
+        /** One child by id, or undefined if it never existed here. */
+        get(procId: string): LiveProcHandle | undefined {
+            const entry = entries.get(procId)
+            return entry ? wrapEntry(entry, impl(procId)) : undefined
+        },
 
         /** Kill every managed child — called on capsule shutdown. */
         killAll(): void {
@@ -331,3 +386,14 @@ function killTree(child: ReturnType<typeof nodeSpawn>): void {
 }
 
 export type SandboxProcsT = ReturnType<typeof SandboxProcs>
+
+/** A shell denial as a sentence the model can act on. */
+function shellDenial(decision: ShellDecision): string {
+    if (decision.reason === "raw-shell") {
+        return "denied by policy: a raw shell is not permitted (shell.raw is off) — call the program directly rather than through sh -c"
+    }
+    if (decision.reason === "not-allowed") return `denied by policy: "${decision.program}" is not in shell.allow`
+    if (decision.reason === "denied") return `denied by policy: "${decision.program}" is in shell.deny`
+    if (decision.reason === "args") return `denied by policy: those arguments to "${decision.program}" are not permitted`
+    return "denied by policy"
+}

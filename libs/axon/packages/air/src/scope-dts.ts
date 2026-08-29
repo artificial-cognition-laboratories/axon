@@ -46,20 +46,10 @@ export function scopeToDts(scope: AxonScope): string {
     for (const module of modules) {
         if (module.description) lines.push(indent(jsdocBlock(module.description)))
 
-        if (module.flat) {
-            for (const member of module.members) {
-                if (member.jsdoc) lines.push(indent(jsdocBlock(member.jsdoc)))
-                lines.push(indent(member.declaration))
-            }
-            continue
-        }
-
-        const body: string[] = []
         for (const member of module.members) {
-            if (member.jsdoc) body.push(jsdocBlock(member.jsdoc))
-            body.push(member.declaration)
+            if (member.jsdoc) lines.push(indent(jsdocBlock(member.jsdoc)))
+            lines.push(indent(member.declaration))
         }
-        lines.push(indent(`namespace ${module.name} {\n${indent(body.join("\n"))}\n}`))
     }
 
     lines.push("}", "", "export {}", "")

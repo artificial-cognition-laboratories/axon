@@ -31,36 +31,35 @@ describe("the profile policy contract matches the capsule's", () => {
     })
 
     test("a profile policy is a valid capsule policy", () => {
-        // `process` is optional on the profile side and required on the
-        // capsule's — a profile that declares no shell rule has no opinion,
-        // while a capsule always has one. So this direction is asserted per
-        // field rather than wholesale.
+        // Every field is optional on both sides — a profile that declares
+        // nothing has no opinion — so this direction is asserted per field.
         const profile: ProfilePolicy = {
             isolation: "auto",
             fs: { read: ["./data"], write: ["./out"] },
-            network: { "api.example.com:443": true },
-            process: { run: { allow: ["bun *"] }, spawn: false },
-            limits: { memory: "2G", cpu: "50%", pids: 64 },
+            net: { allow: ["api.example.com:443"], dns: "allowlist" },
+            shell: { allow: ["bun"], raw: false, spawn: false },
+            env: { allow: ["GITHUB_TOKEN"] },
+            limits: { memory: "2G", cpu: "50%", pids: 64, disk: "1G", wall: "30m" },
             tools: { github: "escalate" },
         }
 
         const isolation: CapsulePolicy["isolation"] = profile.isolation
         const fs: CapsulePolicy["fs"] = profile.fs
-        const network: CapsulePolicy["network"] = profile.network
+        const net: CapsulePolicy["net"] = profile.net
+        const env: CapsulePolicy["env"] = profile.env
         const limits: CapsulePolicy["limits"] = profile.limits
         const tools: CapsulePolicy["tools"] = profile.tools
-        const run: CapsulePolicy["process"]["run"] | undefined = profile.process?.run
-        const spawn: CapsulePolicy["process"]["spawn"] | undefined = profile.process?.spawn
+        const shell: CapsulePolicy["shell"] = profile.shell
 
-        expect({ isolation, fs, network, limits, tools, run, spawn }).toBeDefined()
+        expect({ isolation, fs, net, env, limits, tools, shell }).toBeDefined()
     })
 
     test("the capsule's own keys are all expressible by a profile", () => {
         // The direction that catches a NEW capability landing in CapsulePolicy
         // with no way for a profile to bound it — a ceiling with a hole in it.
-        // `process` is exempt for the optionality reason above.
-        type CapsuleKeys = Exclude<keyof CapsulePolicy, "process">
-        type ProfileKeys = Exclude<keyof ProfilePolicy, "process">
+        // No exclusions: every capsule key is now bounded by a profile one.
+        type CapsuleKeys = keyof CapsulePolicy
+        type ProfileKeys = keyof ProfilePolicy
 
         // `never` on both sides or this file stops compiling. Written as an
         // assignment TO never rather than a computed alias: an unused type

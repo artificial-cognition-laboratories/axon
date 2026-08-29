@@ -1,4 +1,4 @@
-import type { AxonCloudClient } from "@arclabs/cloud"
+import type { AxonCloudClient } from "@arcforge/cloud"
 import { err } from "@arcforge/err"
 import type { AxonBlueprint as AxonBlueprintT, AxonPartialBlueprint } from "@arcforge/types"
 import { AxonBusT, AxonHooksT, mergeBlueprint } from "../platform"

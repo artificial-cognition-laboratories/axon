@@ -1,4 +1,4 @@
-import type { Axon } from "@axon/core"
+import type { Axon } from "@arcforge/core"
 
 type Runtime = Awaited<ReturnType<typeof Axon>>
 

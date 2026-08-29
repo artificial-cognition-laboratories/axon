@@ -22,12 +22,6 @@ export type AxonTool = {
      * one callable.
      */
     origin: "src" | "module" | "workspace"
-    /**
-     * When true, each fn is a top-level named export — not grouped under the tool name as a namespace.
-     * Helios renders flat tools as `declare const hello: ...` instead of `declare namespace another { hello }`.
-     * Set for src/tools/ files where the filename is just a grouping mechanism, not a user-facing namespace.
-     */
-    flat?: boolean
     /** Absolute path to the module root — present when origin is "module" or a workspace module. */
     modulePath?: string
     /**

@@ -1,9 +1,9 @@
 /**
  * HTTP error contract shared across the Axon stack.
  *
- * Lives in @arcforge/types (not @arclabs/cloud) because it is a wire contract:
+ * Lives in @arcforge/types (not @arcforge/cloud) because it is a wire contract:
  * engines, cloud transport, and CLI publish/deploy flows all branch on
- * `err.code` / `err.data`. @arclabs/cloud re-exports it so existing internal
+ * `err.code` / `err.data`. @arcforge/cloud re-exports it so existing internal
  * imports keep working; @arcforge/engines depends on it directly so it can be
  * published to npm without pulling in internal cloud transport.
  */

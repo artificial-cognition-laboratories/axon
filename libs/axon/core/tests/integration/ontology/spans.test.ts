@@ -112,8 +112,8 @@ describe("Event ontology", () => {
             /:(loaded|unloaded|spawned|restarting|restarted|exit|created|updated|ended)$/.test(type)
             // capsule:tool:unloaded and capsule:exit are deliberate: a
             // synchronous delete and a process-death fact, neither bracketed.
-            && type !== "capsule:tool:unloaded"
-            && type !== "capsule:exit")
+            && type !== "process:tool:unloaded"
+            && type !== "process:exit")
         expect(bespoke).toEqual([])
     })
 

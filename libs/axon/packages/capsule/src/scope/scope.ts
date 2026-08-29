@@ -33,6 +33,21 @@ export type ScopeOpts = {
     write(level: "log" | "error", data: string | Uint8Array): boolean
     /** The capsule-safe Axon facade installed as globalThis.axon. */
     axon: AxonCapsuleHandle
+    /**
+     * Is model code executing right now?
+     *
+     * False means the write belongs to the HOST and must reach the real
+     * stream. Absent keeps the old unconditional capture, which is correct for
+     * a process the capsule owns entirely.
+     */
+    capture?: () => boolean
+    /**
+     * Replace an existing installation rather than refusing.
+     *
+     * Set by the in-process owner on a reload. See the guard for why the
+     * default is to refuse.
+     */
+    rebind?: boolean
 }
 
 /** The real Node process.exit — call this for the capsule's own shutdown, never sandboxed code's. */
@@ -45,8 +60,22 @@ export function installScope(opts: ScopeOpts): void {
         spawn?: ScopeOpts["spawn"]
     }
 
-    if (proc.run || proc.spawn) {
-        // Subprocess-side: throw plain. The manager codes it at the wire boundary.
+    /**
+     * Installed ONCE per process — unless the caller is explicitly rebinding.
+     *
+     * These are global mutations, and the guard exists because two sandboxes
+     * sharing one process would fight over `process.run`: model code in one
+     * would shell out through the other's mediator, under the other's policy.
+     * Subprocess-side that could never happen, so a second call was always a
+     * wiring fault and throwing was right.
+     *
+     * In-process it is routine. A reload replaces the sandbox — new policy,
+     * new mediator, same process — and the verbs must point at the new one or
+     * every subsequent `process.run` is gated by a policy the user has already
+     * replaced. `rebind` says "I am the owner, swapping myself"; without it
+     * the guard still catches the case it was written for.
+     */
+    if ((proc.run || proc.spawn) && !opts.rebind) {
         throw new Error("CAPSULE_SCOPE_VIOLATION: installScope() must be called exactly once")
     }
 
@@ -57,10 +86,54 @@ export function installScope(opts: ScopeOpts): void {
     // capsule-safe facade: local activity plus trusted host-backed methods.
     ;(globalThis as { axon?: AxonCapsuleHandle }).axon = opts.axon
 
-    proc.stdout.write = ((data: string | Uint8Array) => opts.write("log", data)) as typeof proc.stdout.write
-    proc.stderr.write = ((data: string | Uint8Array) => opts.write("error", data)) as typeof proc.stderr.write
+    /**
+     * Console capture, scoped to a RUNNING COMMAND.
+     *
+     * Subprocess-side these were replaced outright: stdout was the protocol
+     * wire, so nothing else in that process was allowed near it and every
+     * write belonged to model code by definition.
+     *
+     * In one heap that is false and destructive. The host shares this stdout —
+     * the TUI renders through it, a test runner reports through it — so
+     * hijacking it unconditionally silenced everything the process wrote while
+     * an agent happened to exist. It looked like tests interfering with each
+     * other; it was the agent swallowing their output.
+     *
+     * So the redirect applies only while a command is executing, and falls
+     * through to the real stream otherwise. `capture()` answers "is model code
+     * running right now", which is precisely the question the original replace
+     * assumed away.
+     */
+    const realStdout = proc.stdout.write.bind(proc.stdout)
+    const realStderr = proc.stderr.write.bind(proc.stderr)
 
-    process.exit = (() => {
+    proc.stdout.write = ((data: string | Uint8Array, ...rest: unknown[]) =>
+        opts.capture?.() === false
+            ? (realStdout as (d: string | Uint8Array, ...r: unknown[]) => boolean)(data, ...rest)
+            : opts.write("log", data)) as typeof proc.stdout.write
+
+    proc.stderr.write = ((data: string | Uint8Array, ...rest: unknown[]) =>
+        opts.capture?.() === false
+            ? (realStderr as (d: string | Uint8Array, ...r: unknown[]) => boolean)(data, ...rest)
+            : opts.write("error", data)) as typeof proc.stderr.write
+
+    /**
+     * `process.exit` guarded, scoped to a RUNNING COMMAND — same reasoning as
+     * the streams above, and the same bug it fixes.
+     *
+     * Subprocess-side the capsule owns the whole process, so every exit()
+     * belonged to model code and refusing unconditionally was right.
+     * In-process the HOST shares this global: the TUI's own shutdown path
+     * calls process.exit(), and an unconditional guard turned every ctrl+C
+     * into a CAPSULE_SCOPE_VIOLATION thrown out of the host's exit handler.
+     * The capsule was refusing the host permission to close its own process.
+     *
+     * `capture()` answers "is model code running right now" — the question
+     * the unconditional replace assumed away. False means this is the host
+     * exiting, which is always allowed.
+     */
+    process.exit = ((code?: number) => {
+        if (opts.capture?.() === false) return realExit(code)
         throw new Error("CAPSULE_SCOPE_VIOLATION: sandboxed code cannot call process.exit() — the capsule owns its subprocess lifecycle")
     }) as never
 }

@@ -28,16 +28,13 @@ zero/
 ├── src/
 │   ├── main.ts       # the loop
 │   └── state.ts      # the resident model
-└── cognet.config.ts  # identity
+└── cognet.config.ts  # what it declares (optional)
 ```
 
 ## Identity
 
 ```ts
 export default defineCognet({
-    name: "zero",
-    version: "0.1.0",
-    abi: "10",
 
     mode: { kind: "invocation" },
 

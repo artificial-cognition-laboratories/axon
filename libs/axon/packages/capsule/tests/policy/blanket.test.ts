@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 const MATH_SOURCE = `export default { exports: { add: (a, b) => a + b } }`
 const GREET_SOURCE = `export default { exports: { hello: (name) => "hello " + name } }`
@@ -27,8 +27,8 @@ describe("Capsule policy — a blanket tools rule", () => {
         const capsule = Capsule({ tools: bothTools, policy: { tools: true } })
         await capsule.boot()
 
-        expect(await capsule.run("math.add(1, 2)")).toBe(3)
-        expect(await capsule.run(`greet.hello("world")`)).toBe("hello world")
+        expect(await capsule.run("add(1, 2)")).toBe(3)
+        expect(await capsule.run(`hello("world")`)).toBe("hello world")
 
         await capsule.shutdown()
     })
@@ -37,8 +37,8 @@ describe("Capsule policy — a blanket tools rule", () => {
         const capsule = Capsule({ tools: bothTools, policy: { tools: false } })
         await capsule.boot()
 
-        await expect(capsule.run("math.add(1, 2)")).rejects.toThrow()
-        await expect(capsule.run(`greet.hello("world")`)).rejects.toThrow()
+        await expect(capsule.run("add(1, 2)")).rejects.toThrow()
+        await expect(capsule.run(`hello("world")`)).rejects.toThrow()
 
         await capsule.shutdown()
     })
@@ -52,8 +52,8 @@ describe("Capsule policy — a blanket tools rule", () => {
         })
         await capsule.boot()
 
-        expect(await capsule.run("math.add(1, 2)")).toBe(3)
-        await expect(capsule.run(`greet.hello("world")`)).rejects.toThrow()
+        expect(await capsule.run("add(1, 2)")).toBe(3)
+        await expect(capsule.run(`hello("world")`)).rejects.toThrow()
 
         await capsule.shutdown()
     })
@@ -64,7 +64,66 @@ describe("Capsule policy — a blanket tools rule", () => {
         const capsule = Capsule({ tools: bothTools, policy: { tools: { "*": true } } })
         await capsule.boot()
 
-        expect(await capsule.run(`greet.hello("later")`)).toBe("hello later")
+        expect(await capsule.run(`hello("later")`)).toBe("hello later")
+
+        await capsule.shutdown()
+    })
+})
+
+/**
+ * The policy map mirrors the agent's global scope one-for-one: a rule and a
+ * call site are the same address. These pin the resolution walk — most
+ * specific first — and the independence that makes the map an exact mirror.
+ */
+describe("Capsule policy — addresses mirror the scope", () => {
+    it("a per-member rule inside a bag beats the bag's siblings", async () => {
+        const source = `
+            export default {
+                name: "fs",
+                exports: {
+                    read: async () => "read-ok",
+                    remove: async () => "removed",
+                },
+            }
+        `
+        const capsule = Capsule({
+            tools: [{
+                namespace: "fs",
+                source,
+                scope: {
+                    name: "fs",
+                    members: [
+                        { name: "read", declaration: "function read(): Promise<string>" },
+                        { name: "remove", declaration: "function remove(): Promise<string>" },
+                    ],
+                },
+            }],
+            policy: { tools: { fs: { read: true, remove: false } } },
+        })
+        await capsule.boot()
+
+        expect(await capsule.run("read()")).toBe("read-ok")
+        await expect(capsule.run("remove()")).rejects.toThrow("denied by policy")
+
+        await capsule.shutdown()
+    })
+
+    it("a bag denies everything under it when written as a bare verdict", async () => {
+        const source = `
+            export default { name: "fs", exports: { read: async () => "read-ok" } }
+        `
+        const capsule = Capsule({
+            tools: [{
+                namespace: "fs",
+                source,
+                scope: { name: "fs", members: [{ name: "read", declaration: "function read(): Promise<string>" }] },
+            }],
+            // `fs: false` is the whole bag — no per-member rule needed.
+            policy: { tools: { fs: false } },
+        })
+        await capsule.boot()
+
+        await expect(capsule.run("read()")).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })

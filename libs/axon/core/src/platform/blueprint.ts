@@ -84,6 +84,11 @@ export function AxonBlueprint(input?: AxonPartialBlueprint): AxonBlueprintT {
         },
 
         modules: partial.modules ?? [],
+        // Resolved supervisor-side and carried through: a confined agent
+        // cannot compute it (resolving needs the credential this side does
+        // not hold), so dropping it here is what left /_axon/health
+        // reporting `engine: null` on a working agent.
+        ...(partial.engine ? { engine: partial.engine } : {}),
 
         paths: {
             root: partial.paths?.root ?? process.cwd(),
@@ -181,6 +186,7 @@ export function mergeBlueprint(
         knowledge: partial.knowledge ?? current.knowledge,
         server: { ...current.server, ...partial.server },
         modules: partial.modules ?? current.modules,
+        ...(partial.engine ?? current.engine ? { engine: partial.engine ?? current.engine } : {}),
         cognet: partial.cognet ?? current.cognet,
         paths: { ...current.paths, ...partial.paths },
     }

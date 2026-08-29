@@ -66,6 +66,79 @@ describe("Air render: the preflight exchange", () => {
         // systems check nobody asked for.
         expect(turns).toHaveLength(0)
     })
+
+    /**
+     * The seam between demonstration and session.
+     *
+     * The preflight works BECAUSE its turns are indistinguishable from real
+     * ones, so nothing marks them (see `Protocol["preflight"]`). That leaves
+     * anything reading the context — the engine viewer above all — unable to
+     * say where the agent's actual conversation begins. The marker separates
+     * the two without labelling either.
+     */
+    describe("the session boundary", () => {
+        it("marks where the demonstration ends and the session begins", () => {
+            const messages = rendered()
+            const at = messages.findIndex(m => m.content.includes(`type="session:start"`))
+            expect(at).toBeGreaterThan(-1)
+
+            // The marker OPENS the session's first turn — everything before
+            // that message is the demonstration, and the user's actual words
+            // are in the same message, directly beneath it.
+            expect(messages[at]!.content).toContain("do the thing")
+            expect(messages[at]!.content.indexOf("session:start"))
+                .toBeLessThan(messages[at]!.content.indexOf("do the thing"))
+            expect(messages.slice(0, at).map(m => m.content).join("\n")).toContain("systems check")
+        })
+
+        it("never sends two user turns in a row to say it", () => {
+            // Its own message would sit immediately before the session's
+            // opening user turn. Providers variously reject or silently merge
+            // consecutive same-role messages, so the merge is done here and
+            // the result is the same everywhere.
+            const roles = rendered().map(m => m.role)
+            for (let i = 1; i < roles.length; i++) {
+                if (roles[i] === "system") continue
+                expect(roles[i] === "user" && roles[i - 1] === "user").toBe(false)
+            }
+        })
+
+        it("is absent when no demonstration precedes the session", () => {
+            // Nothing to separate: a marker announcing the start of something
+            // that started at the top of the document is noise.
+            const messages = Air().render({
+                preflight: false,
+                history: [entry("cognet:stimulus:text", { channel: "user", content: "hi" })],
+            })
+            expect(messages.some(m => m.content.includes(`type="session:start"`))).toBe(false)
+        })
+
+        it("is absent when there is no session at all", () => {
+            expect(Air().render({}).some(m => m.content.includes(`type="session:start"`))).toBe(false)
+        })
+
+        it("does not label the demonstration turns themselves", () => {
+            // The marker is on the SEAM. A turn carrying an attribute saying
+            // it is an example invites the model to discount it, which is the
+            // one thing that would undo the preflight.
+            const demo = rendered()
+            const at = demo.findIndex(m => m.content.includes(`type="session:start"`))
+            const turns = demo.slice(0, at).filter(m => m.role !== "system").map(m => m.content).join("\n")
+            expect(turns).not.toContain("session:start")
+            expect(turns).not.toContain("example")
+            expect(turns).not.toContain("demonstration")
+        })
+
+        it("does not break the conversation into a system message mid-stream", () => {
+            // Everything from the demonstration down is alternating
+            // user/assistant turns. A system-role message spliced into that
+            // breaks the shape the conversation rendering exists to produce.
+            const messages = rendered()
+            const at = messages.findIndex(m => m.content.includes(`type="session:start"`))
+            expect(messages[at]!.role).toBe("user")
+            expect(messages.slice(at).every(m => m.role !== "system")).toBe(true)
+        })
+    })
 })
 
 /**

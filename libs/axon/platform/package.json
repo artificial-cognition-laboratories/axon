@@ -1,0 +1,69 @@
+{
+  "name": "@arcforge/platform",
+  "version": "2.0.165",
+  "description": "The Axon developer platform — headless project discovery, blueprint scanning, typegen, agent lifecycle, registry, benches and tests. Shared by the CLI/TUI and the Fleet extension.",
+  "type": "module",
+  "private": false,
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts",
+    "./bin/supervisor": "./src/bin/supervisor.ts",
+    "./bin/test-api": "./src/bin/test-api.ts",
+    "./bin/test-preload": "./src/bin/test-preload.ts",
+    "./bin/update-helper": "./src/bin/update-helper.ts",
+    "./build/bench": "./src/build/bench/index.ts",
+    "./build/blueprint": "./src/build/blueprint/index.ts",
+    "./build/blueprint/scan/declare": "./src/build/blueprint/scan/declare.ts",
+    "./build/cognet": "./src/build/blueprint/cognet/index.ts",
+    "./build/extensions": "./src/build/extensions/index.ts",
+    "./build/project": "./src/build/project/index.ts",
+    "./build/runtime": "./src/build/runtime/index.ts",
+    "./link": {
+      "types": "./src/link/index.ts",
+      "default": "./src/link/index.ts"
+    },
+    "./platform": "./src/platform.ts",
+    "./services": "./src/services/index.ts",
+    "./services/control": "./src/services/control/index.ts",
+    "./services/mic": "./src/services/mic/index.ts",
+    "./services/ollama": "./src/services/ollama/index.ts",
+    "./services/running": "./src/services/running/index.ts",
+    "./store": "./src/services/store/index.ts",
+    "./test": "./src/services/test/index.ts",
+    "./update": "./src/services/update/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "bun test --parallel=4",
+    "test:serial": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
+  },
+  "dependencies": {
+    "@arcforge/session": "workspace:*",
+    "@arcforge/engines": "workspace:*",
+    "@arcforge/err": "workspace:*",
+    "@arcforge/types": "workspace:*",
+    "@arcforge/cloud": "workspace:*",
+    "@arcforge/capsule": "workspace:*",
+    "@arcforge/core": "workspace:*",
+    "@arcforge/vstr": "workspace:*",
+    "fft.js": "^4.0.4",
+    "h3": "^1.15.11",
+    "semver": "^7.7.4",
+    "sharp": "^0.35.3",
+    "typescript": "5.9.2",
+    "@arcforge/link": "workspace:*"
+  },
+  "devDependencies": {
+    "@arcforge/air": "workspace:*",
+    "@arcforge/cognet": "workspace:*",
+    "@arclabs/repo": "workspace:*",
+    "@types/bun": "latest",
+    "@types/semver": "^7.7.1"
+  }
+}

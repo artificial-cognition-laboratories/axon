@@ -41,16 +41,36 @@ export type CognetSchedule =
     | { kind: "continuous" }
 
 /**
- * Cognet identity — what cognet.config.ts declares via defineCognet().
- * The compiled artifact composes this with the loop the entry script
- * registers; identity and behavior never live in the same file.
+ * What cognet.config.ts declares via defineCognet() — the cognet's own
+ * DECLARED shape, and nothing that is already a fact elsewhere.
+ *
+ * Deliberately not identity: `name` and `version` used to live here and were
+ * a second copy of what the cognet's package.json already said. Two writable
+ * sources for one fact drift, and they did — @axon/zero shipped as 1.0.44
+ * while telling the kernel it was 0.1.2, because publish read the package and
+ * the runtime read the config. Identity now has exactly one home; this file
+ * declares only what the author actually decides.
+ *
+ * The compiled artifact composes this with resolved identity and the loop the
+ * entry script registers — see CognetDefinition. Identity, declaration and
+ * behavior never live in the same file.
  */
 export type CognetConfig = {
-    name: string
-    version: string
-
-    /** The kernel ABI version this cognet was built against — checked at load, mismatch refuses loudly. */
-    abi: string
+    /**
+     * The kernel ABI version this cognet targets — checked at load, mismatch
+     * refuses loudly.
+     *
+     * OPTIONAL, and omitting it is the right default. A cognet is published as
+     * SOURCE and compiled by the consumer against the kernel it will actually
+     * run on, so "the ABI I was built against" is a fact the compile step
+     * knows and the author does not. Absent, the compile stamps in the ABI it
+     * compiled against — truthful by construction.
+     *
+     * Pin it only to make a cognet REFUSE a kernel it has not been validated
+     * against. That is a deliberate assertion, and deliberate assertions go in
+     * the file.
+     */
+    abi?: string
 
     /** How the scheduler invokes this cognet. */
     mode: CognetSchedule
@@ -129,7 +149,32 @@ export type ModelRef =
         sha256?: string
     }
 
-export type CognetDefinition = CognetConfig & {
+/**
+ * What the author declared, plus the identity the compile step resolved.
+ *
+ * `name`/`version`/`abi` are REQUIRED here and absent from CognetConfig: the
+ * author writes none of them. Name and version come from the cognet's
+ * package.json (the one identity the registry, the installer and the manifest
+ * already agree on), and the ABI from the kernel the compile ran against
+ * unless the config pinned one. The compile step is where the three become
+ * facts; before it they are questions the author cannot answer.
+ *
+ * This is what the generated entry hands CognetHost — never the author's
+ * cognet.config.ts on its own.
+ */
+export type CognetIdentity = Omit<CognetConfig, "abi"> & {
+    /** Package name — from the cognet's package.json, never authored. */
+    name: string
+
+    /** Package version — from the cognet's package.json, never authored. */
+    version: string
+
+    /** The kernel ABI this artifact was compiled against, or the pinned one. */
+    abi: string
+}
+
+/** A compiled cognet — identity resolved, ABI stamped, behavior attached. */
+export type CognetDefinition = CognetIdentity & {
 
     /** exec(): receives the syscall table. Runs once, before any wake. */
     load(kernel: KernelAbi): Promise<void> | void

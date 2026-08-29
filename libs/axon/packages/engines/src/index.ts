@@ -9,7 +9,10 @@
  * The drivers those constructors built are still here, reached through
  * `./drivers` — a provider constructs one once resolution has picked a model.
  */
-export { Axon, Codex, OpenRouter, Ollama, HuggingFace, Mock, buildProvider, providerPool } from "./providers"
+export {
+    Axon, Codex, OpenRouter, Ollama, HuggingFace, Mock, buildProvider, providerPool,
+    Anthropic, OpenAI, Google, Groq, Cerebras, Mistral, DeepSeek, XAI, Perplexity, ZAI, Moonshot,
+} from "./providers"
 export type { ProviderOptions } from "./providers"
 
 export { run, extractUserText } from "./mock"

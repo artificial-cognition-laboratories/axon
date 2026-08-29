@@ -50,6 +50,25 @@ const silero: EngineCapability = {
     local: true,
 }
 
+/**
+ * The same canonical model on three routes — identical on every ranking axis
+ * (same context, none local, no slots ceiling), so only declaration order can
+ * separate them. This is the shape that made route choice arbitrary.
+ */
+const viaAxon: EngineCapability = {
+    id: "anthropic/claude-sonnet-4-6",
+    provider: "axon",
+    name: "Claude Sonnet 4.6",
+    type: "generate",
+    in: ["text", "image"],
+    out: ["text"],
+    context: 200_000,
+    structured: true,
+}
+
+const viaOpenRouter: EngineCapability = { ...viaAxon, provider: "openrouter" }
+const viaAnthropic: EngineCapability = { ...viaAxon, provider: "anthropic" }
+
 const whisper: EngineCapability = {
     id: "openai/whisper-base",
     provider: "huggingface",
@@ -369,5 +388,72 @@ describe("an unhonoured pin is reported, never swallowed", () => {
 
     test("no pin reports nothing", () => {
         expect(resolveEngines(requirements, [frontier]).unhonoured).toBeUndefined()
+    })
+})
+
+describe("route preference", () => {
+    const requirements: EngineRequirements = {
+        main: { type: "generate", in: "text", out: "text", context: 100_000 },
+    }
+
+    test("the provider the user declared first wins a tie between routes to one model", () => {
+        const result = resolveEngines(requirements, [viaAxon, viaOpenRouter, viaAnthropic], {
+            order: ["anthropic", "openrouter", "axon"],
+        })
+
+        expect(result.bound[0]?.capability.provider).toBe("anthropic")
+    })
+
+    test("the same catalogue binds differently when the user declares a different order", () => {
+        const result = resolveEngines(requirements, [viaAxon, viaOpenRouter, viaAnthropic], {
+            order: ["openrouter", "anthropic", "axon"],
+        })
+
+        expect(result.bound[0]?.capability.provider).toBe("openrouter")
+    })
+
+    test("catalogue order does not decide the route", () => {
+        // Same declared order, opposite catalogue order: the answer must not move.
+        const order = ["anthropic", "axon"]
+        const forward = resolveEngines(requirements, [viaAxon, viaAnthropic], { order })
+        const reversed = resolveEngines(requirements, [viaAnthropic, viaAxon], { order })
+
+        expect(forward.bound[0]?.capability.provider).toBe("anthropic")
+        expect(reversed.bound[0]?.capability.provider).toBe("anthropic")
+    })
+
+    test("a provider absent from the pool never outranks a declared one", () => {
+        const result = resolveEngines(requirements, [viaAxon, viaAnthropic], { order: ["axon"] })
+
+        expect(result.bound[0]?.capability.provider).toBe("axon")
+    })
+
+    test("declaration order never beats a local model", () => {
+        // Order is the LAST axis: a cloud route declared first still loses to
+        // local, which is the preference a user expressed by installing it.
+        const result = resolveEngines(
+            { main: { type: "generate", in: "text", out: "text", context: 100_000 } },
+            [viaAnthropic, small],
+            { order: ["anthropic", "ollama"] },
+        )
+
+        expect(result.bound[0]?.capability.provider).toBe("ollama")
+    })
+
+    test("an explicit route pin still overrides declaration order", () => {
+        const result = resolveEngines(requirements, [viaAxon, viaAnthropic], {
+            order: ["anthropic", "axon"],
+            model: "axon:anthropic/claude-sonnet-4-6",
+        })
+
+        expect(result.bound[0]?.capability.provider).toBe("axon")
+        expect(result.unhonoured).toBeUndefined()
+    })
+
+    test("ranking without an order still resolves", () => {
+        const result = resolveEngines(requirements, [viaAxon, viaAnthropic])
+
+        expect(result.bound).toHaveLength(1)
+        expect(result.missing).toHaveLength(0)
     })
 })

@@ -1,9 +1,9 @@
-import { Capsule } from "@axon/capsule"
-import type { ProcRunResult } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
+import type { ProcRunResult } from "@arcforge/capsule"
 
 describe("Capsule process.run — blocking inline shell execution", () => {
     it("runs a command and returns its stdout, exit code, and ok", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("echo hello")`)
@@ -14,7 +14,7 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("never throws — a failing command resolves with ok: false and the real exit code", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("exit 7")`)
@@ -25,7 +25,7 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("captures stderr separately from stdout", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("echo out; echo err >&2")`) as ProcRunResult
@@ -38,7 +38,7 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("respects the cwd option", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("pwd", { cwd: "/tmp" })`) as ProcRunResult
@@ -49,7 +49,7 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("merges the env option over the inherited environment", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("echo $CUSTOM_VAR", { env: { CUSTOM_VAR: "hello-env" } })`) as ProcRunResult
@@ -60,7 +60,7 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("writes the input option to stdin", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("cat", { input: "piped through stdin" })`) as ProcRunResult
@@ -84,7 +84,7 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("mirrors the blocking command as an observable ephemeral process", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
 
         await capsule.run(`await process.run("echo one-shot")`)

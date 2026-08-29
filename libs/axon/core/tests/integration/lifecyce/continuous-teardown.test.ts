@@ -1,4 +1,4 @@
-import { Axon as AxonRuntime } from "@axon/core"
+import { Axon as AxonRuntime } from "@arcforge/core"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
 import type { KernelAbi } from "@arcforge/types"
 import { defineCognet } from "@arcforge/cognet"

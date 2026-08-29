@@ -1,7 +1,7 @@
 import { Hookable } from "hookable"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { err } from "@arcforge/err"
-import type { AxonRunResult, CognetConfig, CognetDefinition, CognetHooks, CognetPlugin, CognetWake, KernelAbi } from "@arcforge/types"
+import type { AxonRunResult, CognetConfig, CognetIdentity, CognetDefinition, CognetHooks, CognetPlugin, CognetWake, KernelAbi } from "@arcforge/types"
 import type { AxonOutputEvent } from "@arcforge/types"
 import { Clock } from "./clock"
 
@@ -246,8 +246,23 @@ globals.system = <T>(name: string, fn: () => Promise<T>) => ambientOrThrow().sys
  * config + wrapped main → the definition the kernel loads. main() runs once
  * at load(), with kernel already bound — its module/closure scope is the
  * brain's resident RAM. It must declare exactly one loop().
+ *
+ * `config` here is NOT the author's cognet.config.ts. The compile step builds
+ * it: the author's declarations (mode, wakeOn, engines) merged with identity
+ * it resolved itself — name and version from the cognet's package.json, the
+ * ABI from the kernel it compiled against unless the config pinned one. The
+ * author writes none of those three, which is why CognetConfig no longer has
+ * a place to put them.
+ *
+ * Deliberately still TWO arguments. This is a published package's public
+ * surface, and a compiled bundle inlines whichever copy of it the agent has
+ * installed. Widening the signature would mean a new CLI emitting a call an
+ * older installed host cannot answer — the arguments shift by one, `main`
+ * lands in `config`, and the brain dies at load() calling an object. Passing
+ * identity through the object keeps old and new hosts compatible with both
+ * old and new entries.
  */
-export function CognetHost(config: CognetConfig, main: () => Promise<void>): CognetDefinition {
+export function CognetHost(config: CognetIdentity, main: () => Promise<void>): CognetDefinition {
     return {
         ...config,
 
@@ -261,7 +276,18 @@ export function CognetHost(config: CognetConfig, main: () => Promise<void>): Cog
             }
             boundKernel = abi
             try {
-                await ambientStorage.run(localScope, main) // declares loop(); plugins already registered at import time
+                // The brain's own code, running for the first time. Anything
+                // it throws is classified HERE rather than escaping raw: a
+                // cognet is authored source, so an uncoded throw from it is
+                // the ORDINARY case, and letting it surface as an
+                // unclassified error told the author only that something
+                // failed somewhere. The cause is preserved — this names the
+                // boundary the failure crossed, it does not replace it.
+                try {
+                    await ambientStorage.run(localScope, main) // declares loop(); plugins already registered at import time
+                } catch (cause) {
+                    throw err("COGNET_LOAD_FAILED", { cause, context: { name: config.name, version: config.version } })
+                }
                 if (!registered) {
                     throw err("COGNET_NO_LOOP", { detail: `${config.name} ran main() without declaring loop()`, context: { name: config.name } })
                 }

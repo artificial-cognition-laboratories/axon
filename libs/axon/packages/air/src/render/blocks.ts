@@ -91,16 +91,16 @@ export function renderScope(scope: AxonScope, output?: string): string {
 }
 
 function toolDeclarations(module: AxonScopeModule): string {
+    // Every export is a top-level global under its own name, so each needs
+    // its own `declare`. The module name groups them for the reader; it is
+    // not a namespace the model addresses through.
     const members = module.members.map(member => {
         const jsdoc = member.jsdoc ? `${jsdocBlock(member.jsdoc)}\n` : ""
-        // flat: fns are top-level globals; namespaced: members need no `declare`
-        return module.flat ? `${jsdoc}declare ${member.declaration}` : `${jsdoc}${member.declaration}`
+        return `${jsdoc}declare ${member.declaration}`
     })
 
     const header = module.description ? `${jsdocBlock(module.description)}\n` : ""
-    return module.flat
-        ? `${header}${members.join("\n\n")}`
-        : `${header}declare namespace ${module.name} {\n${indent(members.join("\n\n"), 4)}\n}`
+    return `${header}${members.join("\n\n")}`
 }
 
 function jsdocBlock(text: string): string {
@@ -134,6 +134,49 @@ function jsdocBlock(text: string): string {
  */
 export function renderVersion(version: string): string {
     return `<system type="air" version="${escAttr(version)}"/>`
+}
+
+/**
+ * <system type="session:start"/> — where demonstration ends and the real
+ * conversation begins.
+ *
+ * The preflight is a few-shot demonstration rendered as genuine user and
+ * assistant turns, because a model continues a conversation far more readily
+ * than it follows a description (see Render).
+ *
+ * DELIBERATELY UNEXPLAINED. The contract says nothing about this tag, and the
+ * preflight turns carry no attribute marking them as examples — see
+ * Protocol["preflight"], which is explicit that few-shot works precisely
+ * because the turns are indistinguishable from real ones. This marks the
+ * BOUNDARY, never the demonstration: nothing here tells the model the turns
+ * above it were fake, so there is nothing for it to discount.
+ *
+ * That it is a `<system>` block is what keeps it out of the model's output.
+ * The contract declares a closed list of tags the model may emit and
+ * `<system>` is not among them — unlike an attribute on a tag the model DOES
+ * emit, which is how `from="agent"` ended up in replies.
+ *
+ * A self-closing marker rather than a wrapper around the preflight, for the
+ * same reason `renderVersion` is one: the blocks it separates are already
+ * separate MESSAGES in the rendered array, and an element spanning several
+ * messages cannot be expressed. A boundary is a point, so it renders as one.
+ *
+ * Emitted at the head of the session's FIRST turn rather than as a message of
+ * its own — a message would be a user turn immediately before another user
+ * turn, which providers variously reject or silently merge. See Render.
+ *
+ * Rendered ONLY when a preflight actually precedes real history. With nothing
+ * before it there is no boundary to mark, and a marker announcing the start
+ * of something that started at the top of the document is noise the model
+ * still has to read past.
+ *
+ * The viewer reads the same tag. That is deliberate over a display-time
+ * comment (see RESPONSE_MARK): the pane is handed `messages` verbatim, so a
+ * marker it invents is a second mechanism that can disagree with what the
+ * model was actually sent. One tag, both consumers.
+ */
+export function renderSessionStart(): string {
+    return `<system type="session:start"/>`
 }
 
 export function renderSystem(system?: string): string {

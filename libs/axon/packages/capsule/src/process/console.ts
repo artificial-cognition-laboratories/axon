@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { CapsuleEvent } from "../../types"
-import type { SandboxWireT } from "./wire"
+import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
 
 type ConsoleOpts = {
     wire: SandboxWireT
@@ -28,10 +28,28 @@ export function Console(opts: ConsoleOpts) {
         debug: console.debug.bind(console),
     }
 
+    /**
+     * `console.*` is captured only while a COMMAND is running.
+     *
+     * Replacing it outright was correct in a subprocess the capsule owned: no
+     * other code ran there, so every console call was model code by
+     * definition. In one heap the host shares this console — the TUI, a test
+     * runner, the runtime's own diagnostics — and an unconditional replace
+     * silenced all of it for as long as an agent existed.
+     *
+     * `runs.getStore()` already answers the question: inside a command it is
+     * that command's id, outside one it is null. So a null store means the
+     * write belongs to the host and goes to the real console, which is the
+     * distinction the original replace assumed could never arise.
+     */
     for (const level of LEVELS) {
         console[level] = (...args: unknown[]) => {
             const commandId = runs.getStore() ?? null
-            wire.emit("capsule:console", { level, commandId, args } satisfies CapsuleEvent["capsule:console"])
+            if (commandId === null) {
+                original[level](...args)
+                return
+            }
+            wire.emit("process:console", { level, commandId, args } satisfies CapsuleEvent["process:console"])
         }
     }
 
@@ -45,7 +63,7 @@ export function Console(opts: ConsoleOpts) {
         write(level: "log" | "error", data: string | Uint8Array): boolean {
             const commandId = runs.getStore() ?? null
             const content = typeof data === "string" ? data : new TextDecoder().decode(data)
-            wire.emit("capsule:console", { level, commandId, args: [content] })
+            wire.emit("process:console", { level, commandId, args: [content] })
             return true
         },
 

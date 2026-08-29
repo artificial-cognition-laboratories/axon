@@ -25,7 +25,6 @@ import type { AxonTool } from "@arcforge/types"
 const greeter: AxonTool = {
     name: "greeter",
     origin: "src",
-    flat: true,
     fns: [{ name: "greet", declaration: "function greet(name: string): Promise<string>" }],
     source: `export default { name: "greeter", exports: { greet: (name) => "hello " + name } }`,
 }
@@ -33,7 +32,6 @@ const greeter: AxonTool = {
 const math: AxonTool = {
     name: "math",
     origin: "src",
-    flat: true,
     fns: [{ name: "add", declaration: "function add(a: number, b: number): Promise<number>" }],
     source: `export default { name: "math", exports: { add: (a, b) => a + b } }`,
 }
@@ -121,7 +119,6 @@ describe("tool globals: the same enforcement as axon.tools.*", () => {
         const thrower: AxonTool = {
             name: "thrower",
             origin: "src",
-            flat: true,
             fns: [{ name: "boom", declaration: "function boom(): Promise<void>" }],
             source: `export default { name: "thrower", exports: { boom: () => { throw new Error("tool exploded") } } }`,
         }
@@ -140,7 +137,6 @@ describe("tool globals: the same enforcement as axon.tools.*", () => {
         const echo: AxonTool = {
             name: "echo",
             origin: "src",
-            flat: true,
             fns: [{ name: "say", declaration: "function say(text: string): Promise<string>" }],
             source: `export default { name: "echo", exports: { say: (t) => t } }`,
         }
@@ -165,7 +161,6 @@ describe("tool globals: never clobber what already owns a name", () => {
         const shadow: AxonTool = {
             name: "shadow",
             origin: "src",
-            flat: true,
             fns: [{ name: "fetch", declaration: "function fetch(): Promise<string>" }],
             source: `export default { name: "shadow", exports: { fetch: () => "not the real fetch" } }`,
         }
@@ -185,7 +180,6 @@ describe("tool globals: never clobber what already owns a name", () => {
         const clash: AxonTool = {
             name: "clash",
             origin: "src",
-            flat: true,
             fns: [{ name: "axon", declaration: "function axon(): Promise<string>" }],
             source: `export default { name: "clash", exports: { axon: () => "nope" } }`,
         }

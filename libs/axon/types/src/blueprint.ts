@@ -107,6 +107,22 @@ export type AxonBlueprint = {
      */
     env: Record<string, string>
 
+    /**
+     * Host environment the SUPERVISOR needs, and the box must never receive.
+     *
+     * The split exists because two different processes read from this blueprint
+     * and they have opposite trust: the supervisor holds credentials and makes
+     * outbound calls on the agent's behalf; the box runs model-emitted code and
+     * must hold nothing it does not need. `AXON_API_KEY` is the clear case —
+     * the supervisor's cloud client needs it, and it is precisely the value
+     * that must not be reachable from inside the box.
+     *
+     * `env` above is the agent's own `.env`: what a developer put beside their
+     * code, and what may cross into the box (subject to policy). This is the
+     * host's, and it stops at the boundary.
+     */
+    hostEnv?: Record<string, string>
+
     tools: AxonTool[]
     prompts: AxonPrompt[]
     scripts: AxonScript[]
@@ -127,6 +143,26 @@ export type AxonBlueprint = {
      * module's optionsSchema by the CLI — runtime trusts the shape.
      */
     modules: AxonModule[]
+
+    /**
+     * What the PRIMARY role actually resolved to, as a flat fact.
+     *
+     * Nothing is declared any more — a user supplies providers, a cognet
+     * names roles, and which model serves the cortex is decided at boot by
+     * whoever holds the credential. For a confined agent that is the
+     * SUPERVISOR: the agent has no credential and therefore cannot resolve,
+     * so it cannot answer "which model am I on" from anything it holds.
+     *
+     * Carried here because the answer is a fact about this boot and every
+     * client's header asks for it. `/_axon/health` reported `engine: null`
+     * on a perfectly working agent for exactly this reason — it read the
+     * kernel's engines, which a confined agent never has.
+     *
+     * Absent when the cognet declares no roles, or none is primary: a pure
+     * control loop genuinely has no model, and inventing one would put a
+     * dead row in every client's header.
+     */
+    engine?: { provider: string; model: string | null }
 
     paths: {
         /** agent root — still needed for capsule fs-tool sandboxing, not for discovery */
@@ -152,12 +188,14 @@ export type AxonPartialBlueprint = {
     profileProviders?: AxonBlueprint["profileProviders"]
     cognet?: CognetBlueprint
     env?: AxonBlueprint["env"]
+    hostEnv?: AxonBlueprint["hostEnv"]
     tools?: AxonBlueprint["tools"]
     prompts?: AxonBlueprint["prompts"]
     scripts?: AxonBlueprint["scripts"]
     knowledge?: AxonBlueprint["knowledge"]
     server?: Partial<AxonServerBlueprint>
     modules?: AxonBlueprint["modules"]
+    engine?: AxonBlueprint["engine"]
     paths?: Partial<AxonBlueprint["paths"]>
 }
 

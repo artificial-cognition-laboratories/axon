@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 import { join } from "path"
 
 const FIXTURES = join(import.meta.dir, "fixtures")
@@ -18,14 +18,14 @@ describe("Capsule tools", () => {
         expect(capsule.scope.modules[0]?.members.map(member => member.name)).toEqual(["process", "signal"])
     })
 
-    it("loads a tool from a path and makes it callable under its namespace", async () => {
+    it("loads a tool from a path and makes its exports callable", async () => {
         const capsule = Capsule({
             tools: [{ namespace: "math", scope: scope("math"), path: join(FIXTURES, "math.ts") }],
             policy: { tools: { math: true } },
         })
         await capsule.boot()
 
-        const result = await capsule.run("math.add(1, 2)")
+        const result = await capsule.run("add(1, 2)")
         expect(result).toBe(3)
 
         await capsule.shutdown()
@@ -46,13 +46,13 @@ describe("Capsule tools", () => {
         })
         await capsule.boot()
 
-        const result = await capsule.run(`greet.hello("world")`)
+        const result = await capsule.run(`hello("world")`)
         expect(result).toBe("hello world")
 
         await capsule.shutdown()
     })
 
-    it("loads multiple tools, each under its own namespace", async () => {
+    it("loads multiple tools, each export under its own name", async () => {
         const capsule = Capsule({
             tools: [
                 { namespace: "math", scope: scope("math"), path: join(FIXTURES, "math.ts") },
@@ -62,16 +62,16 @@ describe("Capsule tools", () => {
         })
         await capsule.boot()
 
-        const result = await capsule.run(`(await math.add(1, 1)) + (await counter.increment())`)
+        const result = await capsule.run(`(await add(1, 1)) + (await increment())`)
         expect(result).toBe(3)
 
         await capsule.shutdown()
     })
 
-    it("installs flat scope members as top-level globals", async () => {
+    it("installs scope members as top-level globals", async () => {
         const math = scope("math")
         const capsule = Capsule({
-            tools: [{ namespace: "math", scope: { ...math, flat: true }, path: join(FIXTURES, "math.ts") }],
+            tools: [{ namespace: "math", scope: { ...math }, path: join(FIXTURES, "math.ts") }],
             policy: { tools: { math: true } },
         })
         await capsule.boot()
@@ -92,7 +92,6 @@ describe("Capsule tools", () => {
                 source,
                 scope: {
                     name: "test",
-                    flat: true,
                     members: [
                         { name: "test", declaration: "const test: { test(): Promise<string> }" },
                         { name: "fs", declaration: "const fs: { test(): Promise<string> }" },
@@ -134,9 +133,9 @@ describe("Capsule tools", () => {
         })
         await capsule.boot()
 
-        const first = await capsule.run("counter.increment()")
-        const second = await capsule.run("counter.increment()")
-        const third = await capsule.run("counter.get()")
+        const first = await capsule.run("increment()")
+        const second = await capsule.run("increment()")
+        const third = await capsule.run("get()")
 
         expect(first).toBe(1)
         expect(second).toBe(2)
@@ -152,7 +151,7 @@ describe("Capsule tools", () => {
         })
         await capsule.boot()
 
-        await expect(capsule.run("math.add(1, 2)")).rejects.toThrow("denied by policy")
+        await expect(capsule.run("add(1, 2)")).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })
@@ -164,7 +163,7 @@ describe("Capsule tools", () => {
         })
         await capsule.boot()
 
-        await expect(capsule.run("math.add(1, 2)")).rejects.toThrow()
+        await expect(capsule.run("add(1, 2)")).rejects.toThrow()
 
         await capsule.shutdown()
     })

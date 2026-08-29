@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Local-development launcher for axond, mirroring apps/tui/bin/axon.
+#
+# A shell wrapper rather than a symlink to the .ts: `bun run` resolves the
+# workspace from the script's own directory, so a symlink from ~/.local/bin
+# would run it with the wrong root and fail to resolve @arcforge/* imports.
+exec bun run "$(dirname "$(readlink -f "$0")")/axond.ts" "$@"

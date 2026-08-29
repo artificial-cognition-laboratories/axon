@@ -1,7 +1,7 @@
 {
   "name": "@arcforge/cognet",
-  "version": "2.0.155",
-  "description": "A cognitive engine",
+  "version": "2.0.165",
+  "description": "The cognet authoring surface for Axon — an agent's brain, compiled, versioned and swappable.",
   "type": "module",
   "private": false,
   "main": "./src/index.ts",
@@ -24,5 +24,24 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5"
-  }
+  },
+  "homepage": "https://axon.arclabs.it/docs/v2/cognets/api/loop",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+    "directory": "libs/axon/cognet"
+  },
+  "bugs": {
+    "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+  },
+  "keywords": [
+    "axon",
+    "ai",
+    "agent",
+    "agents",
+    "llm",
+    "ai-agent",
+    "agent-runtime",
+    "typescript"
+  ]
 }

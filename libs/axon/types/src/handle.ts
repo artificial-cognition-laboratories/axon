@@ -2,7 +2,7 @@ import type { EscalationCall } from "./policy"
 import type { AxonEntry, AxonKernelEvent, AxonSessionEvent, AxonStimulusEvent, AxonStimulusType } from "./session"
 import type { AxonOutputEvent } from "./session/events/stdio/output"
 import type { AxonScript } from "./scripts"
-import type { AxonPrompt } from "./prompts"
+import type { AxonPrompt, AxonPromptName, AxonPromptProps } from "./prompts"
 import type { AxonPartialBlueprint } from "./blueprint"
 import type { AxonHookName, AxonHooks, AxonModuleEvents } from "./hooks"
 import type { AxonAmbient } from "./session/events/activity"
@@ -12,13 +12,13 @@ import type { AxonAmbient } from "./session/events/activity"
  *
  * Only seams that more than one package depends on live here:
  * - AxonHandle       — what agent code sees (globalThis.axon, plugins, scripts)
- * - EngineConnection — what @axon/cloud hands @axon/core for inference
+ * - EngineConnection — what @axon/cloud hands @arcforge/core for inference
  *
  * Intra-core handles (session, capsule manager, server) are
- * `ReturnType<typeof X>` inside @axon/core — they are not contracts.
+ * `ReturnType<typeof X>` inside @arcforge/core — they are not contracts.
  */
 
-// ── Engine connection (implemented by @axon/cloud, consumed by @axon/core) ───
+// ── Engine connection (implemented by @axon/cloud, consumed by @arcforge/core) ───
 
 /** Input to a single agent invocation. */
 export type AxonRequestInput = {
@@ -87,7 +87,7 @@ export type AxonRun = {
  */
 /**
  * The capsule surface an engine delegate may drive — hand-written seam
- * contract (the implementation type lives in @axon/capsule; this is what
+ * contract (the implementation type lives in @arcforge/capsule; this is what
  * the wire actually needs: execute + cancel).
  */
 export type CapsuleDelegate = {
@@ -137,7 +137,7 @@ export type EngineDelegate = {
 
 /**
  * A live connection to a Cognos engine. @axon/cloud owns how this is
- * established (ws3, auth, engine resolution); @axon/core only ever
+ * established (ws3, auth, engine resolution); @arcforge/core only ever
  * dispatches through it. Deliberately Cognos-agnostic — this type is the
  * open-source boundary and must never leak ws3/Cognos internals.
  */
@@ -195,8 +195,16 @@ export type AxonHandle = {
      */
     readonly ready: boolean
 
-    /** Render a prompt by name. Static .md returns as-is; dynamic .vue renders with props. */
-    prompt(name: string, props?: Record<string, unknown>): Promise<string>
+    /**
+     * Render a prompt by name. Static .md returns as-is; dynamic .vue
+     * renders with props.
+     *
+     * Generic over `AxonPromptMap`, which `axon prepare` fills in with one
+     * entry per prompt the agent declares — so a name that does not exist is
+     * a compile error, and props are checked against the prompt that will
+     * actually receive them.
+     */
+    prompt<K extends AxonPromptName>(name: K, props?: AxonPromptProps<K>): Promise<string>
 
     /**
      * This agent's installed modules, as configured.
@@ -350,8 +358,6 @@ export type AxonHandle = {
         list(): AxonScript[]
     }
 
-    /** Installed tool namespaces, callable by name — each call is a mediated capsule request. */
-    tools: Record<string, Record<string, (...args: unknown[]) => Promise<unknown>>>
 
     /**
      * Hot-reload trigger — apply a blueprint to the live runtime.

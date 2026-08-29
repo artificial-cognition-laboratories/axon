@@ -72,7 +72,21 @@ type EndpointsOpts = {
  * loop genuinely has no model, and inventing one would put a dead row in
  * every client's header.
  */
-function engineIdentity(engines: EnginesT | undefined): { provider: string; model: string | null } | null {
+function engineIdentity(
+    engines: EnginesT | undefined,
+    declared: { provider: string; model: string | null } | undefined,
+): { provider: string; model: string | null } | null {
+    // The blueprint's answer first.
+    //
+    // A CONFINED agent has no engines of its own: resolving needs the
+    // credential, which the boundary deliberately keeps on the supervisor's
+    // side. So the supervisor resolves, stamps the result on the blueprint,
+    // and this reads it. Preferring the kernel here reported `null` on every
+    // agent that was answering prompts perfectly well — the field looked
+    // broken while the agent was fine.
+    if (declared) return declared
+
+    // In-heap: nobody stamped anything, so resolve it from the live bindings.
     const bound = engines?.resolution.bound
     if (!bound?.length) return null
 
@@ -130,7 +144,7 @@ export function Endpoints(opts: EndpointsOpts) {
             modules: opts.blueprint.modules?.length ?? 0,
             tools: opts.blueprint.tools?.length ?? 0,
             // The primary role's RESOLVED binding — see engineIdentity.
-            engine: engineIdentity(opts.engines),
+            engine: engineIdentity(opts.engines, opts.blueprint.engine),
             // The AUDIENCE a caller must mint a connect token for, when this
             // agent enforces one.
             //

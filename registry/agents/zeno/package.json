@@ -1,24 +1,23 @@
 {
   "name": "@axon/zeno",
   "description": "A general purpose coding agent and Axon's default agent.",
-  "version": "1.0.17",
+  "version": "1.0.20",
   "private": false,
   "type": "module",
   "dependencies": {
-    "@arcforge/types": "2.0.153",
-    "@arcforge/engines": "2.0.153",
+    "@arcforge/types": "2.0.165",
+    "@arcforge/engines": "2.0.165",
     "h3": "^1.13.0",
-    "@arcforge/cognet": "2.0.153",
-    "@arcforge/air": "2.0.153",
-    "@axon/zero": "^1.0.42",
+    "@arcforge/cognet": "2.0.165",
+    "@arcforge/air": "2.0.165",
+    "@axon/zero": "^1.0.44",
     "@axon/fs": "^0.1.7",
     "@axon/subagent": "^0.1.1",
-    "@axon/docs": "^1.0.1",
-    "@axon/search": "^0.1.1"
+    "@axon/docs": "^1.0.1"
   },
   "axon": {
     "trackedFrom": {
-      "@axon/zero": "http://127.0.0.1:3099"
+      "@axon/zero": "https://axon-api-t53zrgvpga-ew.a.run.app"
     }
   }
 }

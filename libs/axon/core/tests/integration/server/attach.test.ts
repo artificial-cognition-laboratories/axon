@@ -1,4 +1,4 @@
-import { Agents, RemoteAgent } from "@arclabs/cloud"
+import { Agents, RemoteAgent } from "@arcforge/cloud"
 import { Axon } from "../../setup/axon"
 import { Mock } from "@arcforge/engines"
 

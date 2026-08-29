@@ -1,5 +1,5 @@
-import { Capsule } from "@axon/capsule"
-import type { ProcRunResult } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
+import type { ProcRunResult } from "@arcforge/capsule"
 
 /**
  * The single most important invariant in the capsule: capability is never
@@ -43,7 +43,7 @@ describe("Capsule default deny", () => {
         })
         await capsule.boot()
 
-        await expect(capsule.run("math.add(1, 2)")).rejects.toThrow("denied by policy")
+        await expect(capsule.run("add(1, 2)")).rejects.toThrow("denied by policy")
 
         await capsule.shutdown()
     })
@@ -64,7 +64,7 @@ describe("Capsule default deny", () => {
 
     it("a policy rule object with no matching allow pattern denies, even with allow entries for other subjects", async () => {
         const capsule = Capsule({
-            policy: { process: { spawn: { allow: ["npm *"] }, run: true } },
+            policy: { shell: { allow: ["npm"], spawn: true } },
         })
         await capsule.boot()
 

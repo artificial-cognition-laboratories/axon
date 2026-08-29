@@ -3,7 +3,7 @@
  * own vocabulary (its subprocess bus serializes these over stdout as JSONL;
  * the host wire validates and re-emits them), registered HERE because every
  * event type that can reach a session log lives in this package's registry
- * — @axon/capsule re-exports it (types/events.ts), it does not own it.
+ * — @arcforge/capsule re-exports it (types/events.ts), it does not own it.
  *
  * Naming: start/complete/failed verb suffixes throughout, matching the
  * kernel/cognet conventions — capsule spans (cmd, fn, proc) pair up in a
@@ -43,24 +43,24 @@ import type { CapsuleScope } from "../../capsule-scope"
 /**
  * Who asked for a capsule command to run — see the capsule:cmd span below.
  *
- * Declared here rather than in @axon/capsule for the same reason the event
+ * Declared here rather than in @arcforge/capsule for the same reason the event
  * map is: every type that can reach a session log lives in this package's
- * registry, and @axon/capsule re-exports from here rather than owning it.
+ * registry, and @arcforge/capsule re-exports from here rather than owning it.
  */
 export type CapsuleCommandOrigin = "cognet" | "host"
 
 export type CapsuleEventMap =
     // ── Lifecycle ────────────────────────────────────────────────────────────
-    & AxonSpan<"capsule:boot", {}, {}, { error: AxonErrorJSON }>
+    & AxonSpan<"process:boot", {}, {}, { error: AxonErrorJSON }>
     & {
-        "capsule:ready": {}
-        "capsule:shutdown": {}
+        "process:ready": {}
+        "process:shutdown": {}
         /** Unhandled error inside the subprocess. Exit usually follows. */
-        "capsule:crash": { error: AxonErrorJSON }
+        "process:crash": { error: AxonErrorJSON }
         /** The capsule subprocess itself exited (not a managed child process). */
-        "capsule:exit": { code: number | null; reason?: string }
+        "process:exit": { code: number | null; reason?: string }
         /** A wire line failed to parse — the sandbox is speaking garbage. Never dropped silently. */
-        "capsule:parse:error": { error: AxonErrorJSON; line?: string }
+        "process:parse:error": { error: AxonErrorJSON; line?: string }
 
         /**
          * Supervision gave up — the capsule is gone and will not come back on
@@ -68,11 +68,11 @@ export type CapsuleEventMap =
          * also fires when the restart budget is exhausted, which is a
          * supervision verdict rather than one restart going wrong.
          */
-        "capsule:dead": { error: AxonErrorJSON }
+        "process:dead": { error: AxonErrorJSON }
     }
     // ── Supervision (host-side) — one crash-and-recover cycle ───────────────
     & AxonSpan<
-        "capsule:restart",
+        "process:restart",
         { restartCount: number },
         { restartCount: number },
         { restartCount: number; error: AxonErrorJSON }
@@ -86,20 +86,20 @@ export type CapsuleEventMap =
     //    Absent means "cognet" — every command predating this field, and
     //    every command the runtime itself issues.
     & AxonCancellableSpan<
-        "capsule:cmd",
+        "process:cmd",
         { id: string; origin?: CapsuleCommandOrigin },
         { id: string; result: unknown; scope: CapsuleScope },
         { id: string; error: AxonErrorJSON },
         { id: string; durationMs: number }
     >
     & {
-        "capsule:cmd:stdout": { id: string; data: string }
-        "capsule:cmd:interrupt:requested": { id: string; reason: "abort" | "timeout" }
+        "process:cmd:stdout": { id: string; data: string }
+        "process:cmd:interrupt:requested": { id: string; reason: "abort" | "timeout" }
         "capsule:cmd:hard-killed": { id: string; graceMs: number }
     }
     // ── Tool call spans (mediated fn calls inside a command) ────────────────
     & AxonSpan<
-        "capsule:fn",
+        "process:fn",
         { commandId: string; module: string; fn: string; args: unknown[] },
         { commandId: string; module: string; fn: string; result: unknown },
         { commandId: string; module: string; fn: string; error: AxonErrorJSON }
@@ -108,7 +108,7 @@ export type CapsuleEventMap =
     //    A dynamic import inside the sandbox: genuinely bracketed, and slow
     //    or hanging often enough that the :start half earns its place.
     & AxonSpan<
-        "capsule:tool:load",
+        "process:tool:load",
         { namespace: string },
         { namespace: string; fns: string[] },
         { namespace: string; error: AxonErrorJSON }
@@ -120,7 +120,7 @@ export type CapsuleEventMap =
     //    breaking (the child could not be reaped, the handle was lost), which
     //    is why its payload carries no exit code: there isn't one.
     & AxonSpan<
-        "capsule:proc",
+        "process:proc",
         { procId: string; pid: number; command: string; cwd: string; kind: "managed" | "run" },
         { procId: string; code: number },
         { procId: string; error: AxonErrorJSON }
@@ -130,15 +130,15 @@ export type CapsuleEventMap =
          * Unloading is a synchronous map delete — a settled fact with no
          * interior, so it stays a bare event rather than a one-tick span.
          */
-        "capsule:tool:unloaded": { namespace: string }
+        "process:tool:unloaded": { namespace: string }
 
         // ── Trusted host bridge ──────────────────────────────────────────────
         /** Private request transport for the capsule Axon facade. Never durable. */
-        "capsule:host:request": { id: string; commandId: string | null; method: string; input: unknown }
+        "process:host:request": { id: string; commandId: string | null; method: string; input: unknown }
 
         // ── Child process byte streams ───────────────────────────────────────
-        "capsule:proc:stdout": { procId: string; data: string }
-        "capsule:proc:stderr": { procId: string; data: string }
+        "process:proc:stdout": { procId: string; data: string }
+        "process:proc:stderr": { procId: string; data: string }
         /**
          * A process the sandbox asked for was never created — refused by
          * policy, killed before it could spawn, or the spawn itself failed.
@@ -146,14 +146,14 @@ export type CapsuleEventMap =
          * bracket to close. Same rule as capsule:fn, which opens only once
          * policy admits the call.
          */
-        "capsule:proc:denied": { procId: string; command: string; error: AxonErrorJSON }
-        "capsule:proc:stdin:error": { procId: string; error: AxonErrorJSON }
+        "process:proc:denied": { procId: string; command: string; error: AxonErrorJSON }
+        "process:proc:stdin:error": { procId: string; error: AxonErrorJSON }
 
         // ── Policy ───────────────────────────────────────────────────────────
-        "capsule:policy:denied": { id: string; module: string; fn: string; args: unknown[]; rule: string }
-        "capsule:policy:escalation": { id: string; module: string; fn: string; args: unknown[]; rule: string }
+        "process:policy:denied": { id: string; module: string; fn: string; args: unknown[]; rule: string }
+        "process:policy:escalation": { id: string; module: string; fn: string; args: unknown[]; rule: string }
         /** Host-side: the escalate callback's verdict for a pending escalation. */
-        "capsule:policy:decision": { id: string; allow: boolean; durationMs: number }
+        "process:policy:decision": { id: string; allow: boolean; durationMs: number }
 
         // ── Activities (semantic tool emissions) ─────────────────────────────
         /**
@@ -161,12 +161,12 @@ export type CapsuleEventMap =
          * the ambient axon.activity(). Correlated to the running command the
          * same way capsule:console is; null only if emitted outside any command.
          */
-        "capsule:activity": Activity & { commandId: string | null }
+        "process:activity": Activity & { commandId: string | null }
 
         // ── Console + state ──────────────────────────────────────────────────
         /** User console output, captured — correlated to the running command, never raw on stdout. */
-        "capsule:console": { level: "log" | "info" | "warn" | "error" | "debug"; commandId: string | null; args: unknown[] }
-        "capsule:cwd": { cwd: string }
+        "process:console": { level: "log" | "info" | "warn" | "error" | "debug"; commandId: string | null; args: unknown[] }
+        "process:cwd": { cwd: string }
     }
 
 export type CapsuleEventName = keyof CapsuleEventMap
@@ -182,9 +182,9 @@ export type AnyCapsuleEvent = {
  * derives its split from here, never from its own type sniff.
  */
 export const CAPSULE_TRANSIENT_EVENTS = new Set<CapsuleEventName>([
-    "capsule:cmd:stdout",
-    "capsule:proc:stdout",
-    "capsule:proc:stderr",
-    "capsule:console",
-    "capsule:host:request",
+    "process:cmd:stdout",
+    "process:proc:stdout",
+    "process:proc:stderr",
+    "process:console",
+    "process:host:request",
 ])

@@ -1,9 +1,9 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule proc.spawn / process.spawn", () => {
     describe("via capsule.proc.spawn (host-initiated)", () => {
         it("spawns a real process and reflects its output and exit", async () => {
-            const capsule = Capsule({ policy: { process: { spawn: true } } })
+            const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: true } } })
             await capsule.boot()
 
             const proc = capsule.process.spawn("echo hello")
@@ -18,7 +18,7 @@ describe("Capsule proc.spawn / process.spawn", () => {
         })
 
         it("captures stdout incrementally via tail()", async () => {
-            const capsule = Capsule({ policy: { process: { spawn: true } } })
+            const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: true } } })
             await capsule.boot()
 
             const proc = capsule.process.spawn("printf 'a\\nb\\nc\\n'")
@@ -30,7 +30,10 @@ describe("Capsule proc.spawn / process.spawn", () => {
         })
 
         it("resolves waitFor() once a matching line appears", async () => {
-            const capsule = Capsule({ policy: { process: { spawn: true } } })
+            // `raw: true` because the command IS a shell invocation. Granting
+            // it explicitly is the point: `allow: ["*"]` names every program,
+            // and a shell is still gated separately — see policy-shell.ts.
+            const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: true, raw: true } } })
             await capsule.boot()
 
             const proc = capsule.process.spawn("sh -c 'sleep 0.05; echo ready-now'")
@@ -42,7 +45,7 @@ describe("Capsule proc.spawn / process.spawn", () => {
         })
 
         it("kill() terminates a still-running process", async () => {
-            const capsule = Capsule({ policy: { process: { spawn: true } } })
+            const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: true } } })
             await capsule.boot()
 
             const proc = capsule.process.spawn("sleep 30")
@@ -73,7 +76,7 @@ describe("Capsule proc.spawn / process.spawn", () => {
 
     describe("via process.spawn (in-sandbox)", () => {
         it("spawns a real process and returns a live handle", async () => {
-            const capsule = Capsule({ policy: { process: { spawn: true } } })
+            const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: true } } })
             await capsule.boot()
 
             const result = await capsule.run(`

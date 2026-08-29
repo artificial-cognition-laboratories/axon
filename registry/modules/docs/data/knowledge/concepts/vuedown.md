@@ -55,7 +55,7 @@ The agent receives:
 Fix auth token refresh on mobile.
 ```
 
-No React, no Vue runtime in a browser, no build step. The renderer (`@axon/vstr`) compiles
+No React, no Vue runtime in a browser, no build step. The renderer (`@arcforge/vstr`) compiles
 and runs the file server-side and returns the string.
 
 ## What doesn't work

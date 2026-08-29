@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises"
 import { err } from "@arcforge/err"
-import type { vstr as Vstr } from "@axon/vstr"
+import type { vstr as Vstr } from "@arcforge/vstr"
 import { AxonBlueprint, type AxonPrompt } from "@arcforge/types"
 import { promptContext } from "./context"
 
 /**
- * `@axon/vstr` carries the whole Vue toolchain (@vue/compiler-sfc,
+ * `@arcforge/vstr` carries the whole Vue toolchain (@vue/compiler-sfc,
  * runtime-core, server-renderer, turndown) — ~280ms of module evaluation, paid
  * at IMPORT time by anything that reached the runtime. Only .vue prompts need
  * it, so an agent with none, and every request that renders a static prompt,
@@ -16,7 +16,7 @@ import { promptContext } from "./context"
  */
 let vstrModule: Promise<{ vstr: typeof Vstr }> | null = null
 function loadVstr(): Promise<{ vstr: typeof Vstr }> {
-    vstrModule ??= import("@axon/vstr")
+    vstrModule ??= import("@arcforge/vstr")
     return vstrModule
 }
 
@@ -63,7 +63,7 @@ export function Prompt(opts: PromptOpts) {
         // in chat instead of a raw string.
         try {
             return await (await loadVstr()).vstr(entry.filePath, {
-                context: promptContext(opts.blueprint),
+                context: promptContext(),
                 // Resolved at scan time and carried on the entry. Without
                 // these, a prompt composing <Identity /> cannot resolve the
                 // tag and the whole render throws — components are inlined

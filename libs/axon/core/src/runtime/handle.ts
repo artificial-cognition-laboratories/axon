@@ -1,12 +1,11 @@
 import { err } from "@arcforge/err"
-import type { AxonCloudClient } from "@arclabs/cloud"
+import type { AxonCloudClient } from "@arcforge/cloud"
 import { foldChunks, type AxonBlueprint, type AxonRequestInput, type AxonResult } from "@arcforge/types"
 import { AxonHooksT, Inject } from "../platform"
 import type { AxonBusT } from "../platform"
 import type { AxonOutputEvent } from "@arcforge/types"
 import { Prompt } from "./source/render"
 import { Scripts } from "./source/scripts"
-import { Tools } from "./source/tools"
 import { AxonKernelT } from "@arcforge/kernel"
 import { Output } from "@arcforge/air/output"
 import type { AxonSessionT } from "@arcforge/session"
@@ -20,6 +19,13 @@ type AxonHandleOpts = {
     inject: ReturnType<typeof Inject>
     /** Backs `on()` — every committed entry is announced here. */
     bus: AxonBusT
+    /**
+     * The tools loaded in THIS process, when the agent runs in its own box.
+     *
+     * A thunk, not a value: a hot reload rebuilds the loaded set, and a
+     * captured map would keep serving the tool the author just deleted.
+     */
+    loaded?: () => Record<string, unknown>
 }
 
 /**
@@ -112,14 +118,6 @@ export function AxonHandle(opts: AxonHandleOpts) {
         inject: opts.inject,
     })
 
-    // Rebuilt on every update(): the tool map is projected from the
-    // blueprint's declared namespaces, so a tool added, removed or renamed by a
-    // hot reload changes it. Built once, `axon.tools.github` stayed whatever
-    // boot saw — an agent could call a newly added tool (the capsule was
-    // reloaded) while a script calling the same tool through this handle got
-    // undefined, and a tool the author deleted stayed callable here until
-    // restart.
-    let tools = Tools({ blueprint: opts.blueprint, kernel })
 
     const invoke = Invoke({ kernel })
 
@@ -250,19 +248,16 @@ export function AxonHandle(opts: AxonHandleOpts) {
         scripts: scripts,
 
         // Getter, not a snapshot: update() swaps the map, and a consumer
-        // holding `axon.tools` must see the current one.
-        get tools() { return tools },
 
         async update(blueprint: AxonBlueprint) {
             await kernel.update(blueprint)
             // Re-project the tool map from the blueprint that just went live,
             // so this handle and the capsule always agree on what exists.
-            tools = Tools({ blueprint, kernel })
             // …and re-bind the host-side tool globals off the new map, so a
             // script sees the same set. Inject owns every globalThis write;
             // this asks it to redo them rather than reaching for the global
             // itself.
-            opts.inject.runtime(handle as never, blueprint)
+            opts.inject.runtime(handle as never, blueprint, opts.loaded)
         },
 
         // expose lifecycle hooks — one call point, awaited in order, runtime-fired

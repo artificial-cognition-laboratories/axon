@@ -72,7 +72,7 @@ See [The Loop](/docs/v2/cognets/engine/loop) for the full semantics.
 Components are typed through a registry extended by declaration merging:
 
 ```ts
-declare module "@axon/core" {
+declare module "@arcforge/core" {
     interface ComponentRegistry {
         position: { x: number; y: number; z: number }
         velocity: { dx: number; dy: number; dz: number }

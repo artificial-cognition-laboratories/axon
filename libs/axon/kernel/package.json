@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/kernel",
-    "version": "2.0.155",
+    "version": "2.0.165",
     "description": "The Axon kernel — ring 0. Owns resources and execution, enforces policy, and is the only constructor of the unprivileged capsule.",
     "type": "module",
     "private": false,
@@ -20,11 +20,30 @@
         "@arcforge/err": "workspace:*",
         "@arcforge/session": "workspace:*",
         "@arcforge/types": "workspace:*",
-        "@arclabs/cloud": "workspace:*",
-        "@axon/capsule": "workspace:*"
+        "@arcforge/cloud": "workspace:*",
+        "@arcforge/capsule": "workspace:*"
     },
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
-    }
+    },
+    "homepage": "https://axon.arclabs.it/docs/v2/concepts/kernel-and-policy",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/kernel"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
 }

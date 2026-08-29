@@ -1,4 +1,4 @@
-import { Axon as AxonRuntime } from "@axon/core"
+import { Axon as AxonRuntime } from "@arcforge/core"
 import type { AxonPartialBlueprint, ProviderEntry } from "@arcforge/types"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
 import { TestCognet } from "./cognet"

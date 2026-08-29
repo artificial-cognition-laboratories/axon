@@ -2,6 +2,8 @@ import type { EngineCloud, ProviderEntry } from "@arcforge/types"
 import { HostedProvider, OllamaProvider, type AxonProvider } from "../catalogue"
 import { EngineFailure } from "../shared"
 import { AxonDriver, CodexDriver, OllamaDriver, OpenRouterDriver, MockDriver } from "../drivers"
+import { DIRECT_PROVIDERS } from "../aisdk/catalogue"
+import { DirectProvider } from "../aisdk"
 import type { MockHandler, MockReply } from "../mock"
 
 /**
@@ -116,6 +118,87 @@ export function Mock(script?: MockHandler | MockReply | ProviderOptions): Provid
     return { ...entry("mock"), script } as ProviderEntry & { script: unknown }
 }
 
+/**
+ * Direct BYOK providers — the user's own key, straight to the vendor.
+ *
+ * One factory each rather than a single `Direct("anthropic")`, because a
+ * profile should read like the product: `providers: [Anthropic(), Groq()]`,
+ * not `[Direct({ provider: "anthropic" })]`. That the transport underneath is
+ * the Vercel AI SDK is an implementation detail of this package and must
+ * never appear in a user's config.
+ *
+ * ORDER IN THE LIST IS MEANINGFUL. One model is often reachable through
+ * several of these plus `Axon()`, and the declared order is what decides
+ * which route a role binds to — `[Anthropic(), Axon()]` means "my key first,
+ * managed as the fallback". See `preference()` in ../resolver/match.ts.
+ *
+ * Credentials come from the agent's resolved environment (the variable each
+ * vendor's own tooling already uses) or from `{ key }` on the declaration.
+ * Unlike `OpenRouter()` and `Codex()`, these are NOT vaulted yet: a deployed
+ * agent needs the key in its deployment environment, or should use a vaulted
+ * route instead.
+ */
+
+/** Anthropic's API, with your own key. `ANTHROPIC_API_KEY`. */
+export function Anthropic(options?: ProviderOptions): ProviderEntry {
+    return entry("anthropic", options)
+}
+
+/** OpenAI's API, with your own key. `OPENAI_API_KEY`. */
+export function OpenAI(options?: ProviderOptions): ProviderEntry {
+    return entry("openai", options)
+}
+
+/** Google's Gemini API, with your own key. `GOOGLE_GENERATIVE_AI_API_KEY`. */
+export function Google(options?: ProviderOptions): ProviderEntry {
+    return entry("google", options)
+}
+
+/** Groq's inference API, with your own key. `GROQ_API_KEY`. */
+export function Groq(options?: ProviderOptions): ProviderEntry {
+    return entry("groq", options)
+}
+
+/** Cerebras inference, with your own key. `CEREBRAS_API_KEY`. */
+export function Cerebras(options?: ProviderOptions): ProviderEntry {
+    return entry("cerebras", options)
+}
+
+/** Mistral's API, with your own key. `MISTRAL_API_KEY`. */
+export function Mistral(options?: ProviderOptions): ProviderEntry {
+    return entry("mistral", options)
+}
+
+/** DeepSeek's API, with your own key. `DEEPSEEK_API_KEY`. */
+export function DeepSeek(options?: ProviderOptions): ProviderEntry {
+    return entry("deepseek", options)
+}
+
+/** xAI's Grok API, with your own key. `XAI_API_KEY`. */
+export function XAI(options?: ProviderOptions): ProviderEntry {
+    return entry("xai", options)
+}
+
+/** Perplexity's API, with your own key. `PERPLEXITY_API_KEY`. */
+export function Perplexity(options?: ProviderOptions): ProviderEntry {
+    return entry("perplexity", options)
+}
+
+/** Z.AI's API, with your own key. `ZAI_API_KEY`. */
+export function ZAI(options?: ProviderOptions): ProviderEntry {
+    return entry("zai", options)
+}
+
+/**
+ * Moonshot's Kimi API, with your own key. `MOONSHOT_API_KEY`.
+ *
+ * Reached through Moonshot's OpenAI-compatible endpoint — there is no
+ * first-party AI SDK package. `url` overrides the default endpoint.
+ */
+export function Moonshot(options?: ProviderOptions): ProviderEntry {
+    return entry("moonshot", options)
+}
+
 type BuildOpts = {
     cloud: EngineCloud
     /** Resolved agent environment — no process.env reads inside a provider. */
@@ -127,9 +210,8 @@ const OLLAMA_DEFAULT_HOST = "http://localhost:11434"
 /**
  * Turn one user declaration into a live provider.
  *
- * The seam every boot path shares, exactly as `resolveEngine()` is for the
- * single-engine world — so the TUI, a deployed runtime and a test all build
- * providers the same way and cannot drift.
+ * The seam every boot path shares — the TUI, a deployed runtime and a test
+ * all build providers the same way and cannot drift.
  *
  * Throws on a name nothing implements. A typo in a profile must be loud: the
  * alternative is a user believing they declared Ollama and quietly running
@@ -144,7 +226,7 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
     // Carried on the entry rather than through a separate seam so a test
     // declares inference exactly the way anything else does.
     const supplied = (declared as ProviderEntry & { driver?: { name?: string; create(res: never): unknown } }).driver
-    if (supplied) return DirectProvider(declared.provider, supplied, opts)
+    if (supplied) return SuppliedProvider(declared.provider, supplied, opts)
 
     switch (declared.provider) {
         case "axon":
@@ -181,25 +263,48 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
         case "mock":
             return MockProvider((declared as ProviderEntry & { script?: unknown }).script)
 
-        default:
+        default: {
+            // Direct BYOK routes, reached through the AI SDK. A table lookup
+            // rather than a case each: every one of them differs only in which
+            // package it loads and which env var holds the key, so a switch
+            // arm per provider would be the same six lines transcribed N
+            // times. See ../aisdk/catalogue.
+            const direct = DIRECT_PROVIDERS[declared.provider]
+            if (direct) {
+                return DirectProvider({
+                    definition: direct,
+                    cloud: opts.cloud,
+                    env: opts.env,
+                    ...(declared.key !== undefined ? { key: declared.key } : {}),
+                    ...(declared.url !== undefined ? { url: declared.url } : {}),
+                    ...(slots !== undefined ? { slots } : {}),
+                })
+            }
+            const known = ["axon", "codex", "openrouter", "ollama", "mock", ...Object.keys(DIRECT_PROVIDERS)]
             throw new EngineFailure({
                 code: "INVALID_REQUEST",
-                message: `PROVIDER_UNKNOWN: "${declared.provider}" — known providers: axon, codex, openrouter, ollama, mock`,
+                message: `PROVIDER_UNKNOWN: "${declared.provider}" — known providers: ${known.join(", ")}`,
                 retryable: false,
                 provider: declared.provider,
             })
+        }
     }
 }
 
 /**
  * One hand-built driver, as a provider of exactly itself.
  *
+ * Named for what it wraps — a driver SUPPLIED on the declaration — rather
+ * than "direct", which now means a BYOK route through the AI SDK. Two
+ * providers called the same thing in one file is how a test double ends up
+ * on a billing path.
+ *
  * Its capability is deliberately permissive: a test declaring a role with a
  * 200k context floor should exercise the wiring it is testing, not the
  * resolver's arithmetic, and the driver it supplied is the one it means to
  * run.
  */
-function DirectProvider(
+function SuppliedProvider(
     name: string,
     def: { name?: string; create(res: never): unknown },
     opts: BuildOpts,

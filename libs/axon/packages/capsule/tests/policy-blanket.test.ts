@@ -16,16 +16,28 @@ describe("policy: a blanket rule on a surface", () => {
         expect(blueprint.policy.tools).toEqual({ [POLICY_WILDCARD]: "escalate" })
     })
 
-    it("expands a bare network rule the same way", () => {
-        const blueprint = Blueprint({ policy: { network: false } })
-        expect(blueprint.policy.network).toEqual({ [POLICY_WILDCARD]: false })
+    it("carries a net policy through as authored — there is no bare form", () => {
+        // `net` deliberately has NO blanket rule and no per-host verdicts. It
+        // compiles to nftables, which matches addresses and cannot escalate, so
+        // a shape expressing more than the kernel does is how `{ "*": false }`
+        // came to mean unrestricted internet. An allow/deny list is the whole
+        // vocabulary, and it passes through unchanged.
+        const blueprint = Blueprint({ policy: { net: { allow: ["api.github.com:443"] } } })
+        expect(blueprint.policy.net).toEqual({ allow: ["api.github.com:443"] })
     })
 
-    it("applies a bare process rule to BOTH verbs, not to a wildcard key", () => {
-        // `process` is a fixed pair, not an open bucket — there is no third
+    it("absent net means no network at all, not an empty allowlist", () => {
+        expect(Blueprint({}).policy.net).toBeUndefined()
+    })
+
+    it("expands a bare shell rule into the full block, not a wildcard key", () => {
+        // `shell` is a fixed surface, not an open bucket — there is no
         // verb a wildcard could ever match.
-        const blueprint = Blueprint({ policy: { process: "escalate" } })
-        expect(blueprint.policy.process).toEqual({ spawn: "escalate", run: "escalate" })
+        const blueprint = Blueprint({ policy: { shell: true } })
+        expect(blueprint.policy.shell?.allow).toEqual(["*"])
+        // Enabling the surface must NOT hand over a raw shell — that is the one
+        // switch which makes every other rule on this surface unenforceable.
+        expect(blueprint.policy.shell?.raw).toBe(false)
     })
 
     it("leaves the keyed form exactly as authored", () => {
@@ -46,7 +58,9 @@ describe("policy: a blanket rule on a surface", () => {
         expect(blueprint.policy.tools).toEqual({ "*": "escalate", fs: true })
     })
 
-    it("defaults process to deny when nothing is authored", () => {
-        expect(Blueprint({}).policy.process).toEqual({ spawn: false, run: false })
+    it("leaves shell undeclared when nothing is authored", () => {
+        // Undeclared is "no opinion", which the capsule's own default-deny then
+        // answers. Distinct from `shell: false`, which is an authored denial.
+        expect(Blueprint({}).policy.shell).toBeUndefined()
     })
 })

@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 /**
  * Scope extraction — the bindings a submission leaves behind.

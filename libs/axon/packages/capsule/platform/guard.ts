@@ -34,93 +34,93 @@ export function isCapsuleEvent(value: unknown): value is AnyCapsuleEvent {
 
     switch (v.type) {
         // ── Lifecycle ─────────────────────────────────────────────────────
-        case "capsule:boot:start":
-        case "capsule:ready":
-        case "capsule:shutdown":
+        case "process:boot:start":
+        case "process:ready":
+        case "process:shutdown":
             return true
-        case "capsule:boot:complete":
+        case "process:boot:complete":
             return num(v.durationMs)
-        case "capsule:boot:failed":
+        case "process:boot:failed":
             return num(v.durationMs) && errJson(v.error)
-        case "capsule:crash":
+        case "process:crash":
             return errJson(v.error)
-        case "capsule:exit":
+        case "process:exit":
             return (v.code === null || num(v.code)) && optStr(v.reason)
-        case "capsule:parse:error":
+        case "process:parse:error":
             return errJson(v.error) && optStr(v.line)
 
         // ── Supervision ───────────────────────────────────────────────────
-        case "capsule:restart:start":
+        case "process:restart:start":
             return num(v.restartCount)
-        case "capsule:restart:complete":
+        case "process:restart:complete":
             return num(v.restartCount) && num(v.durationMs)
-        case "capsule:restart:failed":
+        case "process:restart:failed":
             return num(v.restartCount) && num(v.durationMs) && errJson(v.error)
-        case "capsule:dead":
+        case "process:dead":
             return errJson(v.error)
 
         // ── Command execution ─────────────────────────────────────────────
-        case "capsule:cmd:start":
+        case "process:cmd:start":
             return str(v.id)
-        case "capsule:cmd:stdout":
+        case "process:cmd:stdout":
             return str(v.id) && str(v.data)
-        case "capsule:cmd:complete":
+        case "process:cmd:complete":
             return str(v.id) && num(v.durationMs) && "result" in v
-        case "capsule:cmd:failed":
+        case "process:cmd:failed":
             return str(v.id) && num(v.durationMs) && errJson(v.error)
-        case "capsule:cmd:interrupt:requested":
+        case "process:cmd:interrupt:requested":
             return str(v.id) && (v.reason === "abort" || v.reason === "timeout")
-        case "capsule:cmd:interrupted":
+        case "process:cmd:interrupted":
             return str(v.id) && num(v.durationMs)
         case "capsule:cmd:hard-killed":
             return str(v.id) && num(v.graceMs)
 
         // ── Tool call spans ───────────────────────────────────────────────
-        case "capsule:fn:start":
+        case "process:fn:start":
             return str(v.commandId) && str(v.module) && str(v.fn) && Array.isArray(v.args)
-        case "capsule:fn:complete":
+        case "process:fn:complete":
             return str(v.commandId) && str(v.module) && str(v.fn) && num(v.durationMs) && "result" in v
-        case "capsule:fn:failed":
+        case "process:fn:failed":
             return str(v.commandId) && str(v.module) && str(v.fn) && num(v.durationMs) && errJson(v.error)
 
         // ── Tool loading ──────────────────────────────────────────────────
-        case "capsule:tool:load:start":
+        case "process:tool:load:start":
             return str(v.namespace)
-        case "capsule:tool:load:complete":
+        case "process:tool:load:complete":
             return str(v.namespace) && num(v.durationMs) && Array.isArray(v.fns) && v.fns.every(str)
-        case "capsule:tool:unloaded":
+        case "process:tool:unloaded":
             return str(v.namespace)
-        case "capsule:tool:load:failed":
+        case "process:tool:load:failed":
             return str(v.namespace) && num(v.durationMs) && errJson(v.error)
 
         // ── Trusted host bridge ──────────────────────────────────────────
-        case "capsule:host:request":
+        case "process:host:request":
             return str(v.id) && (v.commandId === null || str(v.commandId)) && str(v.method) && "input" in v
 
         // ── Managed child processes ───────────────────────────────────────
-        case "capsule:proc:start":
+        case "process:proc:start":
             return str(v.procId) && num(v.pid) && str(v.command) && str(v.cwd) && (v.kind === "managed" || v.kind === "run")
-        case "capsule:proc:stdout":
-        case "capsule:proc:stderr":
+        case "process:proc:stdout":
+        case "process:proc:stderr":
             return str(v.procId) && str(v.data)
-        case "capsule:proc:complete":
+        case "process:proc:complete":
             return str(v.procId) && num(v.code) && num(v.durationMs)
-        case "capsule:proc:failed":
+        case "process:proc:failed":
             return str(v.procId) && num(v.durationMs) && errJson(v.error)
-        case "capsule:proc:denied":
+        case "process:proc:denied":
             return str(v.procId) && str(v.command) && errJson(v.error)
-        case "capsule:proc:stdin:error":
+        case "process:proc:stdin:error":
             return str(v.procId) && errJson(v.error)
 
         // ── Policy ────────────────────────────────────────────────────────
-        case "capsule:policy:denied":
-        case "capsule:policy:escalation":
+        case "process:policy:denied":
+        case "process:policy:escalation":
             return str(v.id) && str(v.module) && str(v.fn) && Array.isArray(v.args) && str(v.rule)
-        case "capsule:policy:decision":
+        case "process:policy:decision":
             return str(v.id) && bool(v.allow) && num(v.durationMs)
 
         // ── Activities ────────────────────────────────────────────────────
-        case "capsule:activity":
+        case "process:activity":
             return (
                 str(v.id) && str(v.activity) &&
                 (v.phase === "declared" || v.phase === "done" || v.phase === "failed") &&
@@ -129,14 +129,14 @@ export function isCapsuleEvent(value: unknown): value is AnyCapsuleEvent {
             )
 
         // ── Console + state ───────────────────────────────────────────────
-        case "capsule:console":
+        case "process:console":
             return (
                 (v.level === "log" || v.level === "info" || v.level === "warn" ||
                  v.level === "error" || v.level === "debug") &&
                 (v.commandId === null || str(v.commandId)) &&
                 Array.isArray(v.args)
             )
-        case "capsule:cwd":
+        case "process:cwd":
             return str(v.cwd)
 
         default:

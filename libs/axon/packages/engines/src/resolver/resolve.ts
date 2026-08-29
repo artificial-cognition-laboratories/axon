@@ -5,7 +5,7 @@ import type {
     EngineResolution,
     EngineUnmet,
 } from "@arcforge/types"
-import { preference, reject } from "./match"
+import { preference, reject, type ProviderOrder } from "./match"
 import { matchesPin, parsePin } from "./pin"
 
 /**
@@ -41,6 +41,10 @@ const UNBOUNDED_SLOTS = 8
  * threw on the first unfilled role could not express the difference, and the
  * caller is the only thing that knows which severity applies.
  *
+ * `opts.order` is the user's provider list, in the order they declared it.
+ * It settles ties between routes to the SAME model — which is the tie that
+ * decides who pays, so it is not left to array order. See `preference()`.
+ *
  * Roles are resolved INDEPENDENTLY: one capability may fill several roles.
  * Doing otherwise would make a user with one good local model unable to run a
  * cognet that names three roles, which is exactly the user this exists to
@@ -50,13 +54,18 @@ const UNBOUNDED_SLOTS = 8
 export function resolveEngines(
     requirements: EngineRequirements,
     catalogue: readonly EngineCapability[],
-    opts: { model?: string } = {},
+    opts: { model?: string; order?: ProviderOrder } = {},
 ): EngineResolution {
     // The user's cortex choice, applied to the PRIMARY role only. Parsed once
     // rather than per candidate — a pin is one string and re-parsing it 400
     // times to answer 400 comparisons would be work nobody asked for.
     const pin = parsePin(opts.model)
     const pinned = primaryRole(requirements)
+
+    // Built once rather than per role: the order is one array and closing
+    // over it 400 times to answer 400 comparisons would be work nobody asked
+    // for — the same reason the pin is parsed once above.
+    const rank = preference(opts.order ?? [])
 
     const bound: EngineBinding[] = []
     const unmet: EngineUnmet[] = []
@@ -77,7 +86,7 @@ export function resolveEngines(
         // (or that fails the role's own constraints) falls through to ranking
         // rather than failing the boot. That is what keeps a published agent
         // runnable by someone who does not share its author's providers.
-        const ranked = candidates.sort(preference)
+        const ranked = candidates.sort(rank)
         const preferred = pin && role === pinned
             ? ranked.find(candidate => matchesPin(pin, candidate))
             : undefined

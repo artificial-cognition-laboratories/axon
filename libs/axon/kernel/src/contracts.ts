@@ -1,11 +1,11 @@
-import type { AxonBlueprint, CognetSchedule, CognetWake, KernelAbi } from "@arcforge/types"
+import type { EngineRequirements, AxonBlueprint, CognetSchedule, CognetWake, KernelAbi } from "@arcforge/types"
 
 /**
  * What ring 0 requires of its injected collaborators — declared structurally,
  * not imported.
  *
  * The kernel is constructed by a composition root it must never depend on:
- * @axon/core builds the bus and loads the cognet artifact, then hands both in.
+ * @arcforge/core builds the bus and loads the cognet artifact, then hands both in.
  * Importing their implementation types would invert the rings and make a
  * published kernel depend on a private package.
  *
@@ -34,6 +34,16 @@ export type KernelCognet = {
      * sensor names the few kinds worth a thought.
      */
     readonly wakeOn?: readonly string[]
+    /**
+     * The inference roles this brain declared.
+     *
+     * Read only when inference is REMOTE: role resolution then happened in the
+     * supervisor, so this process has no binding to read capability facts
+     * from, and the declaration is the honest answer to "what did this role
+     * ask for". It is also all a confined agent may know — the resolved
+     * capability names a provider and a model the boundary exists to hide.
+     */
+    readonly engines?: EngineRequirements
     load(abi: KernelAbi): Promise<void>
     wake(wake: CognetWake): Promise<void>
     update(blueprint: AxonBlueprint): Promise<void> | void

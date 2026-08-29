@@ -8,6 +8,39 @@
  */
 export type DeployTarget = "axon" | "self"
 
+/**
+ * The base image version — one source of truth for everything that names it.
+ *
+ * Three things need this string and they must never disagree: the provisioner
+ * stamps it onto each deployed service's image tag, the bundler writes it into
+ * a self-host Dockerfile, and the image's deploy script tags what it pushes.
+ *
+ * It used to live in the backend, with `packages/docker/deploy.ts` keeping a
+ * copy in sync by REGEX REWRITE across two files. That is a sync that fails
+ * silently: a refactor renames the constant, the regex stops matching, and the
+ * two drift with nothing failing until a deployment runs an unexpected runtime.
+ *
+ * Here rather than in `@axon/docker` because the BUNDLER needs it, and
+ * `@axon/docker` depends on `@arcforge/platform` — importing it back would be
+ * a cycle. Types is the package everything already depends on and which
+ * depends on nothing.
+ */
+export const AXON_BASE_VERSION = "0.3.6"
+
+/**
+ * Where the base image is pulled from.
+ *
+ * PUBLIC, deliberately: a user self-hosting an agent runs this image directly
+ * (`docker run -v $PWD:/agent axon/base:<version>`), so an image they cannot
+ * pull makes self-hosting impossible rather than merely awkward.
+ */
+export const AXON_BASE_IMAGE = "axon/base"
+
+/** The reference a Dockerfile or `docker run` should use. Pinned, never floating. */
+export function axonBaseRef(version: string = AXON_BASE_VERSION): string {
+    return `${AXON_BASE_IMAGE}:${version}`
+}
+
 /** Autoscaling bounds for managed deployments. */
 export type ScalingConfig = {
     /** Minimum running instances. Defaults to `0`, allowing scale-to-zero. */

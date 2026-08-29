@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule process global augmentation", () => {
     it("blocks process.exit() — the capsule manages its own subprocess lifecycle", async () => {

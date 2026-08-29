@@ -38,7 +38,6 @@ export function toScopeModule(tool: AxonTool): AxonScopeModule {
         name: tool.name,
         ...(tool.description ? { description: tool.description } : {}),
         members: tool.fns,
-        ...(tool.flat ? { flat: true } : {}),
         ...(tool.ambientTypes ? { ambientTypes: tool.ambientTypes } : {}),
     }
 }
@@ -48,14 +47,15 @@ export function toScopeModule(tool: AxonTool): AxonScopeModule {
  * excluded — declaring something the capsule cannot call would tell the
  * model to invoke a function that does not exist there.
  *
- * Flat members are then deduped by CALLABLE NAME, which is a different
+ * Members are then deduped by CALLABLE NAME, which is a different
  * question from the one merge() answers. merge() resolves collisions between
  * TOOL names (the filename): an agent's `weather.ts` shadowing a module's
  * `weather.ts`. It cannot see two differently-named files whose exports
  * collide — an agent's `weather.ts` and a module's `forecast.ts` both
  * exporting `now()` are two distinct tools by its reckoning, so both survive.
  *
- * Both then install flat, and everything downstream silently picks a winner:
+ * Both then install under the same global name, and everything downstream
+ * would silently pick a winner:
  * the .d.ts and the model's <scope> each declare `function now()` twice, and
  * the capsule builds its globals with Object.assign, so whichever tool loads
  * last wins and the other export is unreachable with nothing reported. The
@@ -71,11 +71,9 @@ export function toScope(blueprint: AxonBlueprint): AxonScope {
     // order modules happen to appear in the blueprint.
     for (const tool of [...loadable].sort((a, b) => rank(a) - rank(b))) {
         const module = toScopeModule(tool)
-        if (!module.flat) {
-            modules.push(module)
-            continue
-        }
-
+        // Every export lands in the agent's global scope under its own name,
+        // so a name can only be claimed once. Agent-origin tools sorted
+        // first above means the agent's own export wins a contested name.
         const members = module.members.filter(member => !claimed.has(member.name))
         for (const member of members) claimed.add(member.name)
         if (members.length > 0) modules.push({ ...module, members })

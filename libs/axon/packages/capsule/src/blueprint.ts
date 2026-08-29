@@ -1,9 +1,4 @@
-import type { CapsuleBlueprint, CapsulePartialConfig, CapsulePolicy, PolicyBucket, PolicyRule } from "../types"
-
-const DEFAULT_PROCESS_POLICY: CapsulePolicy["process"] = {
-    spawn: false,
-    run: false,
-}
+import type { CapsuleBlueprint, CapsulePartialConfig } from "../types"
 
 /**
  * Normalizes a partial config into the strict CapsuleConfig shape everything
@@ -13,47 +8,17 @@ const DEFAULT_PROCESS_POLICY: CapsulePolicy["process"] = {
  * happens; nothing past it should ever re-check a config field for absence.
  */
 
-/** The wildcard key a bare bucket rule normalises to — see PolicyBucket. */
-export const POLICY_WILDCARD = "*"
-
 /**
- * One enforcement surface, as the capsule enforces it.
+ * The wildcard key a bare bucket rule normalises to — see PolicyBucket.
  *
- * A bare rule becomes a single wildcard entry, so the keyed and blanket forms
- * are the same shape downstream. `{ "*": rule }` also composes with named keys
- * for free: the mediator prefers an exact match and falls back to the
- * wildcard, which is ordinary glob precedence.
+ * Re-exported, never re-declared: `@arcforge/types` owns the literal, because
+ * Policy() there is the one seam that resolves a profile ceiling against an
+ * agent's policy. A second copy here is how the keyed and blanket forms drift
+ * apart silently — a blanket rule stops matching and every call it gated falls
+ * through to deny-by-default, with nothing thrown to notice.
  */
-function bucket(value: PolicyBucket): Record<string, PolicyRule> {
-    return isBareRule(value) ? { [POLICY_WILDCARD]: value } : value
-}
-
-/**
- * `process`, which is a PAIR rather than an open bucket.
- *
- * Its two verbs are fixed and known, so a bare rule applies to both rather
- * than becoming a wildcard key — there is no third verb a wildcard could ever
- * match, and the strict type names them individually.
- */
-function processPolicy(
-    value: Partial<CapsulePolicy["process"]> | PolicyRule | undefined,
-): CapsulePolicy["process"] {
-    if (value === undefined) return { ...DEFAULT_PROCESS_POLICY }
-    if (isBareRule(value)) return { spawn: value, run: value }
-    return { ...DEFAULT_PROCESS_POLICY, ...value }
-}
-
-/** A rule with no keys of its own — `true`, `false`, `"escalate"`, or a glob object. */
-function isBareRule(value: PolicyBucket | Partial<CapsulePolicy["process"]>): value is PolicyRule {
-    if (typeof value === "boolean" || value === "escalate") return true
-    // The glob object form. Distinguished from a keyed bucket by its OWN keys:
-    // `allow`/`deny`/`escalate` are the rule's vocabulary, and a bucket keyed
-    // by a module actually named "allow" is a collision nobody can author
-    // (module names are scoped identifiers, not bare verbs).
-    if (typeof value !== "object" || value === null) return false
-    const keys = Object.keys(value)
-    return keys.length > 0 && keys.every(key => key === "allow" || key === "deny" || key === "escalate")
-}
+import { keyed, POLICY_WILDCARD } from "@arcforge/types"
+export { POLICY_WILDCARD }
 
 export function Blueprint(input?: CapsulePartialConfig): CapsuleBlueprint {
     const partial = input ?? {}
@@ -70,23 +35,17 @@ export function Blueprint(input?: CapsulePartialConfig): CapsuleBlueprint {
             // isolation:"auto" in its own defaultPolicy(), the trust boundary
             // that actually wants the box.
             isolation: "none",
-            // Spread FIRST, then the normalised surfaces below overwrite the
-            // authored ones — the raw partial still carries the bare forms,
-            // which are not the shape the capsule enforces.
-            ...partial.policy,
-            tools: undefined,
-            network: undefined,
-            // A bare rule on a surface covers everything in it, now and later:
-            // `tools: "escalate"` had to be written as one entry per installed
-            // module, a list that is complete the day it is written and stale
-            // the moment anything else is installed.
-            //
-            // Normalised HERE so the mediator never has to ask which shape it
-            // was handed — it reads the keyed form on every call, and this is
-            // the seam that already normalises everything else.
-            ...(partial.policy?.tools !== undefined ? { tools: bucket(partial.policy.tools) } : {}),
-            ...(partial.policy?.network !== undefined ? { network: bucket(partial.policy.network) } : {}),
-            process: processPolicy(partial.policy?.process),
+            /**
+             * Normalisation is `keyed()` in @arcforge/types, and only there.
+             *
+             * This seam used to carry its own copy — `bucket()`, `isBareRule()`,
+             * `processPolicy()` and a second POLICY_WILDCARD — because the
+             * capsule was a subprocess that could not import across the
+             * boundary. Two normalisers for one policy is how a bare rule
+             * expands one way on the host and another in here, which is a
+             * silent permission change rather than a visible bug.
+             */
+            ...keyed(partial.policy ?? {}),
         },
         ...(partial.escalate !== undefined ? { escalate: partial.escalate } : {}),
         ...(partial.host !== undefined ? { host: partial.host } : {}),
@@ -102,20 +61,31 @@ export function Blueprint(input?: CapsulePartialConfig): CapsuleBlueprint {
  * a boot-time one. Mirrors mergeBlueprint() on the Axon side.
  */
 export function mergeCapsuleConfig(current: CapsuleBlueprint, partial: CapsulePartialConfig): CapsuleBlueprint {
+    /**
+     * The current policy is RESOLVED and the incoming one is AUTHORED.
+     *
+     * They are different types on purpose — a resolved rule may be a carried
+     * profile/agent pair, which nobody writes. Re-normalising a resolved policy
+     * is not meaningful, so an update REPLACES each surface it names and keeps
+     * the resolved value for the ones it does not.
+     */
+    const policy = {
+        ...(current.policy as unknown as NonNullable<CapsulePartialConfig["policy"]>),
+        ...partial.policy,
+    }
+
     return Blueprint({
         ...current,
         ...partial,
         env: { ...current.env, ...partial.env },
-        policy: {
-            ...current.policy,
-            ...partial.policy,
-            // A bare `process` rule REPLACES the pair rather than merging into
-            // it: `process: false` means both verbs are denied, and spreading
-            // a non-object would throw. Blueprint() normalises it below either
-            // way, so this only has to hand it through intact.
-            process: isBareRule(partial.policy?.process ?? {})
-                ? partial.policy!.process
-                : { ...current.policy.process, ...partial.policy?.process as Partial<CapsulePolicy["process"]> },
-        },
+        /**
+         * Surfaces REPLACE rather than merge.
+         *
+         * `shell: false` has to mean the surface is off, and deep-merging it
+         * into whatever was there before would leave the old `allow` list
+         * standing beside the new denial. Blueprint() normalises the result, so
+         * this only has to hand the authored shape through intact.
+         */
+        policy,
     })
 }

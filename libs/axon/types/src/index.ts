@@ -16,6 +16,9 @@ export * from "./module"
 export * from "./plugin"
 export * from "./policy"
 export * from "./policy-resolve"
+export * from "./policy-normalize"
+export * from "./policy-build"
+export * from "./supervisor"
 export * from "./capsule-config"
 export * from "./capsule-scope"
 export * from "./knowledge"
@@ -29,3 +32,10 @@ export * from "./cognet"
 export * from "./tools"
 export * from "./tui"
 export * from "./bench"
+export * from "./policy-shell"
+
+/**
+ * The one handle every running agent is reached through — local, daemon, or
+ * deployed. See agent-handle.ts for why the transports share a type.
+ */
+export type { AxonAgentHandle, AxonAuthoringHandle, AxonMirroredSession, AxonSessionHandlers } from "./agent-handle"

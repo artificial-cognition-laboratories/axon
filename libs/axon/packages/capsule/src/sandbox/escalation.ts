@@ -21,12 +21,12 @@ type EscalationOpts = {
 export function Escalation(opts: EscalationOpts) {
     const { send, bus, decide } = opts
 
-    bus.on("capsule:policy:escalation", e => {
+    bus.on("process:policy:escalation", e => {
         const started = Date.now()
 
         function answer(allow: boolean) {
             send({ id: e.id, type: "policy:response", allow })
-            bus.emit("capsule:policy:decision", { id: e.id, allow, durationMs: Date.now() - started })
+            bus.emit("process:policy:decision", { id: e.id, allow, durationMs: Date.now() - started })
         }
 
         if (!decide) {

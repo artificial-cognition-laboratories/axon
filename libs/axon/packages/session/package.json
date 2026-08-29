@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/session",
-    "version": "2.0.155",
+    "version": "2.0.165",
     "description": "The Axon session — the durable event log every layer of the stack reads and writes through.",
     "type": "module",
     "private": false,
@@ -21,5 +21,24 @@
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
-    }
+    },
+    "homepage": "https://axon.arclabs.it/docs/v2/concepts/state-model",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/packages/session"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
 }

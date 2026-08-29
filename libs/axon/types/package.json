@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/types",
-    "version": "2.0.155",
+    "version": "2.0.165",
     "type": "module",
     "private": false,
     "main": "./src/index.ts",
@@ -24,5 +24,25 @@
     },
     "devDependencies": {
         "typescript": "^5"
-    }
+    },
+    "description": "Shared type definitions for the Axon agent runtime.",
+    "homepage": "https://axon.arclabs.it/docs/v2",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/artificial-cognition-laboratories/axon.git",
+        "directory": "libs/axon/types"
+    },
+    "bugs": {
+        "url": "https://github.com/artificial-cognition-laboratories/axon/issues"
+    },
+    "keywords": [
+        "axon",
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "ai-agent",
+        "agent-runtime",
+        "typescript"
+    ]
 }

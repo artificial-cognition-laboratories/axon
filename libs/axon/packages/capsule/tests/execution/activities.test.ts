@@ -1,9 +1,9 @@
-import { Capsule } from "@axon/capsule"
-import type { CapsuleEvent } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
+import type { CapsuleEvent } from "@arcforge/capsule"
 
 function collectActivityEvents(capsule: ReturnType<typeof Capsule>) {
-    const events: CapsuleEvent["capsule:activity"][] = []
-    capsule.on("capsule:activity", e => events.push(e))
+    const events: CapsuleEvent["process:activity"][] = []
+    capsule.on("process:activity", e => events.push(e))
     return events
 }
 

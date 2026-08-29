@@ -1,4 +1,5 @@
-import type { CapsulePolicy, PolicyRule, PolicyVerdictSource } from "./policy"
+import { isRulePair } from "./policy"
+import type { CapsulePolicy, EffectiveRule, PolicyRule, PolicyVerdictSource } from "./policy"
 
 /**
  * Resolving two policy layers into one verdict — the ceiling model.
@@ -93,11 +94,22 @@ export function policyGlobMatch(pattern: string, value: string): boolean {
  * authoring order, so a user cannot accidentally out-order their own denial.
  */
 export function evaluateRule(
-    rule: PolicyRule | undefined,
+    rule: EffectiveRule | undefined,
     subject: string,
     layer: PolicyVerdictSource["layer"],
 ): ResolvedVerdict | undefined {
     if (rule === undefined) return undefined
+
+    // A carried pair is TWO layers that both declared a glob rule. Each is
+    // evaluated against the subject on its own and the stricter wins — the
+    // ceiling, applied at the only moment it can be: when there is a concrete
+    // subject to match. Merging them into one rule at the seam is what let an
+    // agent allowlist widen past its profile's; see PolicyRulePair.
+    //
+    // The `layer` argument is ignored for a pair, deliberately: the whole point
+    // is that the answer names which of the two decided, so a caller-supplied
+    // label would be a lie half the time.
+    if (isRulePair(rule)) return resolveVerdict(rule.profile, rule.agent, subject)
 
     if (rule === true) return { verdict: "allow", source: { layer, subject, rule } }
     if (rule === false) return { verdict: "deny", source: { layer, subject, rule } }
@@ -147,7 +159,26 @@ export function resolveVerdict(
  * through the verdict ranking: a profile asking for `hardened` cannot be
  * loosened to `none` by an agent, but an agent may harden beyond its profile.
  */
-const ISOLATION_RANK = { none: 0, auto: 1, hardened: 2 } as const
+/**
+ * `container` sits between `none` and `auto`, and the placement is deliberate.
+ *
+ * The rank answers one question: if a profile asks for X and an agent asks for
+ * Y, which wins? Higher wins, so the order must express "strictly more
+ * per-agent enforcement than".
+ *
+ * `container` gives MORE than `none` (a tenant boundary exists, and it is a
+ * strong one) but LESS per-agent than `auto` (the user's own fs/network/limits
+ * get no OS enforcement inside it — see CapsulePolicy.isolation). So a profile
+ * demanding `auto` must not be satisfiable by an agent declaring `container`,
+ * which this ordering guarantees: the profile's higher rank wins.
+ *
+ * The reverse is the case that matters in practice — a deploy declaring
+ * `container` under a profile asking for `auto` keeps `auto` and then fails
+ * loudly at build, which is correct. A hosted runtime that cannot provide
+ * `auto` must say so at the DEPLOY path, not by quietly out-ranking the
+ * profile that asked for a wall.
+ */
+const ISOLATION_RANK = { none: 0, container: 1, auto: 2, hardened: 3 } as const
 
 export function resolveIsolation(
     profile: CapsulePolicy["isolation"],

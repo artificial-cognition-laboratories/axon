@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "lib": ["ESNext"],
+        "target": "ESNext",
+        "module": "Preserve",
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "noEmit": true,
+        "strict": true,
+        "skipLibCheck": true,
+        // Dependencies are typechecked by their own gates. Without this the
+        // daemon's check reports the kernel's and the capsule's pre-existing
+        // errors as its own, which makes its gate useless for finding
+        // anything it actually broke.
+        "skipDefaultLibCheck": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "types": ["bun"]
+    },
+    "include": ["src", "types", "bin", "tests"],
+    "exclude": ["node_modules"]
+}

@@ -1,8 +1,8 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule policy — process.spawn rule evaluation", () => {
     it("true allows any command", async () => {
-        const capsule = Capsule({ policy: { process: { spawn: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: true } } })
         await capsule.boot()
 
         const exited = await capsule.process.spawn("echo anything").exited
@@ -12,7 +12,7 @@ describe("Capsule policy — process.spawn rule evaluation", () => {
     })
 
     it("false denies any command", async () => {
-        const capsule = Capsule({ policy: { process: { spawn: false } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"], spawn: false } } })
         await capsule.boot()
 
         const exited = await capsule.process.spawn("echo anything").exited
@@ -22,7 +22,7 @@ describe("Capsule policy — process.spawn rule evaluation", () => {
     })
 
     it("allow glob matches an allowed command and denies everything else", async () => {
-        const capsule = Capsule({ policy: { process: { spawn: { allow: ["echo *"] } } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["echo"], spawn: true } } })
         await capsule.boot()
 
         const allowed = await capsule.process.spawn("echo hello").exited
@@ -36,7 +36,7 @@ describe("Capsule policy — process.spawn rule evaluation", () => {
 
     it("deny takes precedence over allow for the same command", async () => {
         const capsule = Capsule({
-            policy: { process: { spawn: { allow: ["*"], deny: ["rm *"] } } },
+            policy: { shell: { allow: ["*"], deny: ["rm"], spawn: true } },
         })
         await capsule.boot()
 
@@ -50,7 +50,7 @@ describe("Capsule policy — process.spawn rule evaluation", () => {
     })
 
     it("an allow list with no matching pattern denies the command", async () => {
-        const capsule = Capsule({ policy: { process: { spawn: { allow: ["npm *"] } } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["npm"], spawn: true } } })
         await capsule.boot()
 
         const exited = await capsule.process.spawn("bun test").exited
@@ -60,7 +60,7 @@ describe("Capsule policy — process.spawn rule evaluation", () => {
     })
 
     it("process.spawn (in-sandbox) is gated by the same rule as capsule.proc.spawn", async () => {
-        const capsule = Capsule({ policy: { process: { spawn: { allow: ["echo *"] } } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["echo"], spawn: true } } })
         await capsule.boot()
 
         const allowed = await capsule.run(`

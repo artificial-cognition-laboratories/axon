@@ -1,16 +1,19 @@
 export default defineAgent({
     policy: {
+        // `fs` is a grant list, not a filter: paths not named here do not
+        // exist inside the box, so there is no `deny` to write. The previous
+        // form listed `.env` and `**/secrets/**` under a `deny` key the type
+        // never had — it parsed as nothing and enforced nothing, while reading
+        // as though it did.
         fs: {
-            read: ["./**/*.{ts,js,mjs,cjs,mts,cts,vue,tsx,jsx}", "./eslint.config.*", "./data/**"],
-            write: ["./data/**", "./eslint.config.*", "./**/*.{ts,js,mjs,cjs,mts,cts,vue,tsx,jsx}"],
-            deny: [".env", ".env.*", "**/secrets/**", "**/node_modules/**"],
+            read: ["./src", "./eslint.config.js", "./data"],
+            write: ["./data"],
         },
-        proc: {
-            allow: ["eslint *", "bun lint", "bun run lint", "npx eslint *"],
-            deny: ["git push*", "rm -rf*"],
+        shell: {
+            allow: ["eslint", "bun", "npx"],
+            args: { bun: { allow: ["lint", "run lint"] } },
+            raw: false,
         },
-        network: {
-            allow: [],
-        },
+        // No `net` block at all: the box gets no network stack.
     },
 })

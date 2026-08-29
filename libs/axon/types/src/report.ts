@@ -3,7 +3,7 @@
  *
  * One payload shape, posted by every side of the platform to
  * POST /api/reports. Lives here because three independent packages
- * construct it — @arclabs/cloud (HTTP failures), @axon/err (runtime
+ * construct it — @arcforge/cloud (HTTP failures), @axon/err (runtime
  * failures), and the backend's own 5xx handler — and a contract owned by
  * any one of them would make the other two depend on a transport.
  *
@@ -59,7 +59,7 @@ export type ErrorReport = {
 
     /**
      * Caller-supplied detail. SCRUBBED BEFORE SENDING — see scrubContext()
-     * in @arclabs/cloud. This is the one field that can carry user data
+     * in @arcforge/cloud. This is the one field that can carry user data
      * (paths, prompt text, agent names), so it is the one field that must
      * never be forwarded raw.
      */

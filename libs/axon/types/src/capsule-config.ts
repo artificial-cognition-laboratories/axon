@@ -1,4 +1,4 @@
-import type { CapsulePolicy, EscalationCall, PolicyBucket, PolicyRule } from "./policy"
+import type { CapsulePolicy, EscalationCall, PolicyBucket, PolicyRule, ResolvedCapsulePolicy, ToolBucket } from "./policy"
 import type { AxonScopeModule } from "./scope"
 
 export type CapsuleHostRequest = {
@@ -53,7 +53,15 @@ export type CapsuleBlueprint = {
     tools: CapsuleTool[]
 
     /** What the sandbox may do — mediator gates + OS confinement (see CapsulePolicy). */
-    policy: CapsulePolicy
+    /**
+     * The policy as the enforcer reads it — RESOLVED, not authored.
+     *
+     * `ResolvedCapsulePolicy` rather than `CapsulePolicy` because a rule here
+     * may be a carried profile/agent pair, which is a shape nobody writes and
+     * every enforcement point must handle. The authored form is
+     * `CapsulePartialConfig["policy"]` below.
+     */
+    policy: ResolvedCapsulePolicy
 
     /**
      * Answer policy escalations. One callback, one decision — default deny.
@@ -100,9 +108,8 @@ export type CapsulePartialConfig = Partial<Omit<CapsuleBlueprint, "policy">> & {
      * covering the whole surface (`tools: "escalate"`), which `Blueprint()`
      * normalises into the keyed shape the capsule enforces. See `PolicyBucket`.
      */
-    policy?: Partial<Omit<CapsulePolicy, "process" | "tools" | "network">> & {
-        process?: Partial<CapsulePolicy["process"]> | PolicyRule
-        tools?: PolicyBucket
-        network?: PolicyBucket
+    policy?: Partial<Omit<CapsulePolicy, "tools" | "shell">> & {
+        tools?: ToolBucket
+        shell?: NonNullable<CapsulePolicy["shell"]> | boolean
     }
 }

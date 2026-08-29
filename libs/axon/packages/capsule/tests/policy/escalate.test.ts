@@ -1,11 +1,11 @@
-import { Capsule } from "@axon/capsule"
-import type { EscalationCall } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
+import type { EscalationCall } from "@arcforge/capsule"
 
 describe("Capsule policy — escalate", () => {
     it("calls the escalate callback with the right shape and allows when it resolves true", async () => {
         const calls: EscalationCall[] = []
         const capsule = Capsule({
-            policy: { process: { spawn: "escalate" } },
+            policy: { shell: { allow: ["*"], spawn: "escalate" } },
             escalate: async call => {
                 calls.push(call)
                 return true
@@ -17,7 +17,7 @@ describe("Capsule policy — escalate", () => {
 
         expect(exited.ok).toBe(true)
         expect(calls).toHaveLength(1)
-        expect(calls[0]?.fn).toBe("process.spawn")
+        expect(calls[0]?.fn).toBe("shell.spawn")
         expect(calls[0]?.args).toEqual(["echo hello"])
         expect(typeof calls[0]?.id).toBe("string")
 
@@ -26,7 +26,7 @@ describe("Capsule policy — escalate", () => {
 
     it("denies when the escalate callback resolves false", async () => {
         const capsule = Capsule({
-            policy: { process: { spawn: "escalate" } },
+            policy: { shell: { allow: ["*"], spawn: "escalate" } },
             escalate: async () => false,
         })
         await capsule.boot()
@@ -39,7 +39,7 @@ describe("Capsule policy — escalate", () => {
 
     it("defaults to deny when no escalate callback is configured at all", async () => {
         const capsule = Capsule({
-            policy: { process: { spawn: "escalate" } },
+            policy: { shell: { allow: ["*"], spawn: "escalate" } },
             // no escalate callback
         })
         await capsule.boot()
@@ -52,7 +52,7 @@ describe("Capsule policy — escalate", () => {
 
     it("defaults to deny when the escalate callback throws", async () => {
         const capsule = Capsule({
-            policy: { process: { spawn: "escalate" } },
+            policy: { shell: { allow: ["*"], spawn: "escalate" } },
             escalate: async () => { throw new Error("boom") },
         })
         await capsule.boot()
@@ -66,7 +66,7 @@ describe("Capsule policy — escalate", () => {
     it("each escalation is independent — one denial does not affect the next call's decision", async () => {
         let call = 0
         const capsule = Capsule({
-            policy: { process: { spawn: "escalate" } },
+            policy: { shell: { allow: ["*"], spawn: "escalate" } },
             escalate: async () => {
                 call++
                 return call === 2 // deny first, allow second

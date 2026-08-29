@@ -99,6 +99,15 @@ export async function Cognet(opts: CognetOpts) {
         get name() { return current.name },
         get version() { return current.version },
         get abi() { return current.abi },
+        /**
+         * The inference roles this brain declared.
+         *
+         * Read live like every other field here, and read by the kernel only
+         * when inference is REMOTE — a confined agent has no local binding to
+         * take capability facts from, so the declaration is what the ABI
+         * reports for a role.
+         */
+        get engines() { return current.engines },
         /** How the scheduler should invoke this cognet — read live, so a reload that changes mode takes effect on the next attach. */
         get mode() { return current.mode },
 

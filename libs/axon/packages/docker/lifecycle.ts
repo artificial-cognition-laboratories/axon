@@ -1,4 +1,4 @@
-import { Axon } from "@axon/core"
+import { Axon } from "@arcforge/core"
 import { Blueprint } from "@arcforge/platform/build/blueprint"
 import { Hydrate } from "./hydrate"
 import { Serve } from "./serve"

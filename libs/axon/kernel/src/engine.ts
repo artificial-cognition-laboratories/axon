@@ -39,6 +39,22 @@ type EngineOpts = {
      * dispatches through, and nothing else changes when it is missing.
      */
     engines?: EnginesT
+    /**
+     * Build the driver for a role, when inference lives outside this process.
+     *
+     * Present in a CONFINED agent: the provider credential is held by the
+     * supervisor and never enters the box, so the agent asks for a role and
+     * receives tokens. Absent everywhere else (a local runtime, a test), where
+     * `engines` resolves a real driver in this heap.
+     *
+     * A DRIVER rather than a new seam, deliberately. `AxonEngineDriver` is
+     * already "a dumb token pipe: messages in, raw deltas out — no AIR parsing,
+     * no bus, no blocks", which is exactly what a wire is. So everything this
+     * manager owns — the grammar, the retry budget, the output contract, the
+     * idle-stall guard — stays here and cannot tell the tokens crossed a
+     * process boundary to arrive.
+     */
+    remote?: (role: string) => AxonEngineDriver
 }
 
 type EngineContext = {
@@ -412,7 +428,16 @@ export function Engine(opts: EngineOpts) {
      * fills it.
      */
     function select(role: string | undefined): { driver: AxonEngineDriver; name: string } | null {
-        if (!role || !opts.engines) return null
+        if (!role) return null
+
+        // Remote first: in a confined agent there is no local driver to fall
+        // back to, because there is no credential in the box to build one
+        // with. Checked before `engines` so a runtime that happens to carry
+        // both cannot silently prefer the in-process path and pull a key
+        // inside the boundary.
+        if (opts.remote) return { driver: opts.remote(role), name: "supervisor" }
+
+        if (!opts.engines) return null
         const bound = opts.engines.get(role)
 
         // This manager IS the generate path — AIR parsing, the retry budget,

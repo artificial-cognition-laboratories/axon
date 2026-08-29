@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule interrupt", () => {
     it("rejects the run when interrupt() is called while a cooperative run is in flight", async () => {
@@ -85,7 +85,7 @@ describe("Capsule interrupt", () => {
     })
 
     it("kills an in-flight process.run command without recycling the capsule", async () => {
-        const capsule = Capsule({ policy: { process: { run: true } } })
+        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
         await capsule.boot()
         const pid = capsule.main.pid
         const events: string[] = []
@@ -96,27 +96,54 @@ describe("Capsule interrupt", () => {
 
         await expect(run).rejects.toThrow("capsule run aborted")
         expect(capsule.main.pid).toBe(pid)
-        expect(events).toContain("capsule:cmd:interrupt:requested")
-        expect(events).toContain("capsule:cmd:interrupted")
+        expect(events).toContain("process:cmd:interrupt:requested")
+        expect(events).toContain("process:cmd:interrupted")
         expect(events).not.toContain("capsule:cmd:hard-killed")
 
         off()
         await capsule.shutdown()
     })
 
-    it("replaces the capsule when arbitrary JavaScript cannot cooperate", async () => {
+    /**
+     * ── The one guarantee the in-process move gave up ───────────────────────
+     *
+     * This asserted HARD cancellation: a run that could not cooperate was
+     * stopped by killing the process it ran in, the capsule came back with a
+     * new pid, and `capsule:cmd:hard-killed` said so.
+     *
+     * That is not available in one heap. There is no second process to end, so
+     * a genuine `while (true)` in model-emitted code now runs until the agent
+     * is restarted by its supervisor — the blast radius is one agent and one
+     * conversation rather than nothing, which is the price of deleting the
+     * wire.
+     *
+     * What IS still guaranteed, and is what this now pins: the CALLER is
+     * released promptly and correctly. An interrupted run rejects, the command
+     * reports interrupted, and the capsule keeps serving — so nothing
+     * downstream hangs waiting on work the user already abandoned. The eval
+     * itself may still be sitting in whatever it was awaiting; its result is
+     * discarded.
+     *
+     * Rewritten rather than deleted, deliberately. A test removed during a
+     * migration is a guarantee nobody can find again; a test that states the
+     * new contract is where the next reader learns what changed.
+     */
+    it("releases the caller promptly when a run cannot cooperate, and keeps serving", async () => {
         const capsule = Capsule()
         await capsule.boot()
-        const pid = capsule.main.pid
         const events: string[] = []
         const off = capsule.onAny(event => events.push(event.type))
 
         const run = capsule.run(`await new Promise(r => setTimeout(r, 10_000)); "unreachable"`)
         setTimeout(() => capsule.interrupt(), 50)
 
+        // The caller is released, with the same error the subprocess produced.
         await expect(run).rejects.toThrow("capsule run aborted")
-        expect(capsule.main.pid).not.toBe(pid)
-        expect(events).toContain("capsule:cmd:hard-killed")
+        // And the cancellation is on the record, not merely in the rejection.
+        expect(events).toContain("process:cmd:interrupt:requested")
+        expect(events).toContain("process:cmd:interrupted")
+        // The capsule is still usable — an interrupt cancels a run, not the
+        // place runs happen.
         expect(await capsule.run("40 + 2")).toBe(42)
 
         off()

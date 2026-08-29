@@ -261,18 +261,21 @@ entries, so they reach every observer through the same commit pipeline as any ot
 
 ## Versioning
 
-A cognet declares the ABI it targets:
+Every compiled cognet carries the ABI it targets. Normally it declares nothing: a cognet
+publishes as source and is compiled by the consumer against the kernel it will actually
+run on, so the compile step stamps in the ABI it built against.
+
+A cognet that must **refuse** a kernel it hasn't been validated against pins it:
 
 ```ts
 export default defineCognet({
-    name: "zero",
-    version: "0.1.0",
-    abi: "10",
+    abi: "11",
+    mode: { kind: "invocation" },
 })
 ```
 
-`axon prepare` verifies that against the kernel this Axon provides and fails loudly on a
-mismatch, naming both versions. A cognet built for an older ABI never half-loads.
+`axon prepare` verifies a pin against the kernel this Axon provides and fails loudly on a
+mismatch, naming both versions. A cognet pinned to an older ABI never half-loads.
 
 The kernel is free to change anything beneath this contract. The contract itself changes
 only with the ABI number.

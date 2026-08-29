@@ -5,7 +5,7 @@ describe("CognetHost lifecycle", () => {
     it("executes and registers a hash-busted artifact only once when load is repeated", async () => {
         let executions = 0
         const host = CognetHost(
-            { name: "reloadable", version: "1.0.0", abi: "4" },
+            { name: "reloadable", version: "1.0.0", abi: "4", mode: { kind: "invocation" } },
             async () => {
                 executions++
                 ;(globalThis as unknown as { loop(body: () => Promise<void>): void }).loop(async () => {})
@@ -22,7 +22,7 @@ describe("CognetHost lifecycle", () => {
 
     it("rejects rebinding a loaded artifact to a different syscall table", async () => {
         const host = CognetHost(
-            { name: "reloadable", version: "1.0.0", abi: "4" },
+            { name: "reloadable", version: "1.0.0", abi: "4", mode: { kind: "invocation" } },
             async () => {
                 ;(globalThis as unknown as { loop(body: () => Promise<void>): void }).loop(async () => {})
             },
@@ -55,7 +55,7 @@ describe("CognetHost lifecycle", () => {
         // for it — the ambient facade resolves the wake's async scope, so a
         // call outside one correctly throws.
         let read: string | null = null
-        const host = CognetHost({ name: "knower", version: "1.0.0", abi: "4" }, async () => {
+        const host = CognetHost({ name: "knower", version: "1.0.0", abi: "4", mode: { kind: "invocation" } }, async () => {
             const g = globalThis as unknown as { loop(body: (ctx: { stop(): void }) => Promise<void>): void; kernel: KernelAbi }
             g.loop(async ({ stop }) => {
                 read = await g.kernel.knowledge.read("notes.md")

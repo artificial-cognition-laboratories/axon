@@ -106,6 +106,14 @@ export type Protocol = {
      * Ids are `p*`, never `e*`/`u*`: the real timeline numbers from e1, and
      * two blocks answering to one id is exactly the ambiguity `for=` exists to
      * remove.
+     *
+     * The BOUNDARY after these turns is marked, though the turns themselves
+     * are not: `<system type="session:start"/>` separates them from the real
+     * history so tooling can tell the two apart (see renderSessionStart). It
+     * is left unexplained in the contract for the reason above — a marker on
+     * the seam says nothing about what precedes it, while a rule explaining
+     * that the preceding turns were demonstrations is the labelling this
+     * paragraph rejects.
      */
     preflight?: PreflightTurn[]
 }

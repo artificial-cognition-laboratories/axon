@@ -17,7 +17,6 @@ const WITH_TOOLS: AxonScope = {
     modules: [
         {
             name: "files",
-            flat: true,
             ambientTypes: ["interface FileEntry { name: string; size: number }"],
             members: [{
                 name: "list",
@@ -123,9 +122,11 @@ describe("Output: enforcement", () => {
         expect(found).toEqual([])
     })
 
-    it("resolves a namespaced tool the capsule declares", () => {
+    it("resolves a tool from another module by its own export name", () => {
+        // `github` is the FILE the export came from, not a namespace: the
+        // model calls `stars()`, exactly as the scope declares it.
         const compiled = out(WITH_TOOLS).compile("{ stars: number }")
-        expect(compiled.check(`const result = { stars: await github.stars("a/b") }`)).toEqual([])
+        expect(compiled.check(`const result = { stars: await stars("a/b") }`)).toEqual([])
     })
 
     it("catches misuse of a tool, not just the output shape", () => {
@@ -154,7 +155,6 @@ describe("Output: soundness", () => {
     const LOOSE: AxonScope = {
         modules: [{
             name: "db",
-            flat: true,
             members: [{ name: "query", declaration: "function query(sql: string): Promise<any>" }],
         }],
     }

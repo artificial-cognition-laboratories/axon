@@ -61,7 +61,7 @@ export type AxonProvider = {
      * Optional because most providers do not cache: Ollama is a localhost
      * call cheaper than the disk read that would cache it. Present on the
      * hosted routes, whose catalogue is a public document fetched over the
-     * network and cached to disk — see @arclabs/cloud's CatalogueStore.
+     * network and cached to disk — see @arcforge/cloud's CatalogueStore.
      *
      * Read by the boot trace, never by resolution: a cached catalogue and a
      * fresh one must resolve identically or the cache is a bug.

@@ -1,0 +1,45 @@
+{
+    "name": "@arcforge/axond",
+    "version": "0.1.0",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        },
+        "./types": {
+            "types": "./types/index.ts",
+            "default": "./types/index.ts"
+        },
+        "./bin/axond.ts": "./bin/axond.ts"
+    },
+    "bin": {
+        "axond": "./bin/axond.ts"
+    },
+    "files": [
+        "src/**/*.ts",
+        "types/**/*.ts",
+        "bin/**/*.ts"
+    ],
+    "scripts": {
+        "test": "bun test --parallel=4",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@arcforge/err": "workspace:*",
+        "@arcforge/link": "workspace:*",
+        "@arcforge/platform": "workspace:*",
+        "@arcforge/types": "workspace:*",
+        "@arcforge/cloud": "workspace:*",
+        "@arcforge/arcline": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "optionalDependencies": {
+        "onnxruntime-node": "^1.29.0"
+    }
+}

@@ -6,9 +6,11 @@ import { capsuleFault } from "./fault"
 import type { CapsuleCommand } from "../../types"
 import type { ExecutionT } from "./execution"
 import type { MediatorT } from "./mediator"
-import type { SandboxWireT } from "./wire"
+import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
 
 type ScopeOpts = {
+    /** Subscribe to a command wire. False in-process — see Runner.dispatch. */
+    dispatch?: boolean
     mediator: MediatorT
     wire: SandboxWireT
     /** Correlates each fn span to the command that made the call. */
@@ -18,7 +20,6 @@ type ScopeOpts = {
 /** A tool module's shape once loaded: name + the functions it exports. */
 type LoadedTool = {
     namespace: string
-    flat: boolean
     values: Record<string, unknown>
 }
 
@@ -46,6 +47,14 @@ async function materializeSource(source: string): Promise<string> {
  * enforcement point; nothing in run() has a path to an unwrapped function.
  */
 export function Scope(opts: ScopeOpts) {
+    /**
+     * This scope's identity, used to cache-bust tool imports.
+     *
+     * One per Scope, minted at construction: tools loaded into the SAME scope
+     * share a module instance (state persists across submissions), and two
+     * scopes never do (a fresh capsule gets fresh tools).
+     */
+    const instanceId = crypto.randomUUID()
     const { mediator, wire, execution } = opts
     const namespaces = new Map<string, LoadedTool>()
 
@@ -63,13 +72,13 @@ export function Scope(opts: ScopeOpts) {
                 // every flame graph.
                 const commandId = execution.current?.id ?? ""
                 const started = Date.now()
-                wire.emit("capsule:fn:start", { commandId, module: owner, fn: path, args })
+                wire.emit("process:fn:start", { commandId, module: owner, fn: path, args })
                 try {
                     const result = await Reflect.apply(value, receiver, args)
-                    wire.emit("capsule:fn:complete", { commandId, module: owner, fn: path, result, durationMs: Date.now() - started })
+                    wire.emit("process:fn:complete", { commandId, module: owner, fn: path, result, durationMs: Date.now() - started })
                     return result
                 } catch (cause) {
-                    wire.emit("capsule:fn:failed", {
+                    wire.emit("process:fn:failed", {
                         commandId,
                         module: owner,
                         fn: path,
@@ -99,25 +108,51 @@ export function Scope(opts: ScopeOpts) {
 
     async function loadTool(tool: Extract<CapsuleCommand, { type: "tool:load" }>): Promise<void> {
         const started = Date.now()
-        wire.emit("capsule:tool:load:start", { namespace: tool.namespace })
+        wire.emit("process:tool:load:start", { namespace: tool.namespace })
         try {
-            const mod = "path" in tool
-                ? await import(tool.path)
-                : await import(await materializeSource(tool.source))
+            /**
+             * Each capsule gets its OWN module instance for every tool.
+             *
+             * A tool's module scope is its resident state — the counter that
+             * increments across submissions, the client it opened once. Each
+             * subprocess had a fresh registry, so that state began empty per
+             * capsule for free.
+             *
+             * One heap has one registry keyed by specifier, so a second
+             * capsule loading the same tool got the FIRST one's module, state
+             * and all: a counter that should start at zero began wherever the
+             * previous capsule left it. Cache-busting the specifier restores
+             * the isolation the process boundary used to provide.
+             *
+             * The instance id is per-Scope, so reloading a tool within one
+             * capsule still shares state — which is the contract "state
+             * persists across run() calls" depends on.
+             */
+            const specifier = "path" in tool ? tool.path : await materializeSource(tool.source)
+            const mod = await import(`${specifier}?capsule=${instanceId}`)
 
             const fallback = mod.default as { exports?: Record<string, unknown> } | undefined
             const named = Object.fromEntries(Object.entries(mod).filter(([name]) => name !== "default"))
             const exported = Object.keys(named).length > 0 ? named : (fallback?.exports ?? {})
             const values: Record<string, unknown> = {}
             for (const [name, value] of Object.entries(exported)) {
-                const path = tool.flat ? name : `${tool.namespace}.${name}`
+                // `<namespace>.<export>` — the POLICY key, not the call path.
+                //
+                // Deliberately still namespaced although the global is flat:
+                // a policy rule is written against a tool the user installed
+                // (`fs.read`, `github.openPr`), and flattening this would
+                // make every rule match on a bare export name, so two
+                // modules exporting `read` would share one permission. The
+                // caller says `read(...)`; the mediator still asks about
+                // `fs.read`.
+                const path = `${tool.namespace}.${name}`
                 values[name] = wrapValue(value, path, tool.namespace)
             }
 
-            namespaces.set(tool.namespace, { namespace: tool.namespace, flat: tool.flat, values })
-            wire.emit("capsule:tool:load:complete", { namespace: tool.namespace, fns: Object.keys(values), durationMs: Date.now() - started })
+            namespaces.set(tool.namespace, { namespace: tool.namespace, values })
+            wire.emit("process:tool:load:complete", { namespace: tool.namespace, fns: Object.keys(values), durationMs: Date.now() - started })
         } catch (cause) {
-            wire.emit("capsule:tool:load:failed", {
+            wire.emit("process:tool:load:failed", {
                 namespace: tool.namespace,
                 error: capsuleFault("CAPSULE_TOOL_FAILED", {
                     message: cause instanceof Error ? cause.message : String(cause),
@@ -129,23 +164,50 @@ export function Scope(opts: ScopeOpts) {
         }
     }
 
-    wire.onCommand((cmd: CapsuleCommand) => {
-        if (cmd.type === "tool:load") {
-            void loadTool(cmd)
-        } else if (cmd.type === "tool:unload") {
-            namespaces.delete(cmd.namespace)
-            wire.emit("capsule:tool:unloaded", { namespace: cmd.namespace })
-        }
-    })
+    // Same split as Runner: subprocess-side, tool loads arrive over the wire;
+    // in-process the manager calls `load`/`unload` directly.
+    if (opts.dispatch !== false) {
+        wire.onCommand((cmd: CapsuleCommand) => {
+            if (cmd.type === "tool:load") {
+                void loadTool(cmd)
+            } else if (cmd.type === "tool:unload") {
+                namespaces.delete(cmd.namespace)
+                wire.emit("process:tool:unloaded", { namespace: cmd.namespace })
+            }
+        })
+    }
 
     return {
-        /** Build the globals object cmd:run executes with, respecting flat placement. */
+        /** Load one tool into scope. Throws nothing — failure is an event, as it always was. */
+        load: loadTool,
+
+        /**
+         * What a namespace actually exported, or undefined if it never loaded.
+         *
+         * The boot handshake compares this against what the tool DECLARED. The
+         * subprocess reported it over the wire as `tool:load:complete.fns`;
+         * here the caller can simply read it.
+         */
+        exportsOf(namespace: string): Record<string, unknown> | undefined {
+            return namespaces.get(namespace)?.values
+        },
+
+        /** Drop a namespace — a hot reload removing a tool the author deleted. */
+        unload(namespace: string): void {
+            namespaces.delete(namespace)
+            wire.emit("process:tool:unloaded", { namespace })
+        },
+
+        /**
+         * The globals object cmd:run executes with.
+         *
+         * Every export lands under its OWN name — the tool's `namespace` is
+         * the file it came from, used for diagnostics, never a prefix the
+         * caller addresses through.
+         */
         globals(): Record<string, unknown> {
             const globals: Record<string, unknown> = {}
-            for (const tool of namespaces.values()) {
-                if (tool.flat) Object.assign(globals, tool.values)
-                else globals[tool.namespace] = tool.values
-            }
+            for (const tool of namespaces.values()) Object.assign(globals, tool.values)
             return globals
         },
     }

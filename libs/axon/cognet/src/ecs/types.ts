@@ -4,7 +4,7 @@
  *
  * Kernel systems extend this via module augmentation:
  *
- * declare module "@axon/core" {
+ * declare module "@arcforge/core" {
  *   interface ComponentRegistry {
  *     "my-component": { value: string }
  *   }

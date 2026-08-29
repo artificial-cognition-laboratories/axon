@@ -69,7 +69,6 @@ describe("axon.prompt: Vuedown (.vue)", () => {
         const greeterTool: AxonTool = {
             name: "greeter",
             origin: "src",
-            flat: true,
             fns: [{ name: "greet", declaration: "function greet(name: string): string" }],
             source: `
                 export default {

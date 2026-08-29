@@ -11,15 +11,15 @@ export type AxonScopeMember = {
 /**
  * A related group of globals in the capsule's executable TypeScript scope.
  *
- * Namespaced modules render as `declare namespace <name> { ... }`. Flat
- * modules install each member directly on globalThis. `ambientTypes` are
- * emitted before members so every referenced type is resolvable.
+ * Every member installs directly on globalThis under its own export name —
+ * a module's `name` groups it for rendering and diagnostics, it does not
+ * namespace it. `ambientTypes` are emitted before members so every
+ * referenced type is resolvable.
  */
 export type AxonScopeModule = {
     name: string
     description?: string
     members: readonly AxonScopeMember[]
-    flat?: boolean
     ambientTypes?: readonly string[]
 }
 

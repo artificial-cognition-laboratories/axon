@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule shutdown", () => {
     it("shuts down cleanly and rejects further runs", async () => {

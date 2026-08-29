@@ -92,7 +92,7 @@ export type EngineResources = {
 
 /**
  * Hand-written contract for the slice of AxonCloudClient engines consume —
- * same pattern as EngineConnection in handle.ts (@arclabs/cloud depends on
+ * same pattern as EngineConnection in handle.ts (@arcforge/cloud depends on
  * this package, so the type can't be imported; the real client satisfies
  * this structurally). Grow it deliberately as engines need more surface.
  */
@@ -120,7 +120,7 @@ export type EngineCloud = {
              * Here because a provider now has to answer "what can I supply"
              * before any model is chosen, and the answer for a hosted route
              * lives in the registry. Same reason the rest of this type
-             * exists: @arclabs/cloud depends on this package, so the client
+             * exists: @arcforge/cloud depends on this package, so the client
              * cannot be imported and the slice engines need is spelled at
              * the seam instead.
              */
@@ -157,7 +157,7 @@ export type EngineCloud = {
 /**
  * The registry's merged model catalogue, as engines consume it.
  *
- * Structurally the same shape @arclabs/cloud returns; spelled here for the
+ * Structurally the same shape @arcforge/cloud returns; spelled here for the
  * same reason as EngineCloud itself. `modality` is OpenRouter's own
  * `"text+image->text"` string — carried rather than pre-parsed so the
  * classification table stays in one place.

@@ -30,6 +30,23 @@ export type SessionBus = {
 type AxonSessionOpts = {
     blueprint: AxonBlueprint
     bus: SessionBus
+    /**
+     * Whether this session owns the file on disk. Default true.
+     *
+     * FALSE for a confined agent's own session. The agent commits, announces
+     * on its bus, and the supervisor — which holds the durable record —
+     * writes it. If the agent ALSO wrote, the same entry landed twice: two
+     * `AxonSession`s over one path, each with its own seq counter, so the log
+     * carried interleaved streams whose sequence numbers ran backwards
+     * (…49, 20, 51, 21…). That breaks the one invariant this file's Writer
+     * exists to hold — that line order IS the session's total order — and
+     * doubles every consumer that counts entries.
+     *
+     * The in-memory projections (`log`, `entries`, `kernelLog`) are
+     * unaffected: the agent still needs to read its own conversation back.
+     * Only the append is suppressed.
+     */
+    persist?: boolean
 }
 
 /** Correlation a caller may attach to a commit — everything else is stamped here. */
@@ -43,11 +60,19 @@ type CommitContext = Partial<Pick<AxonEventContext, "runId" | "spanId">>
  * push() resolves when THIS append is durable and rethrows its failure at
  * the caller; a failed append never breaks the chain for later commits.
  */
-function Writer() {
+function Writer(persist = true) {
     let tail: Promise<void> = Promise.resolve()
 
     return {
         push(job: () => Promise<void>): Promise<void> {
+            // A non-persisting session runs the whole pipeline — envelope,
+            // seq, in-memory projections, bus announce — and drops only the
+            // APPEND. Gated here rather than at each call site because there
+            // are four of them and a fifth added later would silently start
+            // writing again, which is precisely how two writers ended up on
+            // one file.
+            if (!persist) return Promise.resolve()
+
             const done = tail.then(job)
             tail = done.catch(() => {}) // chain survives; the caller still sees the rejection
             return done
@@ -87,8 +112,8 @@ async function drainWithTimeout(writer: ReturnType<typeof Writer>, label: string
  */
 const ERROR_QUEUE_MAX = 200
 
-function ErrorQueue() {
-    const writer = Writer()
+function ErrorQueue(persist = true) {
+    const writer = Writer(persist)
     let depth = 0
 
     return {
@@ -152,6 +177,8 @@ type SessionStateOpts = {
     /** resolved absolute path — blueprint.paths.root + blueprint.paths.data */
     root: string
     bus: SessionBus
+    /** Whether this session appends to the file. See AxonSessionOpts.persist. */
+    persist?: boolean
 }
 
 /**
@@ -170,8 +197,9 @@ type SessionStateOpts = {
  * events that are already on disk.
  */
 async function SessionState(opts: SessionStateOpts) {
-    const writer = Writer()
-    const errorQueue = ErrorQueue()
+    const persist = opts.persist !== false
+    const writer = Writer(persist)
+    const errorQueue = ErrorQueue(persist)
     const reportedErrors = new WeakSet<object>()
     const stimuli = Stimuli()
     // The bounded window for dense sense streams — see sensory.ts. Its own
@@ -482,11 +510,14 @@ export async function AxonSession(opts: AxonSessionOpts) {
     const agentId = opts.blueprint.agent.name
     const root = path.resolve(opts.blueprint.paths.root, opts.blueprint.paths.data)
 
+    const persist = opts.persist !== false
+
     let current = await SessionState({
         sessionId: opts.blueprint.session.id,
         agentId,
         root,
         bus: opts.bus,
+        persist,
     })
 
     return {
@@ -601,7 +632,7 @@ export async function AxonSession(opts: AxonSessionOpts) {
 
         /** swap to a different session: load next fully, go live, drain the old writer */
         async switch(sessionId: string) {
-            const next = await SessionState({ sessionId, agentId, root, bus: opts.bus })
+            const next = await SessionState({ sessionId, agentId, root, bus: opts.bus, persist })
             const previous = current
             current = next
             await previous.close()
@@ -609,7 +640,15 @@ export async function AxonSession(opts: AxonSessionOpts) {
 
         /** record axon:session:closed and guarantee everything is on disk */
         async end() {
-            await current.commit("axon:session:closed", {})
+            // Only the session that OWNS the file records its closing.
+            //
+            // A non-persisting session is a projection of a record someone
+            // else holds; its own shutdown is not an event in that record.
+            // Committing anyway put two `axon:session:closed` entries in one
+            // log — the agent's, forwarded over the link, and the
+            // supervisor's own — which reads as the session having ended
+            // twice.
+            if (persist) await current.commit("axon:session:closed", {})
             await current.close()
         },
     }

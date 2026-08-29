@@ -11,7 +11,7 @@
         "noEmit": true,
         "paths": {
             "@arcforge/types": ["../types/src/index.ts"],
-            "@axon/capsule": ["./src/index.ts"]
+            "@arcforge/capsule": ["./src/index.ts"]
         }
     },
     "include": ["src/**/*.ts", "tests/**/*.ts"]

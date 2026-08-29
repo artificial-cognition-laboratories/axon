@@ -126,6 +126,112 @@ export const errorMap = {
         severity: "fatal",
         expected: true,
     },
+    SUBAGENT_LINK_UNSUPPORTED: {
+        code: "AX-SCRIPT-004",
+        title: "Subagent Not Supported Over The Link",
+        description: "An agent asked to spawn a subagent whose child runs as a confined process. `axon.request()` returns a wake's collected entries, while the link's `stimulus` verb returns only admission — the supervisor needs a verb that collects a wake and answers when it settles. Until that exists this fails rather than returning an admission receipt the caller would read as a result.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    AGENT_BOOT_FAILED: {
+        code: "AX-AGENT-006",
+        title: "Agent Failed To Boot",
+        description: "The agent process exited before it connected to its supervisor. Its own stderr is carried as the detail — the agent usually knows exactly what went wrong (a missing cognet, a tool that would not compile), and without this that diagnosis died in a pipe while the supervisor reported only a closed socket.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    CAPSULE_NOT_LOCAL: {
+        code: "AX-AGENT-007",
+        title: "No Capsule On This Machine",
+        description: "A console eval was requested against an attached deployment. Its capsule runs wherever the deployment is hosted, so there is nothing here to execute in — and quietly resolving would read as \"it ran and did nothing\".",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
+    LINK_NO_HANDLER: {
+        code: "AX-LINK-001",
+        title: "No Handler For Link Verb",
+        description: "The peer sent a verb this side does not implement. Both ends speak a versioned contract, so this means they disagree about it — a wiring fault, not something a user did.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    LINK_PEER_CLOSED: {
+        code: "AX-LINK-002",
+        title: "Agent Disconnected",
+        description: "The agent process closed its side of the link. Every call still in flight is rejected rather than left hanging — a dead peer must be an error, never a wait that never ends.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    LINK_CLOSED: {
+        code: "AX-LINK-003",
+        title: "Link Closed",
+        description: "The link to the agent was torn down by this side — a shutdown, a dispose, or a failed boot. Outstanding calls are rejected with this rather than hanging.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    LINK_FRAME_TOO_LARGE: {
+        code: "AX-LINK-004",
+        title: "Link Frame Too Large",
+        description: "A message on the link exceeded the maximum frame size, or a length prefix declared one that did. The prefix is peer-controlled input, so an oversized declaration is refused rather than allocated — a desynchronised stream cannot be recovered by reading past it.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    LINK_UNKNOWN_PROMPT_ACTION: {
+        code: "AX-LINK-005",
+        title: "Unknown Prompt Action",
+        description: "The prompt verb was called with an action this side does not know. Loud rather than silent: an unrecognised action would otherwise return undefined, which a caller renders as an empty prompt list.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    AGENT_LINK_MISSING: {
+        code: "AX-AGENT-001",
+        title: "Agent Started Without A Supervisor",
+        description: "An agent process was started with no link paths in its environment, which means nothing is supervising it. It cannot guess a socket path — doing so risks connecting to a different agent's supervisor entirely.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    AGENT_LINK_MALFORMED: {
+        code: "AX-AGENT-002",
+        title: "Malformed Agent Link",
+        description: "The link carrier in the agent's environment is not valid JSON, or does not name both a control and a data socket. Both are required — an agent with only one connected can accept work it has no way to answer.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    AGENT_BLUEPRINT_MISSING: {
+        code: "AX-AGENT-003",
+        title: "Agent Started Without A Blueprint",
+        description: "An agent process was started with no blueprint path in its environment. The supervisor writes the blueprint beside the sockets before spawning; its absence means the spawn path is broken.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    AGENT_NOT_READY: {
+        code: "AX-AGENT-004",
+        title: "Agent Still Booting",
+        description: "A verb arrived before the agent's runtime finished booting. The link connects first so that boot failures are reportable, which leaves a brief window where the agent can be addressed but cannot answer.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    CLI_AGENT_NOT_LOCAL: {
+        code: "AX-AGENT-005",
+        title: "Command Needs An In-Process Agent",
+        description: "A headless CLI command booted an agent that runs as a separate process, but the command reaches into the runtime directly. This is a wiring fault: the command needs either an in-process agent or a link verb.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    ENGINE_ROLE_UNBOUND_LINK: {
+        code: "AX-ENGINE-010",
+        title: "No Engine For Role",
+        description: "A confined agent asked for inference on a role the supervisor has no engine bound to. Roles are resolved on the supervisor's side before the agent starts, so an unbound one here means resolution and the cognet's declaration disagree.",
+        source: "runtime",
+        severity: "fatal",
+    },
+    ENGINE_KIND_MISMATCH_LINK: {
+        code: "AX-ENGINE-011",
+        title: "Engine Kind Mismatch",
+        description: "A role bound to a transform or session engine was asked to serve a generate call. Resolution already matched the declared type, so reaching here means a provider's create() disagreed with the capability it was handed.",
+        source: "runtime",
+        severity: "fatal",
+    },
     ENGINE_MISSING: {
         code: "AX-ENGINE-001",
         title: "No Engine Configured",
@@ -219,6 +325,13 @@ export const errorMap = {
         code: "AX-COGNET-004",
         title: "Cognet Declared No Loop",
         description: "The cognet's main() ran (or was woken) without ever declaring loop() — there is no program to run.",
+        source: "cognet",
+        severity: "fatal",
+    },
+    COGNET_LOAD_FAILED: {
+        code: "AX-COGNET-016",
+        title: "Cognet Failed To Load",
+        description: "The cognet's own main() threw while running at load(). The brain never finished booting, so the agent has nothing to think with. The cause below is the error the cognet's code raised — it comes from the brain's source, not from Axon.",
         source: "cognet",
         severity: "fatal",
     },
@@ -395,6 +508,80 @@ export const errorMap = {
         severity: "fatal",
     },
 
+    /**
+     * A flattened tool export would have replaced a host global. Refused at
+     * install rather than silently skipped: skipping made the generated
+     * tool-globals.d.ts assert a binding the runtime never made, so the
+     * editor typechecked a call that threw (or worse, silently read the
+     * builtin) at run time.
+     */
+    TOOL_GLOBAL_COLLISION: {
+        code: "AX-TOOL-409",
+        title: "Tool Global Collides With A Builtin",
+        description: "A flattened tool export has the same name as something that already exists in the agent's global scope, and replacing it would break the code around it. Reach this member through `axon.tools.<namespace>.<member>`, rename the export, or drop `flat` so the module lands under its own namespace instead.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+
+    /**
+     * A script the agent declares ran and failed. The agent's own error is
+     * carried in `detail` — this code says WHERE it failed, not what went
+     * wrong, which is the script's own business.
+     */
+    SCRIPT_FAILED: {
+        code: "AX-SCRIPT-500",
+        title: "Script Failed",
+        description: "A script declared by this agent was invoked and threw. The agent's own error follows — this is the script's failure, not the runtime's.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
+
+    /**
+     * The agent could not bind an HTTP port. Walking forward from the
+     * requested one is deliberate (a second agent should come up beside the
+     * first), so reaching the end of the range means the whole span is taken
+     * — a real environment problem rather than a retry.
+     */
+    AGENT_SERVE_NO_PORT: {
+        code: "AX-AGENT-503",
+        title: "No Free Port",
+        description: "The agent tried to bind its HTTP surface and every port in the range it walked was already in use. Free one, or pass a different port with --port.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
+
+    // ── Agent resolution (build/runtime/resolve.ts) ─────────────────────────
+    /**
+     * A named reference matched no agent in any local pool. Distinct from
+     * PROJECT_NOT_FOUND, which means "this path is not a project": here the
+     * caller named an agent and the answer is that it is not installed
+     * anywhere, which has a different fix (`axon install`).
+     */
+    AGENT_NOT_FOUND: {
+        code: "AX-AGENT-404",
+        title: "Agent Not Found",
+        description: "No local agent goes by this name. Agent references resolve against your local pools only — watched paths first, then installed agents — and never fetch from the registry. Install it first with `axon install`.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    /**
+     * Two pools both hold an agent with this identity. Never resolved by
+     * picking one: running the wrong agent silently is the failure this
+     * exists to prevent.
+     */
+    AGENT_AMBIGUOUS: {
+        code: "AX-AGENT-409",
+        title: "Ambiguous Agent Name",
+        description: "More than one local pool holds an agent with this name, and there is no correct way to guess which was meant — pass an explicit path, or unwatch one of the roots.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+
     // ── Project (build/project/*.ts) ────────────────────────────────────────
     PROJECT_NOT_FOUND: {
         code: "AX-PROJECT-017",
@@ -432,6 +619,38 @@ export const errorMap = {
         description: "A module was asked to deploy on its own — modules only run installed inside an agent, deploy the agent instead.",
         source: "manifest",
         severity: "fatal",
+    },
+    BUNDLE_IMAGE_FAILED: {
+        code: "AX-PROJECT-039",
+        title: "Image Build Failed",
+        description: "`docker build` did not succeed. Its own output is above — that is the real diagnostic. Check that a Docker daemon is running, and that the base image can be pulled.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    CONFIG_IMPORT_ESCAPES_ROOT: {
+        code: "AX-PROJECT-038",
+        title: "Config Imports Outside The Project",
+        description: "axon.config.ts imports a file from outside this project's directory. A bundle contains the project and nothing above it, so that file is not published with it — the agent loads locally and then fails at boot in the cloud, after provisioning has already been paid for. Move what it needs inside the project, or publish it and import it by name.",
+        source: "manifest",
+        severity: "fatal",
+        expected: true,
+    },
+    PUBLISH_NAMESPACE_DENIED: {
+        code: "AX-PROJECT-036",
+        title: "That Namespace Is Not Yours",
+        description: "Publishing writes to a scope you own. This package is named for a scope owned by someone else, or by an org you are not a member of — rename it in package.json to a scope you own, or switch to the account that owns this one.",
+        source: "cloud",
+        severity: "fatal",
+        expected: true,
+    },
+    PUBLISH_USERNAME_REQUIRED: {
+        code: "AX-PROJECT-037",
+        title: "A Username Is Required",
+        description: "A username owns your registry namespace, and nothing can be published until one is set. It is set once, on the account, and every package you publish is scoped under it.",
+        source: "cloud",
+        severity: "fatal",
+        expected: true,
     },
     PUBLISH_UNSUPPORTED_KIND: {
         code: "AX-PROJECT-009",
@@ -497,7 +716,7 @@ export const errorMap = {
         severity: "fatal",
     },
     DEPLOY_ENV_RESERVED: {
-        code: "AX-PROJECT-036",
+        code: "AX-PROJECT-043",
         title: "Reserved Deployment Variable",
         description: "The production .env file attempts to override a variable owned by the Axon runtime or Cloud Run.",
         source: "manifest",
@@ -1174,6 +1393,30 @@ export const errorMap = {
         source: "capsule",
         severity: "fatal",
     },
+    AGENT_ENV_RESERVED: {
+        code: "AX-CAPSULE-012",
+        title: "Reserved Environment Variable",
+        description: "An agent's .env sets a framework-owned variable the runtime controls (AGENT_ID, AXON_API_BASE and similar). These identify the agent to the platform, so overriding one locally would make the agent report itself as something it is not. The deploy path has always refused this; the local path now refuses it identically.",
+        source: "capsule",
+        severity: "fatal",
+    },
+
+    CAPSULE_NET_UNRESOLVED: {
+        code: "AX-CAPSULE-010",
+        title: "Network Policy Did Not Resolve",
+        description: "A `net.allow` entry names a hostname that did not resolve to any address. Egress rules are installed as addresses, so an unresolvable name becomes no rule at all — a grant you believe you made and did not. The box refuses to boot rather than run with an allowlist quietly smaller than the one you wrote. Check the hostname, or use a literal address if the name is resolvable only from inside the box.",
+        source: "capsule",
+        severity: "fatal",
+    },
+
+    CAPSULE_NET_UNAVAILABLE: {
+        code: "AX-CAPSULE-011",
+        title: "Network Confinement Unavailable",
+        description: "The policy declares a `net` allowlist, which needs a userspace network stack (slirp4netns) and nftables inside the box's namespace. One of them is missing on this host. Install slirp4netns and nftables, or drop the `net` block to run with no network at all — the box will not fall back to unfiltered egress.",
+        source: "capsule",
+        severity: "fatal",
+    },
+
     CAPSULE_CONFINE_UNAVAILABLE: {
         code: "AX-CAPSULE-004",
         title: "OS Confinement Unavailable",
@@ -1217,14 +1460,14 @@ export const errorMap = {
         severity: "fatal",
     },
     CAPSULE_DOWN: {
-        code: "AX-CAPSULE-010",
+        code: "AX-CAPSULE-023",
         title: "No Live Capsule",
         description: "An operation needed a running sandbox subprocess, but none is live — it is booting, restarting after a crash, or has been declared dead.",
         source: "capsule",
         severity: "fatal",
     },
     CAPSULE_ALREADY_BOOTED: {
-        code: "AX-CAPSULE-011",
+        code: "AX-CAPSULE-024",
         title: "Capsule Already Booted",
         description: "boot() was called on a capsule that already has a live subprocess. Boot is once per lifetime; use update()/reload() to replace a running incarnation.",
         source: "capsule",
@@ -1457,6 +1700,69 @@ export const errorMap = {
         description: "`:attach` needs the address of a running agent — e.g. `:attach http://localhost:3010`. The agent must already be serving; attach binds to it and never boots anything.",
         source: "tui",
         severity: "fatal",
+    },
+    AGENT_NAME_REQUIRED: {
+        code: "AX-CLI-001",
+        title: "A Name Is Required",
+        description: "Scaffolding a project needs a name — it becomes the directory and the package name.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+    MODULE_SPECIFIER_REQUIRED: {
+        code: "AX-CLI-002",
+        title: "A Module Name Is Required",
+        description: "The command needs at least one module to act on, named as a scoped registry package.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+    FLAG_VALUE_REQUIRED: {
+        code: "AX-CLI-007",
+        title: "A Flag Is Missing Its Value",
+        description: "The flag takes a value and none followed it. Quote the value if it contains spaces, and check it was not consumed as another flag.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+    RUN_INSTRUCTION_REQUIRED: {
+        code: "AX-CLI-006",
+        title: "Nothing To Run",
+        description: "The agent was named but not told what to do. A reference on its own opens the terminal on that agent; giving it work needs an instruction, a declared prompt, or a script.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+    BENCH_RUN_ID_REQUIRED: {
+        code: "AX-CLI-003",
+        title: "A Run Id Is Required",
+        description: "Reading a benchmark result needs the id of the run to read.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+    PROFILE_INCOMPLETE: {
+        code: "AX-CLI-004",
+        title: "Profile Is Missing Its Identity",
+        description: "Credentials are stored for this profile but no identity is, so there is nothing to report. Logging out and back in rewrites both.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+    BUNDLE_KIND_MISMATCH: {
+        code: "AX-CLI-005",
+        title: "Wrong Bundle Kind",
+        description: "The bundler produced an artifact of a different kind than the command expected. This is a wiring fault in our own code, not something a project can cause.",
+        source: "cli",
+        severity: "fatal",
+    },
+    ATTACH_UNREACHABLE: {
+        code: "AX-TUI-052",
+        title: "Agent Not Reachable",
+        description: "Nothing answered at that address. The agent may not be running, may be on a different port, or may be behind something that refused the connection. `axon dev` prints the address it bound to.",
+        source: "tui",
+        severity: "fatal",
+        expected: true,
     },
     ATTACH_URL_INVALID: {
         code: "AX-TUI-049",
@@ -1695,7 +2001,7 @@ export const errorMap = {
         severity: "fatal",
     },
     PROMPT_NOT_INSTALLABLE: {
-        code: "AX-PROJECT-037",
+        code: "AX-PROJECT-044",
         title: "Prompts Are Not Installed Into Agents",
         description: "A prompt is content, not a capability: it resolves from the global cache and renders on demand, so every agent can already use it without declaring anything. Installing one into an agent would put content through the code path — an ABI check, a node_modules link, an agent reload — for something that needs none of it.",
         source: "manifest",
@@ -1703,7 +2009,7 @@ export const errorMap = {
     },
     // ── README assets (build/project/bundle/assets.ts) ──────────────────────
     ASSET_TYPE_REFUSED: {
-        code: "AX-PROJECT-038",
+        code: "AX-PROJECT-045",
         title: "Unsupported Asset Type",
         description: "A file in assets/ is not a type the registry serves. Images (png, jpg, jpeg, webp, gif) and video (mp4, webm, mov) are accepted. SVG is deliberately refused: it is an executable document that would be served from our own storage origin, so a published SVG is a script-injection surface for every visitor reading that README.",
         source: "manifest",
@@ -1711,7 +2017,7 @@ export const errorMap = {
         expected: true,
     },
     ASSET_TOO_LARGE: {
-        code: "AX-PROJECT-039",
+        code: "AX-PROJECT-046",
         title: "Asset Exceeds Size Limit",
         description: "A single file in assets/ is over the per-asset limit. Assets exist to illustrate a README, not to distribute media — compress the file or link to it externally.",
         source: "manifest",
@@ -2001,6 +2307,119 @@ export const errorMap = {
         severity: "degraded",
         expected: true,
     },
+    // ── Daemon (axond) ──────────────────────────────────────────────────────
+    //
+    // The daemon owns machine-wide state, so its failures are about REACHING
+    // it or about it refusing something — never about the work itself, which
+    // reports through the domain's own codes.
+    AGENT_NO_SUPERVISOR: {
+        code: "AX-AGENT-030",
+        title: "No Supervisor to Boot This Agent",
+        description: "Something asked a platform to spawn an agent, but that platform was built without a supervisor. Supervision holds the provider credential and the session log, so it lives in the daemon rather than in whichever process happened to ask — a platform used only to read the store or publish a project does not need one, and this is where the difference surfaces.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
+    MODEL_RUNTIME_MISSING: {
+        code: "AX-MODEL-031",
+        title: "That Runtime Is Not Installed",
+        description: "An adapter recognised the model and the library that executes it is not on this machine. Local inference runtimes are optional because they are large — ONNX Runtime alone is around 300MB of native binaries — so they are installed when first wanted rather than shipped with the CLI.",
+        source: "daemon",
+        severity: "fatal",
+        expected: true,
+    },
+    MODEL_LOAD_FAILED: {
+        code: "AX-MODEL-032",
+        title: "The Model Could Not Be Loaded",
+        description: "A runtime recognised the file and failed to read it. Distinct from an unsupported format: this weight is one this machine can execute in principle, so the file itself is the problem — truncated, corrupt, or not the model its name claims.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    MODEL_WILL_NOT_FIT: {
+        code: "AX-MODEL-033",
+        title: "Not Enough Memory for This Model",
+        description: "The weight loaded and did not fit within this machine's ceiling, so it was unloaded again. The refusal names what is holding the memory — a model already resident, or another process entirely, since the check measures the whole card rather than Axon's share. Nothing is evicted automatically: a silent eviction is another agent mysteriously slowing down.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    MODEL_NOT_RESIDENT: {
+        code: "AX-MODEL-034",
+        title: "That Model Is Not Loaded",
+        description: "Inference was asked of a weight that is not in memory. Loading is never implicit: it is a claim on the machine's memory, and taking one a caller did not ask for would make admission invisible at the moment it matters.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    MODEL_NOT_CACHED: {
+        code: "AX-MODEL-035",
+        title: "That Model Is Not On This Machine",
+        description: "A weight was asked for that has not been fetched. The daemon caches models content-addressed and machine-wide, so one download serves every agent — but it only serves what has actually been downloaded.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    MODEL_NO_SINGLE_WEIGHT: {
+        code: "AX-MODEL-036",
+        title: "That Repository Has No Single Weight",
+        description: "A repository was asked for by name and publishes several weights with no obvious one to take — an encoder-decoder export ships both halves and needs both, and a quantised set is a choice about quality rather than a default. Name the file to fetch. Guessing would download half a model that fails at load with something obscure.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    MODEL_NO_RUNTIME: {
+        code: "AX-MODEL-030",
+        title: "No Runtime Can Execute This Model",
+        description: "The weight is on this machine and no adapter claims it. Runtimes are registered per format — ONNX, llama.cpp — and a file none of them recognises can be fetched and cached but not loaded. Either the format needs an adapter, or the file is not the model it appears to be.",
+        source: "daemon",
+        severity: "fatal",
+        expected: true,
+    },
+    DAEMON_NOT_RUNNING: {
+        code: "AX-DAEMON-001",
+        title: "The Axon Daemon Is Not Running",
+        description: "Something asked axond for machine-wide state — what is loaded on the GPU, which agents are running — and no daemon is listening. Start it with `axon daemon up`. Every agent is supervised by the daemon, so this is not a degraded mode: nothing that boots an agent can proceed without one.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    DAEMON_ALREADY_RUNNING: {
+        code: "AX-DAEMON-002",
+        title: "A Daemon Is Already Running",
+        description: "A second axond was asked to start while one is already listening on this socket. One daemon per user per machine is the whole point — two would each believe they owned the GPU. Nothing was started; the existing one is untouched.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DAEMON_SOCKET_UNAVAILABLE: {
+        code: "AX-DAEMON-003",
+        title: "Could Not Bind the Daemon Socket",
+        description: "axond could not listen on its unix socket. Usually a stale socket file left by a process killed with -9, which the daemon removes on start; if it persists, the path may be unwritable or on a filesystem that does not support unix sockets.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    DAEMON_START_FAILED: {
+        code: "AX-DAEMON-004",
+        title: "The Daemon Failed to Start",
+        description: "axond was spawned but never reported itself ready. Every agent runs under the daemon's supervision, so a machine without one cannot boot an agent at all — this fails loudly rather than falling back, because a silent fallback is how a broken daemon went unnoticed in a published release. Its output is in the daemon log named by the detail; the usual causes are a port or socket conflict and a broken profile config.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    DAEMON_NOT_WIRED: {
+        code: "AX-DAEMON-005",
+        title: "That Part of the Daemon Is Not Built Yet",
+        description: "A domain the daemon declares exists but is not implemented. It throws rather than answering, because a stub returning an empty list is indistinguishable from a real answer and gets built on top of.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    EXTENSION_LOAD_TIMEOUT: {
+        code: "AX-EXT-034",
+        title: "Extension Took Too Long to Load",
+        description: "A config file did not finish evaluating within the load budget — usually a blocking loop or a synchronous wait at module scope. Loading continued without it, so its commands, keys and palettes are missing; everything else in your config still loaded. The file itself keeps running until it finishes, because there is no safe way to interrupt code mid-execution.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
     PLUGIN_FAILED: {
         code: "AX-EXT-009",
         title: "Plugin Failed to Load",
@@ -2177,7 +2596,7 @@ export const errorMap = {
         expected: true,
     },
     CONNECT_REJECTED: {
-        code: "AX-EXT-020",
+        code: "AX-EXT-035",
         title: "Connector Credential Rejected",
         description: "The platform refused the credential pasted during `:connect`. Verification runs before the value is written, so nothing was stored — the detail carries the platform's own reason, and the most common cause is copying the wrong secret from the developer portal.",
         source: "tui",

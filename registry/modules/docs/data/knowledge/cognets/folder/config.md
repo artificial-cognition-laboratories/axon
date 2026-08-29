@@ -1,19 +1,15 @@
 ---
 title: cognet.config.ts
-description: Identity, ABI version, and how the scheduler wakes this brain.
+description: What a brain declares — how the scheduler wakes it, what it wakes on, what inference it needs.
 ---
 
 # cognet.config.ts
 
-Identity only. Pure data, no logic, no lifecycle. Behaviour lives in `src/main.ts`, and
-the compile step composes the two.
+What this brain *declares*. Pure data, no logic, no lifecycle. Behaviour lives in
+`src/main.ts`, identity in `package.json`, and the compile step composes the three.
 
 ```ts
 export default defineCognet({
-    name: "zero",
-    version: "0.1.0",
-    abi: "10",
-
     mode: { kind: "invocation" },
 
     // runaway guard: a wake that hasn't converged in this many
@@ -22,38 +18,51 @@ export default defineCognet({
 })
 ```
 
+Every field is optional except `mode`, and the whole file is optional too — a cognet
+with no `cognet.config.ts` is invocation-mode with no wake mask, which is what most
+first brains are.
+
 ## Fields
 
 | Field | Required | What it declares |
 |---|---|---|
-| `name` | yes | The cognet's own name. Its private store is namespaced by this. |
-| `version` | yes | Artifact version. |
-| `abi` | yes | The kernel ABI this cognet was built against. |
 | `mode` | yes | How the scheduler wakes it. |
 | `wakeOn` | no | Default wake mask. Absent means wake on everything. |
-| `maxTicksPerWake` | no | Hard safety bound for one wake. Defaults to 8. |
+| `maxTicksPerWake` | no | Hard safety bound for one wake. Absent means unbounded. |
+| `engines` | no | The inference roles this brain needs. |
 | `models` | no | Model weights this brain needs. Fetched, verified and cached by Axon. |
+| `abi` | no | Pin the kernel ABI. Absent means the one it was compiled against. |
+
+## What identity isn't here
+
+`name` and `version` are **not** declared. A cognet is an ordinary package, and its
+`package.json` already carries both — it is what the registry publishes under, what the
+installer resolves, and what an agent writes in its dependencies.
+
+They used to live here as well, and two writable copies of one fact drifted exactly as
+duplicated facts do: `@axon/zero` shipped as `1.0.44` while telling the kernel it was
+`0.1.2`, because publish read the package and the runtime read the config. Identity has
+one home now.
 
 ## `abi` — the compatibility contract
 
+A cognet is versioned against the kernel the way a binary is versioned against syscalls.
+Omit it and the compile step stamps in the ABI it built against, which is the truthful
+answer: a cognet publishes as *source* and is compiled by the consumer against the kernel
+it will actually run on.
+
 ```ts
-abi: "10"
+abi: "11"
 ```
 
-A cognet is versioned against the kernel the way a binary is versioned against syscalls.
-This declares which contract it was written for.
-
-`axon prepare` checks it against the kernel the installed Axon provides and fails there,
-naming both versions and the file to edit. A cognet built for an older ABI never
-half-loads.
-
-This matters more now that cognets version independently of the CLI: an agent can pin
-`@you/my-cognet@0.1.0` while its Axon moves forward. The check is what turns that from a
-mysterious runtime failure into a clear prepare-time one.
+Pin it only to make a cognet **refuse** a kernel it hasn't been validated against.
+`axon prepare` then checks the pin against the kernel the installed Axon provides and
+fails there, naming both versions and the file to edit — a cognet pinned to an older ABI
+never half-loads.
 
 ## `mode` — invocation or continuous
 
-Part of the cognet's own declared identity, deliberately **not** blueprint-overridable.
+Part of the cognet's own declared shape, deliberately **not** blueprint-overridable.
 Same trust direction as `abi`: a cognet written for stimulus-driven wakes was never
 written to tolerate an empty-stimuli tick, so an agent author can't flip it from outside.
 
@@ -98,7 +107,8 @@ A hard bound, not a scheduling mechanism. A wake that hasn't converged in this m
 is a loop bug or a stuck model, not progress, and the host throws rather than spinning.
 
 Strategy may stop earlier and usually does — `zero` typically converges in two or three
-ticks. Defaults to 8 when omitted.
+ticks. Omitted means unbounded, which is the right default for open-ended work: what
+bounds a wake there is `<done/>`, the user's interrupt, and the engine failing loudly.
 
 ## `models` — the weights this brain needs
 
@@ -153,6 +163,6 @@ needs*, never where they live. The resolved path is environmental and arrives th
 kernel like everything else — the same brain gets a different absolute path on every
 machine and never learns that.
 
-A cognet cannot read any of them. It declares who it is and how it wants to be woken;
+A cognet cannot read any of them. It declares how it wants to be woken and what it needs;
 everything about the environment it runs in is on the other side of the
 [kernel contract](/docs/v2/cognets/engine/kernel-contract).

@@ -46,9 +46,9 @@ export function handshake(opts: HandshakeOpts): Promise<void> {
         }, timeoutMs)
 
         offs.push(
-            bus.on("capsule:boot:complete", () => settle(resolve)),
-            bus.on("capsule:boot:failed", e => fail("CAPSULE_BOOT_FAILED", e.error.message, e.error)),
-            bus.on("capsule:exit", e => fail("CAPSULE_BOOT_FAILED", `subprocess exited (code ${e.code ?? "unknown"}) before ready`)),
+            bus.on("process:boot:complete", () => settle(resolve)),
+            bus.on("process:boot:failed", e => fail("CAPSULE_BOOT_FAILED", e.error.message, e.error)),
+            bus.on("process:exit", e => fail("CAPSULE_BOOT_FAILED", `subprocess exited (code ${e.code ?? "unknown"}) before ready`)),
         )
     })
 }

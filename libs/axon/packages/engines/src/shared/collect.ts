@@ -53,7 +53,23 @@ export function Collect(opts: CollectOpts) {
          * an empty completion is a provider failure, never a valid run.
          * Usage is included only when the provider reports it.
          */
-        done(input?: { signal?: AbortSignal; tokens?: AxonEngineMeta["tokens"] }): AxonEngineRawEvent {
+        done(input?: {
+            signal?: AbortSignal
+            tokens?: AxonEngineMeta["tokens"]
+            /**
+             * Why the provider stopped, when it says.
+             *
+             * Absent means "ended normally", which is what every driver
+             * written before this parameter existed implies. Passing
+             * "length" is how a driver reports TRUNCATION — the kernel
+             * treats trailing blocks as incomplete on that signal, and
+             * without it a half-written AIR block is parsed as a finished
+             * one.
+             */
+            stopReason?: "end" | "length"
+            requestId?: string
+            firstTokenMs?: number
+        }): AxonEngineRawEvent {
             if (input?.signal?.aborted) {
                 throw failure({
                     code: "ABORTED",
@@ -78,12 +94,14 @@ export function Collect(opts: CollectOpts) {
                 response: {
                     text: output,
                     ...(thinking ? { thinking } : {}),
-                    stopReason: input?.signal?.aborted ? "abort" : "end",
+                    stopReason: input?.signal?.aborted ? "abort" : (input?.stopReason ?? "end"),
                     meta: {
                         provider: opts.provider,
                         model: opts.model,
+                        ...(input?.requestId ? { requestId: input.requestId } : {}),
                         ...(input?.tokens ? { tokens: input.tokens } : {}),
                         durationMs: Date.now() - started,
+                        ...(input?.firstTokenMs !== undefined ? { firstTokenMs: input.firstTokenMs } : {}),
                     },
                 },
             }

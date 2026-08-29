@@ -9,7 +9,8 @@ import type {
 } from "@arcforge/types"
 
 declare global {
-    /** identity declaration — cognet.config.ts only */
+    /** what this brain declares (mode, wakeOn, engines) — cognet.config.ts only.
+     *  Identity is NOT declared: name and version come from package.json. */
     function defineCognet<T extends CognetConfig>(config: T): T
 
     /**

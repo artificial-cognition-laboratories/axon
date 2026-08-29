@@ -31,6 +31,11 @@ export type AxonStackFrame = {
 export type AxonErrorSource =
     | "runtime" | "manifest" | "capsule" | "server" | "thread" | "cli"
     | "cloud" | "kernel" | "cognet" | "tui" | "bench"
+    // The machine-wide daemon. Its own source rather than "runtime": a
+    // failure here is about SHARED state — the GPU, the instance registry —
+    // and telling that apart from one agent's runtime fault is the difference
+    // between "restart your agent" and "start the daemon".
+    | "daemon"
 
 /** Lifecycle impact of an error. */
 export type AxonErrorSeverity = "fatal" | "recovered" | "degraded"

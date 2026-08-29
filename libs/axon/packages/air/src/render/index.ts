@@ -7,6 +7,7 @@ import {
     renderContract,
     renderVersion,
     renderScope,
+    renderSessionStart,
     renderState,
     renderSystem,
     renderTimeline,
@@ -97,15 +98,31 @@ export function Render(opts: RenderOpts) {
             // Only when a real conversation follows. On an empty history it
             // would BE the conversation, and the model would answer a systems
             // check nobody asked for.
+            // Whether a demonstration actually reached the messages array —
+            // what the session marker below keys on, so the boundary and the
+            // thing it bounds can never disagree.
+            let demonstrated = false
+
             if (input.preflight !== false && input.history && input.history.length > 0 && conversational()) {
                 // Rendered through the SAME renderer the real history uses, so
                 // the demonstration cannot describe a grammar the renderer no
                 // longer speaks. Hand-written markup made the preflight a
                 // second implementation of the format — the duplication that
                 // let `<meta>` outlive two tag renames.
-                messages.push(...renderConversation(preflightEntries(grammar.preflight), grammar, { idPrefix: "p" }))
+                const demo = renderConversation(preflightEntries(grammar.preflight), grammar, { idPrefix: "p" })
+                // Set from what was actually PUSHED, not from the conditions
+                // that led here: a protocol carrying no preflight turns
+                // renders nothing, and a boundary marking the start of a
+                // session that nothing precedes separates two halves of one
+                // thing.
+                demonstrated = demo.length > 0
+                messages.push(...demo)
             }
 
+            // The boundary, between the demonstration and what actually
+            // happened. Only when there IS a demonstration to separate from —
+            // see renderSessionStart.
+            //
             if (input.history && input.history.length > 0) {
                 // The history as a real conversation, or as one document.
                 //
@@ -120,8 +137,32 @@ export function Render(opts: RenderOpts) {
                 // Kept switchable while both are measured against real models.
                 // Default is read per render rather than captured at import so
                 // a run can be flipped without a rebuild.
-                if (conversational()) messages.push(...renderConversation(input.history, grammar))
-                else messages.push({ role: "user", content: renderTimeline(input.history, grammar) })
+                const turns = conversational()
+                    ? renderConversation(input.history, grammar)
+                    : [{ role: "user" as const, content: renderTimeline(input.history, grammar) }]
+
+                // The boundary, PREPENDED into the session's first turn rather
+                // than sent as a message of its own — see renderSessionStart.
+                //
+                // Its own message would be a `user` turn immediately before
+                // another `user` turn (the session always opens with one, since
+                // something had to prompt the agent). Providers variously
+                // reject or silently merge consecutive same-role messages, and
+                // a merge produces exactly this content anyway — done here, the
+                // result is the same everywhere instead of provider-dependent.
+                //
+                // Not a `system` message for the same reason: everything from
+                // the demonstration down is alternating user/assistant turns,
+                // and a system message spliced into the middle breaks the shape
+                // the conversation rendering exists to produce. It would also
+                // land behind the stable head, which is the prefix-caching
+                // boundary `sections.test.ts` guards.
+                const first = turns[0]
+                if (demonstrated && first) {
+                    turns[0] = { ...first, content: `${renderSessionStart()}\n${first.content}` }
+                }
+
+                messages.push(...turns)
             }
 
             return messages

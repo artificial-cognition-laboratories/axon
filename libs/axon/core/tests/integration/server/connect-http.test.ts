@@ -1,5 +1,5 @@
 import { exportSPKI, generateKeyPair, SignJWT } from "jose"
-import { Agents } from "@arclabs/cloud"
+import { Agents } from "@arcforge/cloud"
 import { Axon } from "../../setup/axon"
 import { Mock } from "@arcforge/engines"
 

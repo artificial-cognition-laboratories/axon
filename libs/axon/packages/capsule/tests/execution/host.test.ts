@@ -1,4 +1,4 @@
-import { Capsule } from "@axon/capsule"
+import { Capsule } from "@arcforge/capsule"
 
 describe("Capsule Axon host bridge", () => {
     it("forwards axon.request through the trusted host and returns its result", async () => {

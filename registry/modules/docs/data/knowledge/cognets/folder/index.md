@@ -15,26 +15,31 @@ my-cognet/
 ├── src/
 │   ├── main.ts        # the brain — declares loop()
 │   └── state.ts       # resident memory, shaped however you like
-├── cognet.config.ts   # identity and ABI version
-└── package.json       # name, version, npm deps
+├── cognet.config.ts   # how it wants to be woken (optional)
+└── package.json       # identity: name, version, npm deps
 ```
 
-Two files are required: `cognet.config.ts` and `src/main.ts`. Everything else is
-optional.
+Two files are required: `package.json` and `src/main.ts`. Everything else, including
+`cognet.config.ts`, is optional.
 
 ## The split
 
-Identity and behaviour never live in the same file.
+Identity, declaration and behaviour never live in the same file.
 
-**`cognet.config.ts`** declares what this cognet *is* — name, version, the kernel ABI it
-targets, how it wants to be woken. Pure data, no logic.
+**`package.json`** is who this cognet *is* — name and version. The same identity the
+registry publishes under and the installer resolves, declared once.
+
+**`cognet.config.ts`** is what it *declares* — how it wants to be woken, what it wakes
+on, what inference it needs. Pure data, no logic. Omit it entirely and you get the
+defaults.
 
 **`src/main.ts`** is what it *does*. A raw script that runs once at load and declares
 exactly one `loop()`.
 
-The compile step composes the two into the artifact the kernel loads. That's why neither
-file contains lifecycle boilerplate: the desugaring happens in the build, and there is no
-side channel around it.
+The compile step composes the three into the artifact the kernel loads — reading identity
+from the package, stamping in the kernel ABI it built against, and fusing the loop. That's
+why none of these files contains lifecycle boilerplate: the desugaring happens in the
+build, and there is no side channel around it.
 
 ## What the compile step does
 

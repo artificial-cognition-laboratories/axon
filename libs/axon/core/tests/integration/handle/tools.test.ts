@@ -4,7 +4,6 @@ import type { AxonTool } from "@arcforge/types"
 const greeterTool: AxonTool = {
     name: "greeter",
     origin: "src",
-    flat: true,
     fns: [{ name: "greet", declaration: "function greet(name: string): string" }],
     source: `
         export default {
@@ -49,7 +48,6 @@ describe("axon.tools", () => {
         const echoTool: AxonTool = {
             name: "echo",
             origin: "src",
-            flat: true,
             fns: [{ name: "say", declaration: "function say(msg: string): string" }],
             source: `
                 export default {
@@ -78,7 +76,6 @@ describe("axon.tools", () => {
         const mathTool: AxonTool = {
             name: "math",
             origin: "src",
-            flat: true,
             fns: [{ name: "add", declaration: "function add(a: number, b: number): number" }],
             source: `
                 export default {
@@ -117,7 +114,7 @@ describe("axon.tools", () => {
         const runtime = await Axon({
             blueprint: {
                 // declared in fns metadata, but no `source` — never loaded into the capsule
-                tools: [{ name: "ghost", origin: "package", flat: true, fns: [{ name: "vanish", declaration: "function vanish(): void" }] }],
+                tools: [{ name: "ghost", origin: "package", fns: [{ name: "vanish", declaration: "function vanish(): void" }] }],
                 config: { policy: { tools: { ghost: true } } },
             },
         })
