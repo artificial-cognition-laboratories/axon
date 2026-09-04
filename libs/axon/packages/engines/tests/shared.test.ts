@@ -1,4 +1,4 @@
-import { Collect, EngineFailure, readNdjson, readSse } from "../src/shared"
+import { asEngineFault, Collect, EngineFailure, readNdjson, readSse } from "../src/shared"
 
 describe("engine shared hardening", () => {
     it("parses a final NDJSON record without requiring a trailing newline", async () => {
@@ -14,6 +14,11 @@ describe("engine shared hardening", () => {
     it("surfaces malformed SSE data as a protocol error", async () => {
         const drain = Array.fromAsync(readSse(new Response('data: {not-json}\n\n')))
         await expect(drain).rejects.toThrow(/SSE protocol error/)
+    })
+
+    it("parses a final SSE record without requiring a trailing newline", async () => {
+        const events = await Array.fromAsync(readSse(new Response('data: {"done":true}')))
+        expect(events).toEqual([{ done: true }])
     })
 
     it("classifies an aborted empty collection as ABORTED, not EMPTY_RESPONSE", () => {
@@ -37,5 +42,17 @@ describe("engine shared hardening", () => {
         const done = collect.done()
         expect(done.type).toBe("done")
         if (done.type === "done") expect(done.response.text).toBe("<typescript>1 + 1</typescript>")
+    })
+
+    it("preserves a serialized engine fault received across a process boundary", () => {
+        const fault = {
+            code: "EMPTY_RESPONSE" as const,
+            message: "codex: empty response",
+            retryable: true,
+            provider: "codex",
+        }
+        const remoteError = Object.assign(new Error(fault.message), { fault })
+
+        expect(asEngineFault(remoteError, { provider: "supervisor" })).toEqual(fault)
     })
 })

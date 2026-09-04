@@ -1,4 +1,5 @@
 import { err } from "@arcforge/err"
+import type { AxonEngineFault } from "@arcforge/types"
 import { FrameReader, decodeMessage, encodeMessage } from "./frame"
 
 /**
@@ -29,13 +30,20 @@ import { FrameReader, decodeMessage, encodeMessage } from "./frame"
 type Wire =
     | { k: "call"; id: string; verb: string; arg: unknown }
     | { k: "reply"; id: string; ok: true; value: unknown }
-    | { k: "reply"; id: string; ok: false; error: string }
+    | { k: "reply"; id: string; ok: false; error: WireError }
     | { k: "send"; verb: string; arg: unknown }
     | { k: "open"; id: string; verb: string; arg: unknown }
     | { k: "chunk"; id: string; value: unknown }
     | { k: "end"; id: string; ok: true }
-    | { k: "end"; id: string; ok: false; error: string }
+    | { k: "end"; id: string; ok: false; error: WireError }
     | { k: "abort"; id: string }
+
+/**
+ * Errors normally cross this boundary as a message only. Engine failures are
+ * different: their retryability is part of the driver contract, so preserve
+ * the already-serializable fault alongside the message.
+ */
+type WireError = { message: string; fault?: AxonEngineFault }
 
 export type ChannelSocket = {
     /** Write bytes. The transport must not lose a short write — see Writer. */
@@ -89,7 +97,25 @@ type ChannelOpts = {
 }
 
 let counter = 0
-const nextId = () => `${Date.now().toString(36)}-${(counter++).toString(36)}`
+
+/**
+ * A correlation id unique across BOTH SIDES of the link.
+ *
+ * The origin segment is load-bearing. Ids used to be
+ * `${Date.now()}-${counter++}` with the counter starting at 0 in each
+ * process — so a supervisor and its agent issuing a call in the same
+ * millisecond minted the SAME id (verified: three calls each, complete
+ * overlap). Both sides key `pending` on it, so a reply could match the wrong
+ * entry, and `dispatch`'s `if (!entry) return` then dropped the real one
+ * silently: the caller's promise never settled, nothing timed out, nothing
+ * logged. That is what "the second agent's wake hangs forever" was.
+ *
+ * A random origin per channel is enough and needs no coordination — the two
+ * sides cannot agree on a label without a handshake, and a handshake to
+ * number messages is more protocol than the problem deserves.
+ */
+const origin = Math.random().toString(36).slice(2, 8)
+const nextId = () => `${origin}-${Date.now().toString(36)}-${(counter++).toString(36)}`
 
 export function Channel(opts: ChannelOpts) {
     const reader = FrameReader()
@@ -116,7 +142,7 @@ export function Channel(opts: ChannelOpts) {
             const value = await opts.handlers.call(msg.verb, msg.arg, controller.signal)
             trySend({ k: "reply", id: msg.id, ok: true, value })
         } catch (cause) {
-            trySend({ k: "reply", id: msg.id, ok: false, error: (cause as Error).message })
+            trySend({ k: "reply", id: msg.id, ok: false, error: wireError(cause) })
         } finally {
             inbound.delete(msg.id)
         }
@@ -142,7 +168,7 @@ export function Channel(opts: ChannelOpts) {
             }
             trySend({ k: "end", id: msg.id, ok: true })
         } catch (cause) {
-            trySend({ k: "end", id: msg.id, ok: false, error: (cause as Error).message })
+            trySend({ k: "end", id: msg.id, ok: false, error: wireError(cause) })
         } finally {
             inbound.delete(msg.id)
         }
@@ -160,9 +186,18 @@ export function Channel(opts: ChannelOpts) {
                 return
             case "reply": {
                 const entry = pending.get(msg.id)
-                if (!entry) return
+                if (!entry) {
+                    // A reply nothing is waiting for. Legitimate exactly once
+                    // — when the caller aborted and removed its entry first —
+                    // and otherwise a correlation fault, which is precisely
+                    // the class that used to hang a caller forever with no
+                    // record of why. Reported rather than returned into
+                    // silence; there is no promise left to reject.
+                    opts.onError(new Error(`link: reply for unknown call ${msg.id}`))
+                    return
+                }
                 pending.delete(msg.id)
-                msg.ok ? entry.resolve(msg.value) : entry.reject(new Error(msg.error))
+                msg.ok ? entry.resolve(msg.value) : entry.reject(errorFromWire(msg.error))
                 return
             }
             case "chunk": streams.get(msg.id)?.push(msg.value); return
@@ -170,7 +205,7 @@ export function Channel(opts: ChannelOpts) {
                 const entry = streams.get(msg.id)
                 if (!entry) return
                 streams.delete(msg.id)
-                entry.end(msg.ok ? undefined : new Error(msg.error))
+                entry.end(msg.ok ? undefined : errorFromWire(msg.error))
                 return
             }
             case "abort": inbound.get(msg.id)?.abort(); return
@@ -196,7 +231,12 @@ export function Channel(opts: ChannelOpts) {
         },
 
         /** Request one value. */
-        call<T>(verb: string, arg: unknown, signal?: AbortSignal): Promise<T> {
+        // `T = unknown` by default. Without the default TypeScript has no
+        // inference site for T and resolves it to `undefined`, so every caller
+        // that awaited a real value was comparing against `undefined` — a
+        // whole class of assertion that could not be written until these tests
+        // were typechecked.
+        call<T = unknown>(verb: string, arg: unknown, signal?: AbortSignal): Promise<T> {
             if (closed) return Promise.reject(closed)
             const id = nextId()
             return new Promise<T>((resolve, reject) => {
@@ -280,6 +320,27 @@ export function Channel(opts: ChannelOpts) {
 
         get isClosed() { return closed !== null },
     }
+}
+
+function wireError(cause: unknown): WireError {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    const fault = cause && typeof cause === "object" && "fault" in cause
+        ? (cause as { fault?: unknown }).fault
+        : undefined
+    return isEngineFault(fault) ? { message, fault } : { message }
+}
+
+function errorFromWire(error: WireError): Error {
+    return Object.assign(new Error(error.message), error.fault ? { fault: error.fault } : {})
+}
+
+function isEngineFault(value: unknown): value is AxonEngineFault {
+    if (!value || typeof value !== "object") return false
+    const fault = value as Partial<AxonEngineFault>
+    return typeof fault.code === "string"
+        && typeof fault.message === "string"
+        && typeof fault.retryable === "boolean"
+        && typeof fault.provider === "string"
 }
 
 export type ChannelT = ReturnType<typeof Channel>

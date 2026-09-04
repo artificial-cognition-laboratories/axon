@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { detectKind } from "@arcforge/platform/build/project"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 describe("bench platform topology", () => {
     it("opens a benchmark independently of project kind", async () => {

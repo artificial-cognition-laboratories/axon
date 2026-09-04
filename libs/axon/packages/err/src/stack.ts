@@ -96,6 +96,14 @@ function withSource(frame: Omit<AxonStackFrame, "source">): AxonStackFrame {
 }
 
 /** `CONTEXT_LINES` of real source ± the reported line, captured as plain data — no disk access after this point. */
+/**
+ * Past this, a line is machine-generated and there is no snippet to show.
+ *
+ * Generous — real source wraps long before this, and the failure mode being
+ * prevented is a single line of hundreds of thousands of characters.
+ */
+const MAX_LINE_WIDTH = 400
+
 function readSourceWindow(fileName: string | null, lineNumber: number | null): AxonSourceLine[] | null {
     if (!fileName || lineNumber === null) return null
 
@@ -109,6 +117,22 @@ function readSourceWindow(fileName: string | null, lineNumber: number | null): A
     const lines = text.split("\n")
     const targetIdx = lineNumber - 1
     if (targetIdx < 0 || targetIdx >= lines.length) return null
+
+    /**
+     * A MINIFIED file has no useful source window.
+     *
+     * The guard above anticipated a bundle being unreadable. A published
+     * bundle is perfectly readable — and minified, so one "line" is hundreds
+     * of kilobytes. Every unclassified error in a released build printed three
+     * of them: a wall of `function G8A(e){N8A.getStore()?.(e)...` where a code
+     * frame should be, which is the worst thing a user can be shown and made
+     * the actual message impossible to find.
+     *
+     * Judged by line WIDTH rather than by filename: `.min.js` is a convention,
+     * a 200KB line is the actual problem, and any file with one cannot produce
+     * a frame worth rendering.
+     */
+    if ((lines[targetIdx]?.length ?? 0) > MAX_LINE_WIDTH) return null
 
     const from = Math.max(0, targetIdx - CONTEXT_LINES)
     const to = Math.min(lines.length - 1, targetIdx + CONTEXT_LINES)

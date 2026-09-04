@@ -88,7 +88,47 @@ export function OnnxAdapter(): ModelAdapter {
                 })
             }
 
+            /**
+             * One session run — named tensors in, named tensors out.
+             *
+             * ── Why this refuses a string ───────────────────────────────
+             *
+             * An ONNX graph has no notion of a prompt. It has typed input
+             * tensors with fixed names, and turning "hello" into them is
+             * per-FAMILY work: a tokeniser for a text model, a phonemiser
+             * and a style vector for Kokoro, a mel spectrogram for Whisper.
+             * None of that lives here yet.
+             *
+             * So text is refused with the graph's actual input names,
+             * rather than forwarded to onnxruntime to produce `'feeds'
+             * must be an object that use input names as keys` — which is
+             * true, unactionable, and reads to a user as a broken product
+             * rather than a missing feature. A boundary that cannot serve
+             * a caller says so in the caller's terms.
+             */
+            async function transform(input: unknown): Promise<unknown> {
+
+                if (input === null || typeof input !== "object" || Array.isArray(input)) {
+                    throw err("MODEL_INPUT_INVALID", {
+                        detail: `this ONNX graph takes named tensors (${names(session).join(", ")}), not text`
+                            + " — building them from a prompt needs a per-model tokeniser, which is not wired yet",
+                        context: { runtime: "onnx", inputs: names(session) },
+                    })
+                }
+                return session.run(input as Record<string, unknown>)
+            }
+
             return {
+                /**
+                 * A bare graph is a one-shot call — tensors in, tensors out.
+                 *
+                 * Not "generate" even for a language model's decoder: without
+                 * a tokeniser this cannot take a prompt, and claiming the
+                 * handle shape it cannot honour is how a caller ends up with
+                 * `generate` undefined at the moment it needs it.
+                 */
+                engine: "transform" as const,
+
                 /**
                  * The file's size, as the cost.
                  *
@@ -100,9 +140,10 @@ export function OnnxAdapter(): ModelAdapter {
                  */
                 bytes: statSync(path).size,
 
-                async run(input: unknown): Promise<unknown> {
-                    return session.run(input as Record<string, unknown>)
-                },
+                transform: transform,
+
+                /** Identical here: a raw session has no looser door to offer. */
+                run: transform,
 
                 async unload(): Promise<void> {
                     // Release is best-effort: an already-released session
@@ -128,4 +169,11 @@ type OnnxModule = {
 type OnnxSession = {
     run(feeds: Record<string, unknown>): Promise<unknown>
     release?(): Promise<void>
+    /** The graph's declared inputs. Present on every real session; guarded anyway. */
+    inputNames?: readonly string[]
+}
+
+/** What this graph wants, for an error message that a person can act on. */
+function names(session: OnnxSession): string[] {
+    return session.inputNames ? [...session.inputNames] : ["unknown"]
 }

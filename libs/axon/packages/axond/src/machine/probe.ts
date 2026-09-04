@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { freemem, loadavg, totalmem } from "node:os"
-import type { MachineUsage } from "./types"
+import { amdCardDevice, sysfsNumber } from "./hardware"
+import type { MachineReading } from "./types"
 
 /**
  * Probe — what is in use RIGHT NOW.
@@ -19,16 +21,31 @@ import type { MachineUsage } from "./types"
  *
  * It reads the WHOLE machine, not Axon's share. A browser holding 3GB of video
  * memory is real, and an admission check blind to it hands out memory that is
- * already gone.
+ * already gone. Our share is stamped on by `Samples`, which is the only thing
+ * here that knows about residency.
+ *
+ * ── Utilisation is a rate, so this holds state ──────────────────────────────
+ *
+ * CPU percentage is the difference between two `/proc/stat` readings; a single
+ * one describes the machine since boot and says nothing about now. So the
+ * probe keeps the previous snapshot and the first reading reports null rather
+ * than a number computed against nothing.
  */
 export function Probe() {
+    let previousCpu: CpuSnapshot | null = null
+
     return {
         /** One reading. Synchronous and self-contained — safe to call from a timer. */
-        read(): MachineUsage {
-            const gpu = nvidiaUsage()
+        read(): MachineReading {
+            const gpu = gpuUsage()
+            const cpu = cpuSnapshot()
+            const util = cpu !== null && previousCpu !== null ? cpuUtilisation(previousCpu, cpu) : null
+            if (cpu !== null) previousCpu = cpu
+
             return {
                 vramUsed: gpu?.used ?? null,
                 gpuUtil: gpu?.util ?? null,
+                cpuUtil: util,
                 ramAvailable: availableMemory(),
                 load: loadavg()[0] ?? 0,
                 at: Date.now(),
@@ -39,8 +56,20 @@ export function Probe() {
 
 export type ProbeT = ReturnType<typeof Probe>
 
-/** Video memory in use and compute utilisation, or null where unreadable. */
+/**
+ * Video memory in use and compute utilisation, whichever vendor can answer.
+ *
+ * NVIDIA first because its tool answers both figures in one call; AMD second
+ * through sysfs, which costs two file reads and no subprocess at all. A
+ * machine with neither reports null and the caller renders "unreadable".
+ */
+function gpuUsage(): { used: number; util: number | null } | null {
+    return nvidiaUsage() ?? amdUsage()
+}
+
 function nvidiaUsage(): { used: number; util: number } | null {
+    if (!Bun.which("nvidia-smi")) return null
+
     try {
         const probed = Bun.spawnSync([
             "nvidia-smi",
@@ -57,6 +86,64 @@ function nvidiaUsage(): { used: number; util: number } | null {
     } catch {
         return null
     }
+}
+
+/**
+ * AMD through sysfs — no tool, no subprocess.
+ *
+ * `gpu_busy_percent` is not published by every driver version, so utilisation
+ * is nullable independently of memory: a card can report how full it is
+ * without reporting how busy it is, and refusing both because one is missing
+ * would throw away the figure admission actually needs.
+ */
+function amdUsage(): { used: number; util: number | null } | null {
+    const device = amdCardDevice()
+    if (device === null) return null
+
+    const used = sysfsNumber(join(device, "mem_info_vram_used"))
+    if (used === null) return null
+
+    return { used: used, util: sysfsNumber(join(device, "gpu_busy_percent")) }
+}
+
+/** Cumulative jiffies since boot: everything, and the part that was idle. */
+type CpuSnapshot = { total: number; idle: number }
+
+/**
+ * The aggregate `cpu` line of `/proc/stat`.
+ *
+ * Idle counts both `idle` and `iowait`: a core waiting on a disk is not doing
+ * work, and counting iowait as busy makes a machine copying a model file look
+ * pinned when it is asleep.
+ */
+function cpuSnapshot(): CpuSnapshot | null {
+    try {
+        const line = readFileSync("/proc/stat", "utf-8").split("\n")[0]
+        if (!line || !line.startsWith("cpu ")) return null
+
+        const fields = line.slice(4).trim().split(/\s+/).map(Number)
+        if (fields.length < 5 || fields.some(value => !Number.isFinite(value))) return null
+
+        const total = fields.reduce((sum, value) => sum + value, 0)
+        const idle = (fields[3] ?? 0) + (fields[4] ?? 0)
+        return { total: total, idle: idle }
+    } catch {
+        // Not Linux, or /proc is not mounted. Utilisation stays null, which the
+        // caller already renders as "not measured" rather than as zero.
+        return null
+    }
+}
+
+/** Busy share between two snapshots, 0-100. */
+function cpuUtilisation(previous: CpuSnapshot, current: CpuSnapshot): number | null {
+    const total = current.total - previous.total
+    const idle = current.idle - previous.idle
+    // A tick with no elapsed jiffies divides by zero; a counter that went
+    // backwards means the file was re-read across a boundary we cannot reason
+    // about. Both are "no answer this time", not zero percent.
+    if (total <= 0 || idle < 0) return null
+
+    return Math.max(0, Math.min(100, ((total - idle) / total) * 100))
 }
 
 /**

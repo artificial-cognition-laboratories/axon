@@ -1,4 +1,4 @@
-export { daemonPaths } from "./paths"
+export { daemonPaths, distribution } from "./paths"
 export { Lifecycle } from "./lifecycle"
 export type { LifecycleT } from "./lifecycle"
 export { Boot } from "./boot"
@@ -9,3 +9,6 @@ export { Cli } from "./cli"
 export type { CliT } from "./cli"
 export { Server } from "./server"
 export type { ServerT } from "./server"
+
+export { Preferences } from "./preferences"
+export type { PreferencesOpts, PreferencesT } from "./preferences"

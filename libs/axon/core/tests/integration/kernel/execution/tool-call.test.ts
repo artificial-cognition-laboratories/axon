@@ -66,6 +66,55 @@ describe("kernel execution: tool calls", () => {
         await runtime.shutdown()
     })
 
+    it("quarantines leaked provider control preambles instead of replaying them as tool calls", async () => {
+        let calls = 0
+        const def: AxonEngineDef = {
+            name: "control-preamble",
+            create: () => ({
+                async *stream(): AsyncGenerator<AxonEngineRawEvent> {
+                    calls++
+                    const text = calls === 1
+                        ? "<script>tagger to=fs.read accidental-json\\nconst answer = 42\\nanswer</script>"
+                        : "<text>recovered</text><done/>"
+                    yield { type: "text:delta", content: text }
+                    yield {
+                        type: "done",
+                        response: {
+                            text,
+                            stopReason: "end",
+                            meta: { provider: "control-preamble", model: "test", durationMs: 1 },
+                        },
+                    }
+                },
+            }),
+        }
+        const runtime = await Axon({
+            blueprint: { config: { providers: [driver(def)] } },
+        })
+
+        await runtime.kernel.request({ content: "/go" })
+
+        // It was never TypeScript and never reached the capsule, so it must
+        // not become a prior assistant <script> the next completion copies.
+        expect(runtime.session.entries.some(
+            e => e.type === "cognet:action:typescript" && String(e.data.content).includes("tagger to="),
+        )).toBe(false)
+        expect(runtime.session.entries.some(e => e.type === "cognet:action:result")).toBe(false)
+
+        const fault = runtime.session.entries.find(
+            e => e.type === "axon:system:message" && e.data.type === "format-violation",
+        )
+        expect(fault).toBeDefined()
+        expect(String(fault!.data.content)).toContain("Script not run")
+        expect(String(fault!.data.content)).toContain("tagger to=")
+
+        expect(runtime.session.entries.some(
+            e => e.type === "cognet:output:text" && e.data.content === "recovered",
+        )).toBe(true)
+
+        await runtime.shutdown()
+    })
+
     it("interrupts capsule execution and causally closes the tool call", async () => {
         const runtime = await Axon({
             blueprint: {

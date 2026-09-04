@@ -5,13 +5,20 @@ import { join } from "node:path"
 import { Blueprint } from "../../src/build/blueprint"
 
 /**
- * `engine:` is deprecated and read by nothing.
+ * `engine:` is removed, and loading a config that declares it is REFUSED.
  *
- * The failure this guards against is SILENT: an agent that declares
- * `engine: Codex({ model })` still boots, resolving inference against the
- * profile pool instead, while its config claims otherwise. The warning is the
- * only signal the author gets. If it stops firing, every such agent goes back
- * to lying about what it runs on.
+ * It used to warn and load anyway, on the reasoning that such an agent
+ * already booted on the profile pool so refusing would break working agents
+ * over an ignored field. What that missed is what "boots on the profile pool"
+ * means: the agent runs on a DIFFERENT, BILLED provider than its config names,
+ * and nothing downstream can tell the difference. Nine test fixtures across
+ * this repo declared `engine: Mock()` and made real paid inference calls on
+ * every run for exactly as long as this was a warning — the mock they asked
+ * for was silently swapped for a live provider.
+ *
+ * So the failure these guard is no longer "the warning stopped firing" but
+ * "the refusal stopped firing", which is the same bug with the stakes made
+ * visible.
  */
 
 let dir: string
@@ -32,54 +39,56 @@ async function config(body: string): Promise<void> {
     await writeFile(join(dir, "axon.config.ts"), body)
 }
 
-/** The deprecation warning, if the load produced one. */
-async function deprecation() {
-    const { warnings } = await Blueprint({ root: dir }).load({})
-    return warnings.find(warning => warning.cause?.code === "AX-PROJECT-033")
+/** Load, returning the error it refused with — or null if it loaded. */
+async function refusal(): Promise<{ code?: string; description?: string } | null> {
+    try {
+        await Blueprint({ root: dir }).load({})
+        return null
+    } catch (cause) {
+        return cause as { code?: string; description?: string }
+    }
 }
 
-describe("engine: deprecation", () => {
-    it("warns when the config still declares engine:", async () => {
+describe("engine: removal", () => {
+    it("refuses a config that still declares engine:", async () => {
         await config(`export default defineAgent({ engine: Mock() })\n`)
 
-        const warning = await deprecation()
-
-        expect(warning).toBeDefined()
-        expect(warning?.domain).toBe("config")
+        expect((await refusal())?.code).toBe("AX-PROJECT-033")
     })
 
     it("names both replacements, so the author can act on it", async () => {
         await config(`export default defineAgent({ engine: Codex() })\n`)
 
-        const warning = await deprecation()
+        const error = await refusal()
 
-        expect(warning?.cause?.description).toContain("model:")
-        expect(warning?.cause?.description).toContain("providers:")
+        expect(error?.description).toContain("model:")
+        expect(error?.description).toContain("providers:")
     })
 
-    it("warns but does not throw — the agent still loads", async () => {
+    it("refuses rather than silently running on another provider", async () => {
+        // The whole point. A config naming a mock that loads anyway resolves
+        // against the profile pool — a real, billed provider — while the
+        // author believes no network call is possible.
         await config(`export default defineAgent({ engine: Mock() })\n`)
 
-        const { blueprint } = await Blueprint({ root: dir }).load({})
-
-        expect(blueprint.agent.name).toBe("engine-dep-probe")
+        expect(await refusal()).not.toBeNull()
     })
 
-    it("stays silent for a config using model:", async () => {
+    it("loads a config using model:", async () => {
         await config(`export default defineAgent({ model: "codex:gpt-5.6-terra" })\n`)
 
-        expect(await deprecation()).toBeUndefined()
+        expect(await refusal()).toBeNull()
     })
 
-    it("stays silent for a config using providers:", async () => {
+    it("loads a config using providers:", async () => {
         await config(`export default defineAgent({ providers: [Mock()] })\n`)
 
-        expect(await deprecation()).toBeUndefined()
+        expect(await refusal()).toBeNull()
     })
 
-    it("stays silent for a config declaring no inference at all", async () => {
+    it("loads a config declaring no inference at all", async () => {
         await config(`export default defineAgent({})\n`)
 
-        expect(await deprecation()).toBeUndefined()
+        expect(await refusal()).toBeNull()
     })
 })

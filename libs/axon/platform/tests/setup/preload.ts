@@ -15,6 +15,7 @@ import { Repo } from "@arclabs/repo"
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { describe } from "bun:test"
 
 
 /**
@@ -30,6 +31,23 @@ delete process.env.AXON_API_KEY
 delete process.env.AXON_CONNECT_TOKEN
 
 process.env.AXON_STAGING_MODE = "true"
+
+/**
+ * No test run may reach a metered provider.
+ *
+ * Deleting ambient keys above is not enough: `withAgent()` deliberately SEEDS a
+ * profile carrying a real API key so inference resolves over the link, and any
+ * fixture whose declared inference fails to bind falls through to that pool
+ * rather than failing. Fourteen fixtures declared a mock engine through a
+ * config field the runtime had stopped reading, silently resolved against live
+ * OpenRouter, and billed a real account on every suite run — for as long as
+ * that field only warned.
+ *
+ * `buildProvider()` refuses anything but mock/ollama while this is set, so
+ * reaching the network in a test is a loud error rather than an invoice.
+ */
+process.env.AXON_NO_NETWORK_INFERENCE = "true"
+
 
 /**
  * Project.deploy() spawns a real local Cloud Run stand-in subprocess (see
@@ -114,7 +132,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
     const envFile = Bun.file(`${import.meta.dir}/../../../../apps/backend/.env.local`)
     if (await envFile.exists()) {
         const match = (await envFile.text()).match(/^STRIPE_SECRET_KEY=(.+)$/m)
-        if (match) process.env.STRIPE_SECRET_KEY = match[1].trim()
+        if (match?.[1]) process.env.STRIPE_SECRET_KEY = match[1].trim()
     }
 }
 

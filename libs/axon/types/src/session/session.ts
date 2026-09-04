@@ -66,8 +66,19 @@ export type AxonSpanName = {
 /** One line in the session's kernel log — internal telemetry, never rendered to the user. */
 export type AxonKernelEvent = AxonEventUnion<AxonKernelEventMap>
 
-/** One line in the session's own log — runtime/continuity facts. */
-export type AxonSessionEvent = AxonEventUnion<AxonRuntimeEvent>
+/**
+ * One line in the session's own log — runtime/continuity facts, and the build
+ * events that precede them.
+ *
+ * BuildEventMap is included because those events genuinely LAND HERE: the
+ * session is opened before the build so a failed one leaves a readable record
+ * (see AxonEventMap above, which says exactly that). Typing this as runtime
+ * events alone made the log's type narrower than the log, so a consumer
+ * filtering for `build:warning` — the durable record of what a scan found —
+ * got "this comparison has no overlap" for a string the log demonstrably
+ * contains.
+ */
+export type AxonSessionEvent = AxonEventUnion<AxonRuntimeEvent & BuildEventMap>
 
 /** One line in the session's entry log. */
 export type AxonEntry = AxonEventUnion<AxonEntryEvent>

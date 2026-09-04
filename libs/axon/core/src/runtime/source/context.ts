@@ -32,10 +32,19 @@
  * `process.run()` and `process.spawn()` are there too, exactly as they are
  * in a script or a tool.
  *
- * It used to be a minimal `{ env }` shim here, which was correct only while
- * templates rendered outside the agent's process and could not be trusted
- * with the real one. In one heap that reasoning is gone, and the shim was
- * the last thing making a prompt's scope differ from every other context's.
+ * It used to be a minimal `{ env }` shim here, defended as a confidentiality
+ * boundary: a template's output reaches the model, so it should not see the
+ * shell that launched the TUI. That framing is wrong, and the shim was the
+ * last thing making a prompt's scope differ from every other context's.
+ *
+ * In-process is IN SCOPE. Prompt rendering happens inside the agent, in the
+ * same heap as the cognet, the scripts and the tools — none of which are
+ * narrowed. The user put the `.env` on this agent deliberately, and the
+ * declared vars are overlaid onto the ambient environment rather than
+ * replacing it precisely so an agent keeps PATH, HOME and the provider vars
+ * the runtime resolved. Anything on `process.env` here is something the agent
+ * is meant to have; the wall that separates agents from each other is the
+ * OS's, not a shim in one rendering context.
  *
  * The rest is read lazily off globalThis: the runtime handle is wired
  * after the constructs that render templates exist, so it can't be captured

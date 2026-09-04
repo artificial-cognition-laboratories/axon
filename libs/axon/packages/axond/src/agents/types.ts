@@ -26,10 +26,45 @@ export type AgentRecord = AxonInstance & {
     machineId: string | null
 }
 
+/**
+ * An agent PROJECT on this machine, whether or not it is running.
+ *
+ * Deliberately thin. A fleet view needs to name it, launch it and open its
+ * source; everything else about an agent lives in its own config, and copying
+ * fields out of there would be a second description free to disagree with the
+ * first.
+ */
+/** One source file that defines an agent, as an editor link. */
+export type DefinitionFile = {
+    /** What to call it in a list — "Configuration", "Boot", "Tools". */
+    label: string
+    /** Absolute path. Only ever set for a file that exists. */
+    path: string
+}
+
+export type InstalledAgent = {
+    /** Directory name on disk. */
+    name: string
+    /** The scoped name it declares — `@axon/zeno`. Falls back to `name`. */
+    ref: string
+    /** Which profile owns it — the same agent name can exist under two accounts. */
+    profile: string
+    /** Absolute path to the project. What an editor is pointed at. */
+    root: string
+    /** Epoch ms of last use, from its session store. Null when unreadable. */
+    usedAt: number | null
+    /** Declared version from package.json. Null when it declares none. */
+    version: string | null
+    /** Source files that exist — never a conventional path that does not. */
+    definition: DefinitionFile[]
+}
+
 /** What `agents.state()` reports in one read. */
 export type AgentsState = {
     /** Every live agent this daemon can see, newest first. */
     agents: AgentRecord[]
     /** Directories scanned. Diagnostics — "why is my agent missing" is otherwise unanswerable. */
     roots: readonly string[]
+    /** Every agent project on this machine, running or not. */
+    installed: InstalledAgent[]
 }

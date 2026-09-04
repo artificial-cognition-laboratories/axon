@@ -1,5 +1,6 @@
 import { computeBuckets } from "@arcforge/platform/services/mic/fft"
 import { defaultVisualizerConfig } from "@arcforge/platform/services/mic/config"
+import { describe, it, expect } from "bun:test"
 
 function sine(freqHz: number, sampleRate: number, n: number, amplitude = 0.5): Float32Array {
     const out = new Float32Array(n)

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 describe("store.env", () => {
     it("defaults to 'cloud' when nothing has been set", async () => {

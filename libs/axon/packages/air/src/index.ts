@@ -15,6 +15,13 @@ export { Air, type AirT, type AirParserT } from "./air"
  * One renderer, two consumers, no second implementation to drift.
  */
 export { renderScope } from "./render/blocks"
+
+/**
+ * The preflight vocabulary — what a caller composes an opening exchange from.
+ * Exported because the preflight is now the CALLER's to define (see
+ * AirRenderInput["preflight"]); a cognet writing one needs the turn type.
+ */
+export type { PreflightTurn } from "./render/preflight"
 export type { AirOpts } from "./grammar"
 
 

@@ -87,15 +87,28 @@ describe("tool globals: the author's own code calls tools by name", () => {
         await runtime.shutdown()
     })
 
-    it("a module tool is installed under its namespace, not flattened", async () => {
-        // Placement follows `flat`, exactly as the capsule installs it — the
-        // agent's own tools are top-level, a module's live under its name.
+    it("a module tool is installed exactly like the agent's own", async () => {
+        // Placement used to follow ORIGIN: an agent's own tools flat, a
+        // module's wrapped under its own name. Two things were wrong with it.
+        //
+        // It disagreed with the DECLARATIONS in practice — the generated .d.ts
+        // and the model's <scope> spelled a module tool one way and the runtime
+        // installed it another, so a model called exactly what its own types
+        // promised and got `undefined is not an object`.
+        //
+        // And it made placement conditional on PROVENANCE, which is not the
+        // author's concern: `import { fs }` should be `fs.read()` whether that
+        // came from src/tools or a package. Moving a tool into a module must
+        // not rewrite every call site.
+        //
+        // A tool exporting an object is already its own namespace. What the
+        // wrap actually guarded was a name clash, which is reported now
+        // (Tools.onClash) rather than silently worked around.
         const runtime = await Axon({
             blueprint: { tools: [github], config: { policy: { tools: { github: true } } } },
         })
 
-        expect(g().openPr).toBeUndefined()
-        expect(typeof (g().github as Record<string, unknown> | undefined)?.openPr).toBe("function")
+        expect(typeof g().openPr).toBe("function")
 
         await runtime.shutdown()
     })

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Manifest } from "@arcforge/platform/build/project"
+import { describe, it, expect } from "bun:test"
 
 /**
  * bunfig.toml — the agent's scope → registry map.

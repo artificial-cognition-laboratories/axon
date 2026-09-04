@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Manifest } from "@arcforge/platform/build/project"
+import { describe, it, expect } from "bun:test"
 
 /**
  * axon.config.ts is a file the author owns and reads. These cover the

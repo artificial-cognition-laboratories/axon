@@ -1,7 +1,20 @@
-import { describe, expect, it } from "bun:test"
+import { afterAll, describe, expect, it } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Tools } from "../../../src/tools"
 import type { MediateOpts } from "../../../src/tools"
 import type { AxonTool } from "@arcforge/types"
+
+/**
+ * Where these tools materialize. A real directory the test owns, because
+ * `scratch` is REQUIRED now: the agent derives it from its own frame rather
+ * than reading `os.tmpdir()`, which resolved differently inside the agent
+ * process than on the host and stopped agents booting on macOS entirely.
+ * Supplying it here is the same thing the runtime does.
+ */
+const scratch = mkdtempSync(join(tmpdir(), "core-tools-"))
+afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
 /**
  * The tool contract, pinned.
@@ -45,7 +58,7 @@ function tool(over: Partial<AxonTool> & { name: string; source: string }): AxonT
 describe("tool contract — placement", () => {
     it("a bare function export is callable under its own name", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "math",
             fns: [{ name: "add", declaration: "function add(a: number, b: number): Promise<number>" }],
@@ -61,7 +74,7 @@ describe("tool contract — placement", () => {
         // `fs.read()` — never `fs.fs.read()`, which is what treating the
         // filename as a namespace produced.
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "fs",
             fns: [{ name: "fs", declaration: "const fs: { read(): Promise<string> }" }],
@@ -74,7 +87,7 @@ describe("tool contract — placement", () => {
 
     it("the filename never becomes a namespace", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "greeter",
             fns: [{ name: "greet", declaration: "function greet(): Promise<string>" }],
@@ -88,7 +101,7 @@ describe("tool contract — placement", () => {
 
     it("two files' exports coexist, each under its own name", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([
             tool({
                 name: "math",
@@ -110,7 +123,7 @@ describe("tool contract — placement", () => {
 describe("tool contract — policy addressing", () => {
     it("addresses a call as <tool>.<export>, not by its call path", async () => {
         const { mediation, checks } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "fs",
             fns: [{ name: "read", declaration: "function read(): Promise<string>" }],
@@ -125,7 +138,7 @@ describe("tool contract — policy addressing", () => {
 
     it("addresses a nested member one level down from its export", async () => {
         const { mediation, checks } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "fs",
             fns: [{ name: "fs", declaration: "const fs: { read(): Promise<string> }" }],
@@ -141,7 +154,7 @@ describe("tool contract — policy addressing", () => {
         // The reason the address stays namespaced: a bare `read` would make
         // one policy rule cover both of these.
         const { mediation, checks } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([
             tool({
                 name: "fs",
@@ -151,7 +164,7 @@ describe("tool contract — policy addressing", () => {
         ])
         await (tools.globals() as { read(): Promise<string> }).read()
 
-        const second = Tools({ mediation })
+        const second = Tools({ mediation, scratch })
         await second.install([
             tool({
                 name: "net",
@@ -166,7 +179,7 @@ describe("tool contract — policy addressing", () => {
 
     it("a denied call never runs the function body", async () => {
         const { mediation } = recorder(fn => fn !== "danger.fire")
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "danger",
             fns: [{ name: "fire", declaration: "function fire(): Promise<void>" }],

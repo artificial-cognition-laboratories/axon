@@ -1,6 +1,7 @@
 import { Air } from "@arcforge/air"
 import { state, sync } from "./state"
 import { renderKnowledgeTree } from "./knowledge"
+import { ZERO_PREFLIGHT } from "./preflight"
 
 const air = Air({ protocol: "classic" })
 
@@ -49,6 +50,11 @@ loop(async ({ stop }) => {
             scope: kernel.scope(),
             state: knowledge ? [knowledge] : [],
             history: state.entries,
+            // The trajectory this agent starts on — see ZERO_PREFLIGHT. Passed
+            // rather than assumed: what a model should see FIRST is cognition,
+            // and it used to be welded into the protocol where no cognet could
+            // reach it.
+            preflight: ZERO_PREFLIGHT,
         })
     }
 

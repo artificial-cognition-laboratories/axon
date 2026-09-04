@@ -1514,6 +1514,18 @@ export type AgentPayload = {
     instance: AgentInstance
 }
 
+/**
+ * `agent:model` — the pin that is now live, and whose agent it is.
+ *
+ * `model` is the pin as written (`codex:gpt-5.6-sol`), not a resolved
+ * capability: it is what the config says and what a picker shows, and a
+ * handler wanting the binding can ask the agent for it.
+ */
+export type AgentModelPayload = {
+    model: string
+    instance: AgentInstance
+}
+
 /** `message:sent` — the text, and where it went. */
 export type MessageSentPayload = {
     content: string
@@ -1712,6 +1724,22 @@ export type TuiNotifyHooks = {
     "agent:stopped": (payload: AgentPayload) => void
     /** A different instance came on screen. */
     "agent:focused": (payload: AgentPayload) => void
+    /**
+     * The focused agent's model changed — what `*` picks.
+     *
+     * Its own event because nothing else announces it. A pick rewrites
+     * axon.config.ts and rebinds the live engine, but it boots nothing and
+     * receives nothing, so `agent:ready` and `message:received` both stay
+     * silent — and a line component declaring those as its triggers went on
+     * showing the previous model until the next boot. The header updated
+     * (it reads Vue state) while the component beside it did not, which is
+     * what made the two disagree on screen.
+     *
+     * Fires after the choice is durable AND the running agent is rebound, so a
+     * handler reading the model gets the one that will answer the next turn
+     * rather than the one being replaced.
+     */
+    "agent:model": (payload: AgentModelPayload) => void
 
     /** The user sent a message. Fires once it is delivered. */
     "message:sent": (payload: MessageSentPayload) => void
@@ -1739,6 +1767,51 @@ export type TuiNotifyHooks = {
 export type TuiHooks = TuiGateHooks & TuiNotifyHooks
 
 export type TuiHookName = keyof TuiHooks
+
+/**
+ * Every hook name, as a VALUE — the vocabulary a registration is checked against.
+ *
+ * The type above says what is declarable; a type cannot be consulted at runtime,
+ * so `tui.hook("agnet:ready", …)` from a plugin (untyped at the boundary, or
+ * typed and ignored) registered a handler that could never fire and reported
+ * nothing. The same hole let a built-in line component name a hook nothing
+ * emits and simply go stale on screen.
+ *
+ * Kept beside the types deliberately: adding a hook means adding it in both
+ * places, and `tests/extensions/builtin-components.test.ts` fails if this list
+ * and the hooks the app actually raises ever disagree.
+ */
+export const TUI_HOOK_NAMES = [
+    "tui:boot",
+    "tui:shutdown",
+    "tui:reloaded",
+    "tui:resize",
+    "tui:copy",
+    "agent:ready",
+    "agent:stopped",
+    "agent:focused",
+    "agent:model",
+    "message:sent",
+    "message:received",
+    "mode:changed",
+    "palette:opened",
+    "palette:closed",
+    "command:ran",
+    "command:failed",
+    "key:pressed",
+] as const satisfies readonly TuiHookName[]
+
+/**
+ * Fails to compile if `TUI_HOOK_NAMES` is missing a hook.
+ *
+ * `satisfies` alone only proves every entry is a real name — it says nothing
+ * about the ones left out, so adding a hook to `TuiHooks` and forgetting it
+ * here would typecheck and then reject the new hook at runtime. This assigns
+ * the union to the list's element type, which no longer holds the moment a
+ * name is absent.
+ */
+const _everyHookIsListed: (typeof TUI_HOOK_NAMES)[number] = null as unknown as TuiHookName
+void _everyHookIsListed
 
 /**
  * A plugin file under `plugins/`.

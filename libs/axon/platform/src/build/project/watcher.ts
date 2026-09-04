@@ -42,6 +42,19 @@ export type WatcherOpts = {
 
 const DEFAULT_IGNORE = ["node_modules", ".git", ".agent", ".module", "dist"]
 
+/**
+ * The debounce every reload-driving watcher uses.
+ *
+ * An editor writes several times per save (temp file, rename, mtime touch),
+ * and each is its own fs notification. Long enough to coalesce those, short
+ * enough that saving still feels immediate.
+ *
+ * Shared rather than defaulted per caller: the profile watcher and the agent
+ * watcher are answering the same question about the same editors, and two
+ * numbers for one fact is how they drift.
+ */
+export const RELOAD_DEBOUNCE_MS = 150
+
 // The agent's own runtime output, at its PRE-MIGRATION location. Every
 // commit appends to a JSONL file under these paths, so without excluding
 // them a live request self-triggers a reload mid-run: the write lands

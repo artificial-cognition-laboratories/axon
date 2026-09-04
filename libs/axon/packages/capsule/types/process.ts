@@ -86,6 +86,21 @@ export type ProcQuerySnapshot = {
  *
  * @see https://axon.arclabs.it/docs/v2/api/proc/spawn
  */
+/**
+ * Where a managed child is in its lifecycle.
+ *
+ * `pending` is the window a spawn is REAL but unverified: `spawn()` returns
+ * synchronously (the ergonomics of `const p = process.spawn(...)` depend on
+ * it) while mediation and the OS spawn happen behind it. During that window
+ * there is no pid and no verdict, and saying "running" would be a claim
+ * nobody made — a denied spawn and a still-launching one looked identical,
+ * which is precisely how a live process got reported as one that died.
+ *
+ * A caller that wants the settled answer awaits `started`; a caller that
+ * wants the terminal one awaits `exited`.
+ */
+export type ProcStatus = "pending" | "running" | "exited"
+
 export interface LiveProcHandle {
     /** Stable process ID assigned by the capsule. */
     readonly procId: string
@@ -97,8 +112,11 @@ export interface LiveProcHandle {
     readonly pid: number | undefined
     /** Working directory used to spawn the command. */
     readonly cwd: string | undefined
-    /** Current lifecycle status. */
-    readonly status: "running" | "exited"
+    /**
+     * Current lifecycle status. `pending` until the spawn is mediated and the
+     * OS reports a pid — read `started` rather than polling this.
+     */
+    readonly status: ProcStatus
     /** Exit code after completion. Undefined while running. */
     readonly exitCode: number | undefined
     /** Unix timestamp in milliseconds when the process was spawned. */
@@ -117,6 +135,18 @@ export interface LiveProcHandle {
     query(opts?: ProcQueryOptions): ProcQuerySnapshot
     /** Extract all regex matches from buffered output. */
     extract(regex: RegExp, include?: ProcOutputStream[]): string[]
+    /**
+     * Resolves once the spawn has SETTLED — mediated, and either launched with
+     * a real pid or refused. It does not wait for the process to finish.
+     *
+     * This is what makes `pending` a state a caller can leave rather than
+     * merely observe. Awaiting it is the difference between "I asked for a
+     * process" and "there is a process": without it, the only settled signal
+     * was `exited`, so the sole way to confirm a spawn worked was to wait for
+     * it to die — useless for exactly the long-lived background work spawn()
+     * exists to start.
+     */
+    readonly started: Promise<{ ok: boolean; pid: number | undefined; err: string | undefined }>
     /** Resolves once the process exits. */
     readonly exited: Promise<{ exitCode: number; ok: boolean; stdout: string }>
     /** Resolves when a buffered or future line matches the pattern. */

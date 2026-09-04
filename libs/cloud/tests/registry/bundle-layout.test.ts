@@ -1,7 +1,13 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Bundle } from "../../src/registry/artifacts"
+// Directly from ./bundle, never through the artifacts barrel: Bundle reads the
+// local filesystem and is deliberately not re-exported there, because the
+// barrel is isomorphic and pulling a Node-only module into a browser graph
+// broke dev builds (see artifacts/index.ts). The barrel import was a runtime
+// error here — "Export named 'Bundle' not found" — so this file could never
+// load at all.
+import { Bundle } from "../../src/registry/artifacts/bundle"
 
 /**
  * Where Bundle() looks for the files it publishes.

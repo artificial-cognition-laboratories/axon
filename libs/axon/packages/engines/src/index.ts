@@ -10,7 +10,7 @@
  * `./drivers` — a provider constructs one once resolution has picked a model.
  */
 export {
-    Axon, Codex, OpenRouter, Ollama, HuggingFace, Mock, buildProvider, providerPool,
+    Axon, Local, Codex, OpenRouter, Ollama, HuggingFace, Mock, buildProvider, providerPool,
     Anthropic, OpenAI, Google, Groq, Cerebras, Mistral, DeepSeek, XAI, Perplexity, ZAI, Moonshot,
 } from "./providers"
 export type { ProviderOptions } from "./providers"

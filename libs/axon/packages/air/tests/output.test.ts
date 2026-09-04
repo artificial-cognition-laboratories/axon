@@ -1,5 +1,6 @@
 import { Output } from "../src/output"
 import type { AxonScope } from "@arcforge/types"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The output type, end to end: a string is checked before the model is

@@ -1,4 +1,5 @@
 import { parseSpecifier } from "@arcforge/platform/build/project"
+import { describe, it, expect } from "bun:test"
 
 describe("parseSpecifier", () => {
     it("parses a scoped name with no version", () => {

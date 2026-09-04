@@ -56,22 +56,6 @@ import { CLASSIC_META } from "./classic"
  */
 export const AIR_VERSION = "1.0.0"
 
-export type PreflightTurn =
-    /** Someone speaking to the agent. */
-    | { kind: "user"; content: string; channel?: string }
-    /** The agent speaking. */
-    | { kind: "text"; content: string }
-    /** The agent running one block. `id` joins it to its stdout. */
-    | { kind: "script"; id: string; code: string }
-    /** The result of a script, as the capsule returned it. */
-    | { kind: "stdout"; for: string; content: string; ok?: boolean; lang?: string }
-    /** The agent handing control back — the turn boundary. */
-    | { kind: "done" }
-    /** A run cut short — `from` names the surface that stopped it. */
-    | { kind: "interrupt"; reason?: "user" | "shutdown"; from?: string }
-    /** Any other runtime signal the agent must read. */
-    | { kind: "system"; type: string; content: string; attributes?: Record<string, string> }
-
 export type Protocol = {
     name: AirProtocolName
     /** Meta-block prose — how this protocol tells the model to operate. */
@@ -82,40 +66,6 @@ export type Protocol = {
     rules: string[]
     /** Contract examples, already entity-escaped for display to the model. */
     examples: string[]
-    /**
-     * A short exchange the agent already had, rendered as real turns ahead of
-     * the conversation.
-     *
-     * The contract DESCRIBES the grammar; this DEMONSTRATES it. Models were
-     * opening every run with four or five `<script>` blocks at once — before
-     * any history existed to shape them — because a fenced example inside a
-     * system block is a description of a format, and what a model actually
-     * continues is a conversation. On turn one there was no conversation to
-     * continue, so it fell back on generic agent priors.
-     *
-     * A systems check is the one exchange that can precede ANY conversation
-     * without steering it: the subject is the agent's own machine, so it
-     * establishes rhythm without establishing topic.
-     *
-     * Deliberately UNMARKED — no attribute saying these are examples. Few-shot
-     * works because the turns are indistinguishable from real ones; labelling
-     * them as fake invites the model to discount them, and every attribute we
-     * invent is one more thing it may copy into its own output (which is
-     * exactly how `<agent>` and `from="agent"` ended up in replies).
-     *
-     * Ids are `p*`, never `e*`/`u*`: the real timeline numbers from e1, and
-     * two blocks answering to one id is exactly the ambiguity `for=` exists to
-     * remove.
-     *
-     * The BOUNDARY after these turns is marked, though the turns themselves
-     * are not: `<system type="session:start"/>` separates them from the real
-     * history so tooling can tell the two apart (see renderSessionStart). It
-     * is left unexplained in the contract for the reason above — a marker on
-     * the seam says nothing about what precedes it, while a rule explaining
-     * that the preceding turns were demonstrations is the labelling this
-     * paragraph rejects.
-     */
-    preflight?: PreflightTurn[]
 }
 
 /** Default descriptions for each output mode. */
@@ -198,81 +148,8 @@ export const DONE_RULE = [
  * one, which is a contradiction the model reads in a single render and
  * cannot resolve; the tag is real, and this comment now says so.
  */
-/**
- * The preflight exchange — a pilot's walk-around, in the agent's own voice.
- *
- * Every line here is doing a job:
- *
- * - The user asks for a SYSTEMS CHECK, not for work. Nothing about it steers
- *   the real conversation that follows, which is why this exchange can precede
- *   any request at all.
- * - The agent speaks first and briefly, then acts. That is the shape we want
- *   and almost never got on turn one.
- * - ONE script. Its result comes back. Only then does it conclude. The whole
- *   multi-script habit is a model trying to do all of this in one message, and
- *   seeing it done properly once is worth more than a rule stating it twice.
- * - The second script BATCHES three independent checks with Promise.all —
- *   because the lesson is "one step per message", not "never do two things".
- *   Without it, a model correcting itself away from four scripts has nowhere
- *   to put legitimate parallel work.
- * - The checks are pure JavaScript against the runtime itself. No `fs`, no
- *   `process` — a preflight that called tools would demonstrate an API a given
- *   agent may not have installed.
- */
-const CLASSIC_PREFLIGHT: PreflightTurn[] = [
-    { kind: "user", content: "run a quick systems check before we start" },
-
-    { kind: "text", content: "Running a preflight now." },
-    {
-        kind: "script",
-        id: "p1",
-        code: [
-            `const started = Date.now()`,
-            `globalThis.__preflight = { started }`,
-            `({ runtime: typeof process !== "undefined" ? process.version : "unknown", started })`,
-        ].join("\n"),
-    },
-    { kind: "stdout", for: "p1", lang: "json", content: `{"runtime":"v1.3.14","started":1757000000000}` },
-
-    {
-        kind: "script",
-        id: "p2",
-        code: [
-            `// Independent checks, so they go together in ONE block.`,
-            `const [maths, strings, async_] = await Promise.all([`,
-            `    Promise.resolve(2 + 2 === 4),`,
-            `    Promise.resolve("axon".toUpperCase() === "AXON"),`,
-            `    (async () => { await Promise.resolve(); return true })(),`,
-            `])`,
-            `({ maths, strings, async: async_, scopePersisted: globalThis.__preflight !== undefined })`,
-        ].join("\n"),
-    },
-    { kind: "stdout", for: "p2", lang: "json", content: `{"maths":true,"strings":true,"async":true,"scopePersisted":true}` },
-
-    // A long check, cut short by the user. Demonstrated rather than described
-    // for the same reason everything else here is: an interrupt is a thing
-    // that HAPPENS to the agent mid-turn, and a model that has never seen one
-    // reads it as a failure of its own — retrying the work it was just told to
-    // stop, which is the worst possible response.
-    //
-    // Placed after two successful blocks so it reads as an ordinary event in a
-    // working session rather than as an error state.
-    {
-        kind: "script",
-        id: "p3",
-        code: `await new Promise(resolve => setTimeout(resolve, 60_000))`,
-    },
-    { kind: "interrupt", from: "terminal" },
-    {
-        kind: "text",
-        content: "Stopped. Nothing was left half-written — say the word and I will pick it up.",
-    },
-    { kind: "done" },
-]
-
 const CLASSIC: Protocol = {
     name: "classic",
-    preflight: CLASSIC_PREFLIGHT,
     meta: CLASSIC_META,
     modes: [{ type: "text" }, { type: "script" }],
     rules: [

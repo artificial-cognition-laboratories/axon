@@ -12,8 +12,17 @@
  * because the browser holding 3GB of video memory is real.
  */
 
-/** How a video-memory figure was learned. Absent readings say so rather than guessing. */
-export type VramSource = "nvidia" | "apple" | "unknown"
+/**
+ * How a video-memory figure was learned. Absent readings say so rather than guessing.
+ *
+ * `unknown` and `error` are DIFFERENT and must stay so. Nothing to read from is
+ * a machine we cannot measure; a reader that failed is a machine we should be
+ * able to measure and could not — most often an NVIDIA driver/kernel version
+ * mismatch, which on a rolling distribution is routine after an update.
+ * Collapsing them renders a broken driver as "this box has no GPU", which is
+ * exactly when the user most needs to be told otherwise.
+ */
+export type VramSource = "nvidia" | "amdgpu" | "apple" | "unknown" | "error"
 
 /** Who this machine is. */
 export type MachineIdentity = {
@@ -50,6 +59,13 @@ export type MachineCapacity = {
      */
     vram: number | null
     vramSource: VramSource
+    /**
+     * Why the reading failed, when `vramSource` is "error". Null otherwise.
+     *
+     * Carried so a surface can say "driver mismatch" rather than drawing a
+     * dash indistinguishable from having no GPU at all.
+     */
+    vramDetail: string | null
     /** GPU model, when one can be named. */
     gpu: string | null
 }
@@ -62,11 +78,23 @@ export type MachineCapacity = {
  * facts, and an admission check treating the second as "nothing is using it"
  * would hand out memory that is already gone.
  */
-export type MachineUsage = {
+export type MachineReading = {
     /** Video memory in use across the whole machine, bytes. */
     vramUsed: number | null
     /** GPU compute utilisation, 0-100. A card can be full and idle, or empty and pinned. */
     gpuUtil: number | null
+    /**
+     * CPU utilisation across all cores, 0-100.
+     *
+     * Beside `load` rather than instead of it: a percentage answers "how busy
+     * right now" and graphs against the other three, while load average
+     * answers "how contended over a minute" and is unbounded. They are
+     * different questions and a chart can only draw the first.
+     *
+     * Null on the very first reading, which has no predecessor to difference
+     * against — utilisation is a rate, and a rate needs two samples.
+     */
+    cpuUtil: number | null
     /**
      * System memory AVAILABLE, bytes — not free.
      *
@@ -79,6 +107,66 @@ export type MachineUsage = {
     load: number
     /** When this reading was taken, epoch ms. */
     at: number
+}
+
+/**
+ * A reading of the machine, with Axon's share of it at the same instant.
+ *
+ * The three questions stay distinct as FIELDS — `vramUsed` is the whole box,
+ * `held` is ours — while a sample is one row across them at a moment. Keeping
+ * them in one record is what makes the two series structurally aligned rather
+ * than aligned by convention: a chart drawing our share inside the machine's
+ * total cannot drift, because there is no second array to drift from.
+ *
+ * `Probe` produces the reading and knows nothing of residency; `Samples`
+ * stamps the share on. That keeps the probe honestly about the machine.
+ */
+/**
+ * What AXON is costing this machine, measured at one instant.
+ *
+ * The counterpart to `MachineReading`, which is the whole box. Every field is
+ * nullable and null means UNATTRIBUTABLE, never zero — a machine whose share
+ * cannot be measured and a machine where Axon is idle are different facts, and
+ * a chart drawing the first as a flat line along the floor would claim a
+ * reading nobody took.
+ */
+export type AxonShare = {
+    /**
+     * Anonymous resident bytes — memory Axon genuinely occupies.
+     *
+     * Deliberately not the cgroup's `memory.current`, which includes page
+     * cache: downloading a five-gigabyte weight charges those pages to us, and
+     * a chart drawn from that would accuse Axon of holding memory it would
+     * hand back the instant anything else asked.
+     */
+    ram: number | null
+    /** CPU across all cores, 0-100 — the same units and axis as MachineReading.cpuUtil. */
+    cpuUtil: number | null
+    /**
+     * Video memory the driver has actually given our processes.
+     *
+     * Distinct from `held`, which is a RESERVATION. Admission control needs to
+     * know what it promised; this reports what was delivered, and the two
+     * legitimately disagree. NVIDIA only — AMD exposes no per-process
+     * equivalent, so those machines report null.
+     */
+    vram: number | null
+    /** When it was taken, epoch ms. */
+    at: number
+}
+
+export type MachineUsage = MachineReading & {
+    /** Bytes held by live Axon holders when this reading was taken. */
+    held: number
+    /**
+     * Axon's measured consumption at the same instant, or null when it cannot
+     * be attributed on this machine.
+     *
+     * Stamped on beside `held` for the same reason `held` is: one row across
+     * both facts is what lets a chart draw our share inside the machine's
+     * total without the two series drifting.
+     */
+    axon: AxonShare | null
 }
 
 /** One agent's hold on video memory. */

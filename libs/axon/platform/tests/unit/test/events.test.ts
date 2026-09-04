@@ -31,11 +31,20 @@ describe("Events — ordering", () => {
         expect(events.all[0]!.context.testRunId).toBe(RUN)
     })
 
-    test("gives every event a distinct id", () => {
+    test("gives every event a distinct identity", () => {
+        // `time.seq` IS the identity. A UUIDv7 `id` used to sit beside it and
+        // was removed deliberately — on a real 1M-event session it cost 8.8MB
+        // (14% of the file) to express what a monotonic per-session counter
+        // already expresses better (see AxonEvent's own note). A session log
+        // is a sequence, and a sequence numbers its members.
         const events = Events({ runId: RUN })
         for (let i = 0; i < 5; i++) events.record("test:file:start", {}, { file: `${i}.test.ts` })
 
-        expect(new Set(events.all.map(event => event.id)).size).toBe(5)
+        const seqs = events.all.map(event => event.time.seq)
+        expect(new Set(seqs).size).toBe(5)
+        // Monotonic, not merely distinct — ordering is the property that
+        // makes seq usable as an identity in the first place.
+        expect([...seqs].sort((a, b) => a - b)).toEqual(seqs)
     })
 })
 
@@ -44,7 +53,7 @@ describe("Events — liveness", () => {
         const events = Events({ runId: RUN })
         const context = { file: "a.test.ts", testId: "a::one" }
 
-        events.record("test:case:start", {}, context)
+        events.record("test:case:start", { name: "one", suite: [] }, context)
 
         expect(events.orphaned("a.test.ts")).toHaveLength(1)
         expect(events.orphaned("a.test.ts")[0]!.testId).toBe("a::one")
@@ -55,8 +64,8 @@ describe("Events — liveness", () => {
         const passing = { file: "a.test.ts", testId: "a::one" }
         const failing = { file: "a.test.ts", testId: "a::two" }
 
-        events.record("test:case:start", {}, passing)
-        events.record("test:case:start", {}, failing)
+        events.record("test:case:start", { name: "one", suite: [] }, passing)
+        events.record("test:case:start", { name: "one", suite: [] }, failing)
         events.record("test:case:pass", { durationMs: 1 }, passing)
         events.record("test:case:fail", { durationMs: 1, error: {} as never }, failing)
 
@@ -67,9 +76,9 @@ describe("Events — liveness", () => {
         const events = Events({ runId: RUN })
         const context = { file: "a.test.ts", testId: "a::flaky" }
 
-        events.record("test:case:start", {}, { ...context, attempt: 0 })
+        events.record("test:case:start", { name: "one", suite: [] }, { ...context, attempt: 0 })
         events.record("test:case:fail", { durationMs: 1, error: {} as never }, { ...context, attempt: 0 })
-        events.record("test:case:start", {}, { ...context, attempt: 1 })
+        events.record("test:case:start", { name: "one", suite: [] }, { ...context, attempt: 1 })
 
         // The retry is still owed an answer; the first attempt already gave one.
         expect(events.orphaned("a.test.ts")).toHaveLength(1)
@@ -79,8 +88,8 @@ describe("Events — liveness", () => {
     test("scopes orphans to one file — a dead child must not indict another file's cases", () => {
         const events = Events({ runId: RUN })
 
-        events.record("test:case:start", {}, { file: "a.test.ts", testId: "a::one" })
-        events.record("test:case:start", {}, { file: "b.test.ts", testId: "b::one" })
+        events.record("test:case:start", { name: "one", suite: [] }, { file: "a.test.ts", testId: "a::one" })
+        events.record("test:case:start", { name: "one", suite: [] }, { file: "b.test.ts", testId: "b::one" })
 
         expect(events.orphaned("a.test.ts")).toHaveLength(1)
         expect(events.orphaned("b.test.ts")).toHaveLength(1)
@@ -104,7 +113,7 @@ describe("Events — tally", () => {
     test("reports a file as failed for a hook failure, not only a case failure", () => {
         const events = Events({ runId: RUN })
 
-        events.record("test:hook:fail", { durationMs: 1, error: {} as never }, { file: "a.test.ts" })
+        events.record("test:hook:fail", { kind: "beforeAll", durationMs: 1, error: {} as never }, { file: "a.test.ts" })
 
         // A beforeAll that throws means the file failed even though no case
         // ever ran — the runner uses this to avoid double-reporting the exit.

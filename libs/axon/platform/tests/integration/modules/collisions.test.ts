@@ -61,7 +61,7 @@ async function agentWithModules(modules: ModuleSpec[], agentTools: Record<string
     const declared = modules.map(m => `"./modules/${m.name}"`).join(", ")
     await writeFile(
         join(agent.root, "axon.config.ts"),
-        `export default defineAgent({ engine: Mock(), modules: [${declared}] })\n`,
+        `export default defineAgent({ providers: [Mock()], model: "mock:mock", modules: [${declared}] })\n`,
     )
 
     return agent.root

@@ -142,19 +142,29 @@ describe("axon.prompt: Vuedown (.vue)", () => {
         await rm(dir, { recursive: true, force: true })
     })
 
-    it("renders with the agent's own env, never the host process's", async () => {
-        // promptContext() shims `process` down to { env: blueprint.env } on
-        // purpose: a template reaching process.env reads the agent's resolved
-        // environment, not whatever is in the shell that launched the TUI.
-        // That is a confidentiality boundary, so it is asserted in both
-        // directions — the agent's value present, the host's absent.
+    it("renders with the agent's declared env overlaid on the process's", async () => {
+        // `process` is NOT shimmed, and a template sees the agent's real
+        // process — the same one the cognet, scripts and tools run in.
+        //
+        // The agent's declared `.env` is OVERLAID onto it rather than
+        // replacing it, so both are readable: the declared value wins on a
+        // key it sets, and the ambient environment stays intact underneath.
+        // That is deliberate. A template is agent code, and an agent needs
+        // PATH, HOME and the provider vars the runtime resolved as much as a
+        // script does — narrowing it here would make prompts the one context
+        // whose scope differs from every other.
+        //
+        // This asserted the opposite for a while, on the theory that a
+        // template's output reaching the model made env a confidentiality
+        // boundary. It is not one: in-process is in-scope, the user put the
+        // .env on the agent explicitly, and the wall that matters is the OS's.
         const dir = await promptDir()
         const filePath = path.join(dir, "env.vue")
         await writeFile(filePath, `
             <template><p>{{ process.env.AGENT_ONLY }}|{{ process.env.HOST_ONLY ?? "absent" }}</p></template>
         `)
 
-        process.env.HOST_ONLY = "leaked-from-host"
+        process.env.HOST_ONLY = "from-host"
         try {
             const runtime = await Axon({
                 blueprint: {
@@ -165,9 +175,12 @@ describe("axon.prompt: Vuedown (.vue)", () => {
 
             const rendered = await runtime.axon.prompt("env")
 
+            // The declared value reaches the template — the half of this that
+            // was a real bug: a shimmed `process` once left `process.env.MY_KEY`
+            // undefined for a key the config plainly set.
             expect(rendered).toContain("from-blueprint")
-            expect(rendered).toContain("absent")
-            expect(rendered).not.toContain("leaked-from-host")
+            // …and the ambient environment is still there underneath it.
+            expect(rendered).toContain("from-host")
 
             await runtime.shutdown()
         } finally {

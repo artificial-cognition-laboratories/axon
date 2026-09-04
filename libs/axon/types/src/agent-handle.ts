@@ -45,6 +45,22 @@ export type AxonAgentHandle = {
     stimulus(entry: AxonStimulusEntry): Promise<{ admitted: boolean }>
 
     /**
+     * Add a message to a wake that is ALREADY running.
+     *
+     * The third delivery verb, for the case the other two answer badly: a user
+     * typing while the agent works. `stimulus` asks to START a conversation
+     * and is refused mid-wake; `request` waits for the whole agent loop. This
+     * is neither — the message joins the conversation in flight and the cognet
+     * folds it into its next turn, because a loop re-reads the session log
+     * every pass.
+     *
+     * No verdict comes back: the entry is durable either way, and a wake that
+     * is not running gets started by the scheduler's own subscription. So a
+     * caller racing the end of a wake never has to know which side it landed.
+     */
+    ingest(entry: AxonStimulusEntry): Promise<void>
+
+    /**
      * Deliver a stimulus and wait for the wake it caused to SETTLE.
      *
      * The completion counterpart to `stimulus`, for an interactive caller who

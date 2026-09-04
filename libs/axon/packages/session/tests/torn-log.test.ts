@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { home } from "../src/home"
+import { describe, it, expect } from "bun:test"
 
 /**
  * A session log survives a torn final line.

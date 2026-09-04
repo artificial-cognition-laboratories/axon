@@ -1,4 +1,5 @@
 import { Clock } from "../src/clock"
+import { describe, it, expect } from "bun:test"
 
 function Recorder() {
     const events: Array<{ event: string; payload: unknown }> = []
@@ -49,7 +50,11 @@ describe("Clock: tick/phase/system", () => {
             phaseDuringCallback = clock.phase
         })
 
-        expect(phaseDuringCallback).toBe("build")
+        // Read back through the annotated binding: the assignment happens
+        // inside a callback, so control-flow analysis narrows the variable to
+        // its initializer (`null`) at this point even though it is declared
+        // `string | null`.
+        expect(phaseDuringCallback as string | null).toBe("build")
         expect(clock.phase).toBeNull()
     })
 

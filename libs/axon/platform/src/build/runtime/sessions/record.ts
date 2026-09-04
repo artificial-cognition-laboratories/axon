@@ -4,7 +4,21 @@ import { ENTRY_EVENT_PREFIXES } from "@arcforge/types"
 /** One resumable session on disk — the durable record of a past (or current) conversation. */
 export type SessionRecord = {
     sessionId: string
-    /** the agent project's name — where sessions/<id>.jsonl lives */
+    /**
+     * The agent's IDENTITY — `package.json`'s name (`@cody/barry.mk3`),
+     * falling back to the directory name when there is no readable manifest.
+     *
+     * Not the folder. It used to be, and the doc said "the agent project's
+     * name" — a phrase true of both readings, which is how a consumer came to
+     * compare it against a directory name and match nothing. `^` filtered
+     * `record.agent === "barry.mk3"` against `"@cody/barry.mk3"` and reported
+     * "no past sessions" for an agent with 216 of them; the unscoped agents on
+     * the same machine matched fine, so it looked intermittent rather than
+     * broken.
+     *
+     * This is the one true name for an agent: compare it against another
+     * identity (`project.name`), never against a directory.
+     */
     agent: string
     /** absolute path to the session's <id>.jsonl — read directly to preview without booting */
     filePath: string

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The managed base workspace is deleted. Existing installs still have its

@@ -171,6 +171,62 @@ export type AxonRuntimeEvent =
             stepKind?: "instruct" | "input" | "work"
         }
     }
+    // ── Scripts (agent-authored orchestration, run as one job) ──────────────
+    /**
+     * One script invocation, start to finish.
+     *
+     * A script is a LAYER OVER the agent, not brain code and not body code:
+     * high-level orchestration the author wrote, driving the same runtime a
+     * user drives from the terminal. `axon` inside one is this runtime — it
+     * spawns nothing — so the wakes it triggers are ordinary turns in the same
+     * conversation.
+     *
+     * A SPAN, and that is what makes it legible in the flame graph. The
+     * bracket opens at depth 0 and everything the script causes — its wakes,
+     * their ticks, the capsule work inside them — nests by containment (see
+     * span.ts: nesting is bracket-matching in seq order, not parent pointers).
+     * Without it a script run is one long opaque bar; with it, it decomposes
+     * for free and Fleet needs no changes at all.
+     *
+     * CANCELLABLE, because Escape must be able to stop one. Interruption is a
+     * settled outcome rather than a failure — a script the user stopped did
+     * what it was told. Note the cancellation is COOPERATIVE: it aborts the
+     * script's pending `axon.request`, but a script inside a tight loop or a
+     * long shell call runs to its own end, the same limit the capsule has
+     * in-process. `durationMs` on every terminal state is what makes a
+     * runaway visible rather than mysterious.
+     */
+    & AxonCancellableSpan<
+        "axon:script",
+        { id: string; name: string; args: Record<string, unknown> },
+        { id: string },
+        { id: string; error: AxonError },
+        { id: string }
+    >
+    & {
+        /**
+         * A line the script itself printed.
+         *
+         * Scripts talk through `console.log` — that is their existing contract
+         * and every script in the registry is written to it. Committed as a
+         * durable event rather than left on stdout because the terminal that
+         * used to own stdout no longer does: the agent runs in its own
+         * process, and a surface reading a mirrored log must still see what
+         * the script said.
+         *
+         * DISTINCT from a tool's console output, which belongs to the tool
+         * call that produced it. These are the SCRIPT's own words, and the two
+         * have different authors — so a script calling a chatty tool produces
+         * both, correctly.
+         */
+        "axon:script:log": {
+            /** The run this line belongs to — pairs with the enclosing span. */
+            id: string
+            level: "log" | "error"
+            content: string
+        }
+    }
+
     // ── Module install/uninstall (registry op, then a reload rides the same
     //    hot-swap path above) ─────────────────────────────────────────────
     & AxonSpan<

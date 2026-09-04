@@ -1,5 +1,28 @@
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~190-220ms to load, and it was being pulled into every
+ * `axon` invocation through this module's import chain — before argument
+ * parsing, before any command ran, before a character reached the screen.
+ * `axon dev` showing nothing for a second was largely this.
+ *
+ * Nothing here touches `ts` at module scope; every reference is inside a
+ * function body. So deferring costs the first caller the load and every
+ * command that parses no source file nothing at all.
+ *
+ * `require`, not `await import`: these APIs are synchronous and making them
+ * async would ripple through every caller for no gain. The type import above
+ * is erased at compile time, which keeps every `ts.X` annotation unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 import { dirname, join } from "node:path"
-import ts from "typescript"
 import type { ToolFnEntry } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import { resolveSignatureTypes, assertNoDanglingTypes, rewriteImportPaths } from "./resolve"
@@ -14,9 +37,9 @@ export type DeclaredFile = {
 const COMPILER_OPTIONS: ts.CompilerOptions = {
     declaration: true,
     emitDeclarationOnly: true,
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    target: tsc().ScriptTarget.ESNext,
+    module: tsc().ModuleKind.ESNext,
+    moduleResolution: tsc().ModuleResolutionKind.Bundler,
     strict: true,
     skipLibCheck: true,
     // Declaration emit fails loudly on an implicit any parameter otherwise —
@@ -75,7 +98,7 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
 const libFiles = new Map<string, ts.SourceFile | undefined>()
 
 /** The directory TypeScript's own lib.*.d.ts files ship in. */
-const libDir = normalize(ts.getDefaultLibFilePath(COMPILER_OPTIONS).replace(/[^/\\]+$/, ""))
+const libDir = normalize(tsc().getDefaultLibFilePath(COMPILER_OPTIONS).replace(/[^/\\]+$/, ""))
 
 /** True for a path inside TypeScript's own lib directory. */
 function isLibFile(fileName: string): boolean {
@@ -119,7 +142,7 @@ function unshadow(path: string): string {
 export function declareTools(fileNames: string[]): Map<string, DeclaredFile> {
     const emitted = new Map<string, string>()
 
-    const host = ts.createCompilerHost(COMPILER_OPTIONS)
+    const host = tsc().createCompilerHost(COMPILER_OPTIONS)
 
     // Reads follow the shadow back to the real file on disk. Everything above
     // this line thinks in shadowed paths; everything below it, and the whole
@@ -176,7 +199,7 @@ export function declareTools(fileNames: string[]): Map<string, DeclaredFile> {
     // Emitted paths are mapped back, so every caller sees real locations.
     host.writeFile = (fileName, text) => emitted.set(normalize(unshadow(fileName)), text)
 
-    const program = ts.createProgram(fileNames.map(shadow), COMPILER_OPTIONS, host)
+    const program = tsc().createProgram(fileNames.map(shadow), COMPILER_OPTIONS, host)
     program.emit()
     const result = new Map<string, DeclaredFile>()
 
@@ -188,7 +211,7 @@ export function declareTools(fileNames: string[]): Map<string, DeclaredFile> {
     // the identifiers a resolver needs. See resolve.ts.
     const emittedSources = new Map<string, ts.SourceFile>()
     for (const [file, text] of emitted) {
-        emittedSources.set(file, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS))
+        emittedSources.set(file, tsc().createSourceFile(file, text, tsc().ScriptTarget.Latest, true, tsc().ScriptKind.TS))
     }
 
     for (const fileName of fileNames) {
@@ -262,18 +285,18 @@ export function declareTools(fileNames: string[]): Map<string, DeclaredFile> {
 function exportedSignatureNodes(src: ts.SourceFile): ts.Node[] {
     const nodes: ts.Node[] = []
 
-    ts.forEachChild(src, node => {
-        if (ts.isFunctionDeclaration(node) && hasExportModifier(node)) {
+    tsc().forEachChild(src, node => {
+        if (tsc().isFunctionDeclaration(node) && hasExportModifier(node)) {
             nodes.push(node)
-        } else if (ts.isClassDeclaration(node) && hasExportModifier(node)) {
+        } else if (tsc().isClassDeclaration(node) && hasExportModifier(node)) {
             nodes.push(node)
-        } else if (ts.isVariableStatement(node) && hasExportModifier(node)) {
+        } else if (tsc().isVariableStatement(node) && hasExportModifier(node)) {
             nodes.push(node)
-        } else if (ts.isTypeAliasDeclaration(node) && hasExportModifier(node)) {
+        } else if (tsc().isTypeAliasDeclaration(node) && hasExportModifier(node)) {
             nodes.push(node)
-        } else if (ts.isInterfaceDeclaration(node) && hasExportModifier(node)) {
+        } else if (tsc().isInterfaceDeclaration(node) && hasExportModifier(node)) {
             nodes.push(node)
-        } else if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
+        } else if (tsc().isExportDeclaration(node) && node.exportClause && tsc().isNamedExports(node.exportClause)) {
             for (const element of node.exportClause.elements) nodes.push(element)
         }
     })
@@ -287,7 +310,7 @@ function exportedSignatureNodes(src: ts.SourceFile): ts.Node[] {
  * must use the same function or the lookup misses on nothing but spelling.
  */
 function normalize(path: string): string {
-    return ts.sys.resolvePath(path.replace(/\\/g, "/"))
+    return tsc().sys.resolvePath(path.replace(/\\/g, "/"))
 }
 
 /** Compiler diagnostics for one file, appended to an error so the message says WHY. */
@@ -297,7 +320,7 @@ function diagnosticsFor(program: ts.Program, fileName: string): string {
     const messages = program
         .getSemanticDiagnostics(source)
         .concat(program.getSyntacticDiagnostics(source))
-        .map(d => ts.flattenDiagnosticMessageText(d.messageText, " "))
+        .map(d => tsc().flattenDiagnosticMessageText(d.messageText, " "))
     return messages.length > 0 ? `:\n${messages.map(m => `  - ${m}`).join("\n")}` : ""
 }
 
@@ -310,7 +333,7 @@ function declarationPathFor(fileName: string): string {
 
 
 function hasExportModifier(node: ts.Node): boolean {
-    return ts.canHaveModifiers(node) ? (ts.getModifiers(node)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false) : false
+    return tsc().canHaveModifiers(node) ? (tsc().getModifiers(node)?.some(m => m.kind === tsc().SyntaxKind.ExportKeyword) ?? false) : false
 }
 
 /**
@@ -337,7 +360,7 @@ function awaitable(declaration: string, node: ts.FunctionDeclaration, src: ts.So
     // not parse. Such a tool is unusable across the capsule boundary anyway
     // (the narrowing is erased by serialization), so leave the declaration
     // exactly as the author wrote it rather than emitting broken TypeScript.
-    if (ts.isTypePredicateNode(returnType)) return declaration
+    if (tsc().isTypePredicateNode(returnType)) return declaration
 
     const text = returnType.getText(src)
     if (/^Promise\s*</.test(text)) return declaration
@@ -368,8 +391,8 @@ function extractJsDoc(node: ts.Node, src: ts.SourceFile): string | undefined {
 function extractFnEntries(src: ts.SourceFile): ToolFnEntry[] {
     const fns: ToolFnEntry[] = []
 
-    ts.forEachChild(src, node => {
-        if (ts.isFunctionDeclaration(node) && hasExportModifier(node) && node.name) {
+    tsc().forEachChild(src, node => {
+        if (tsc().isFunctionDeclaration(node) && hasExportModifier(node) && node.name) {
             const name = node.name.getText(src)
             const jsdoc = extractJsDoc(node, src)
             // tsc emits "export declare function foo(...): T;" — strip the
@@ -378,9 +401,9 @@ function extractFnEntries(src: ts.SourceFile): ToolFnEntry[] {
             // leaving a bare `function foo(...): T`.
             const declText = node.getText(src).replace(/^export\s+declare\s+/, "").replace(/;\s*$/, "")
             fns.push({ name, declaration: awaitable(declText, node, src), ...(jsdoc !== undefined ? { jsdoc } : {}) })
-        } else if (ts.isVariableStatement(node) && hasExportModifier(node)) {
+        } else if (tsc().isVariableStatement(node) && hasExportModifier(node)) {
             for (const decl of node.declarationList.declarations) {
-                if (!ts.isIdentifier(decl.name)) continue
+                if (!tsc().isIdentifier(decl.name)) continue
                 const name = decl.name.getText(src)
                 const jsdoc = extractJsDoc(node, src)
                 const declText = decl.getText(src)

@@ -1,4 +1,5 @@
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 describe("Air parser: basic blocks", () => {
     it("parses a complete <text> block fed whole", () => {

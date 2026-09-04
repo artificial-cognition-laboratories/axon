@@ -27,7 +27,7 @@ async function fixture(latest: string) {
         cloud: {
             cloud: {
                 releases: {
-                    axon: async (_signal, options = {}) => {
+                    axon: async (_signal: AbortSignal | undefined, options: Record<string, unknown> = {}) => {
                         releaseRequests.push(options)
                         return { package: "@arcforge/axon", channel: "latest", version: latest }
                     },

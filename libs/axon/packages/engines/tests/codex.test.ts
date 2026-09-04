@@ -1,14 +1,34 @@
+import { afterEach, describe, expect, it, test } from "bun:test"
 import { HttpError } from "@arcforge/types"
 import type { AxonEngineRequest, EngineCloud } from "@arcforge/types"
 import { EngineFailure } from "../src"
 import { CodexDriver as Codex } from "../src/drivers"
 
 const request: AxonEngineRequest = { messages: [{ role: "user", content: "hello" }] }
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+    globalThis.fetch = originalFetch
+})
 
 function cloudWithTokenFailure(error: Error): EngineCloud {
     return {
         user: { vault: { connections: {
             openai: { token: () => Promise.reject(error) },
+            openrouter: { token: () => Promise.reject(new Error("unused")) },
+        } } },
+        cloud: { engine: {
+            // eslint-disable-next-line require-yield
+            async *stream(): AsyncGenerator<never> { throw new Error("unused") },
+            request: () => Promise.reject(new Error("unused")),
+        } },
+    }
+}
+
+function cloudWithToken(): EngineCloud {
+    return {
+        user: { vault: { connections: {
+            openai: { token: async () => ({ accessToken: "test", accountId: "account" }) },
             openrouter: { token: () => Promise.reject(new Error("unused")) },
         } } },
         cloud: { engine: {
@@ -48,5 +68,46 @@ describe("Codex engine authentication", () => {
         const driver = Codex().create({ env: {}, cloud: cloudWithTokenFailure(original) })
 
         await expect(Array.fromAsync(driver.stream(request))).rejects.toBe(original)
+    })
+})
+
+describe("Codex streaming terminal snapshots", () => {
+    it("uses a completed response snapshot when output_text.done is absent", async () => {
+        globalThis.fetch = (async () => new Response([
+            "data: " + JSON.stringify({
+                type: "response.completed",
+                response: {
+                    status: "completed",
+                    output: [{ type: "message", content: [{ type: "output_text", text: "<text>hello</text>" }] }],
+                },
+            }),
+            "",
+        ].join("\n"))) as typeof fetch
+
+        const driver = Codex({ model: "gpt-test" }).create({ env: {}, cloud: cloudWithToken() })
+        const events = await Array.fromAsync(driver.stream(request))
+
+        expect(events).toEqual([{
+            type: "done",
+            response: expect.objectContaining({ text: "<text>hello</text>" }),
+        }])
+    })
+
+    it("uses an output-item snapshot when its text finalizer is absent", async () => {
+        globalThis.fetch = (async () => new Response([
+            "data: " + JSON.stringify({
+                type: "response.output_item.done",
+                item: { type: "message", content: [{ type: "output_text", text: "<text>hello</text>" }] },
+            }),
+            "",
+        ].join("\n"))) as typeof fetch
+
+        const driver = Codex({ model: "gpt-test" }).create({ env: {}, cloud: cloudWithToken() })
+        const events = await Array.fromAsync(driver.stream(request))
+
+        expect(events).toEqual([{
+            type: "done",
+            response: expect.objectContaining({ text: "<text>hello</text>" }),
+        }])
     })
 })

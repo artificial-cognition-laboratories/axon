@@ -57,7 +57,7 @@ async function agentWithModules(modules: ModuleSpec[], agentTools: Record<string
     const declared = modules.map(m => `"./modules/${m.name}"`).join(", ")
     await writeFile(
         join(agent.root, "axon.config.ts"),
-        `export default defineAgent({ engine: Mock(), modules: [${declared}] })\n`,
+        `export default defineAgent({ providers: [Mock()], model: "mock:mock", modules: [${declared}] })\n`,
     )
 
     return agent.root
@@ -174,7 +174,7 @@ describe("module tools: failures degrade the module, not the agent", () => {
         const { blueprint } = await Blueprint({ root }).load()
 
         // Booted. This is the property the whole change exists for.
-        expect(blueprint.modules.map(m => m.name)).toContain("broken")
+        expect(blueprint.modules?.map(m => m.name)).toContain("broken")
     }, 90_000)
 
     it("the broken module is marked degraded, with the reason", async () => {
@@ -183,7 +183,7 @@ describe("module tools: failures degrade the module, not the agent", () => {
         ])
 
         const { blueprint } = await Blueprint({ root }).load()
-        const broken = blueprint.modules.find(m => m.name === "broken")
+        const broken = blueprint.modules?.find(m => m.name === "broken")
 
         // Not merely absent from the scope — NAMED, because the model reads
         // this to say "I cannot do that right now" instead of guessing.

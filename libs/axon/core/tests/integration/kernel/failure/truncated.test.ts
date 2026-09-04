@@ -43,4 +43,47 @@ describe("kernel failure: a truncated block", () => {
 
         await runtime.shutdown()
     }, 30_000)
+
+    /**
+     * The same fault, in a block that already streamed.
+     *
+     * The script case above never sets `spoke` — a truncated script emits
+     * nothing to the UI — so the truncation guard was reached. TEXT streams as
+     * it arrives, so `spoke` is true long before the missing `</text>` is
+     * known, and the guard (`!spoke && !acted && truncated`) was skipped
+     * entirely. A malformed reply carrying `<done/>` was therefore ACCEPTED,
+     * and the `<done/>` ended the turn: observed in production as a long answer
+     * that stopped mid-sentence, with the tag swallowed into the prose.
+     */
+    it("rejects a truncated text block even though it already streamed", async () => {
+        let calls = 0
+        const def: AxonEngineDef = {
+            name: "cut-text",
+            model: "cut-text",
+            create: () => ({
+                async *stream(): AsyncGenerator<AxonEngineRawEvent> {
+                    calls++
+                    // No </text> ever arrives — and <done/> lands inside it.
+                    const text = calls === 1
+                        ? `<text from="agent" lang="md">\n## Scope result\n\nA long answer that stops mid-\n<done/>`
+                        : `<text>recovered</text><done/>`
+                    yield { type: "text:delta", content: text }
+                    yield { type: "done", response: { text, stopReason: "end", meta: { provider: "cut-text", model: "cut-text", durationMs: 1 } } }
+                },
+            }),
+        }
+        const runtime = await Axon({ blueprint: { config: { providers: [driver(def)] } } })
+        await expect(runtime.kernel.request({ content: "go" })).resolves.toBeDefined()
+
+        const faults = runtime.session.entries.filter(
+            e => e.type === "axon:system:message" && e.data.type === "format-violation",
+        )
+
+        // The reply must be refused and re-requested, not accepted as speech.
+        expect(faults.length).toBeGreaterThan(0)
+        expect(String((faults[0] as { data: { content: string } }).data.content)).toContain("never closed")
+        expect(calls).toBeGreaterThan(1)
+
+        await runtime.shutdown()
+    }, 30_000)
 })

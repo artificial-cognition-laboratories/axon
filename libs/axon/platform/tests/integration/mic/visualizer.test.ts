@@ -1,4 +1,5 @@
 import { renderBraille } from "@arcforge/platform/services/mic/visualizer"
+import { describe, it, expect } from "bun:test"
 
 describe("visualizer.renderBraille", () => {
     it("renders one character per two levels", () => {

@@ -53,7 +53,7 @@ just without a model.
 wiring without caring about content:
 
 ```ts
-engine: Mock()
+providers: [Mock()], model: "mock:mock"
 ```
 
 **Map** — patterns matched as case-insensitive substrings against the last user
@@ -115,7 +115,7 @@ what was returned:
 Tools are reachable without going through the loop at all — typed, real, policy-checked:
 
 ```ts
-const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
 const sum = await runtime.axon.tools.math.add(2, 3)
 expect(sum).toBe(5)

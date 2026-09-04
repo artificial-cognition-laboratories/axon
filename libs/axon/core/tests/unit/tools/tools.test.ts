@@ -2,6 +2,21 @@ import { Tools } from "../../../src/tools"
 import type { MediateOpts } from "../../../src/tools"
 import type { AxonTool } from "@arcforge/types"
 
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterAll, describe, expect, it } from "bun:test"
+
+/**
+ * Where these tools materialize. `scratch` is REQUIRED: the agent derives it
+ * from its own frame rather than reading `os.tmpdir()`, which resolved
+ * differently inside the agent process than on the host and stopped agents
+ * booting on macOS entirely. Supplying a real directory is what the runtime does.
+ */
+const scratch = mkdtempSync(join(tmpdir(), "core-tools-"))
+afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+
+
 /**
  * The in-process tool manager — what replaces the capsule's split machinery
  * (a guest-side loader plus a host-side wire handshake) once the agent
@@ -48,7 +63,7 @@ const greeter = tool({
 describe("Tools — loading and calling", () => {
     it("calls the real exported function and returns its result", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         const globals = tools.globals() as { greet(n: string): Promise<string> }
@@ -57,7 +72,7 @@ describe("Tools — loading and calling", () => {
 
     it("places a flat tool's exports as top-level names", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         expect(Object.keys(tools.globals())).toEqual(["greet"])
@@ -65,7 +80,7 @@ describe("Tools — loading and calling", () => {
 
     it("places every export under its own name, whatever file it came from", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "math",
             fns: [{ name: "add", declaration: "function add(a: number, b: number): number" }],
@@ -80,7 +95,7 @@ describe("Tools — loading and calling", () => {
 
     it("accepts the default-export authoring shape", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "legacy",
             fns: [{ name: "ping", declaration: "function ping(): string" }],
@@ -96,7 +111,7 @@ describe("Tools — loading and calling", () => {
         // that cannot be called would tell the model to invoke a function that
         // does not exist.
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([{ name: "ghost", origin: "src", fns: [] } as unknown as AxonTool])
 
         expect(tools.namespaces).toEqual([])
@@ -109,7 +124,7 @@ describe("Tools — mediation", () => {
         ;(globalThis as Record<string, unknown>).__toolRan = () => { ran = true }
 
         const { mediation, checks } = recorder(() => false)
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "danger",
             fns: [{ name: "fire", declaration: "function fire(): void" }],
@@ -126,7 +141,7 @@ describe("Tools — mediation", () => {
 
     it("matches a glob rule against the first string argument", async () => {
         const { mediation, checks } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         await (tools.globals() as { greet(n: string): Promise<string> }).greet("world")
@@ -137,7 +152,7 @@ describe("Tools — mediation", () => {
         // A denied call is a policy fact, not an execution that failed. Pairing
         // a :start with no end would leave an open bracket in every flame graph.
         const { mediation, spans } = recorder(() => false)
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         await expect((tools.globals() as { greet(n: string): Promise<string> }).greet("x")).rejects.toThrow()
@@ -146,7 +161,7 @@ describe("Tools — mediation", () => {
 
     it("brackets a successful call with start and complete", async () => {
         const { mediation, spans } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         await (tools.globals() as { greet(n: string): Promise<string> }).greet("x")
@@ -155,7 +170,7 @@ describe("Tools — mediation", () => {
 
     it("closes the bracket with failed when the tool throws, and rethrows", async () => {
         const { mediation, spans } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "boom",
             fns: [{ name: "explode", declaration: "function explode(): void" }],
@@ -170,7 +185,7 @@ describe("Tools — mediation", () => {
         // An object of objects: wrapping only the top level would leave
         // `api.inner.deep` unmediated while `api.shallow` was checked.
         const { mediation, checks } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([tool({
             name: "api",
             fns: [{ name: "inner", declaration: "const inner: { deep(): string }" }],
@@ -196,7 +211,7 @@ describe("Tools — a broken tool fails LOUDLY", () => {
      */
     it("throws when a tool's source does not import", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
 
         await expect(tools.install([tool({
             name: "broken",
@@ -210,7 +225,7 @@ describe("Tools — a broken tool fails LOUDLY", () => {
         // If the module exports something else, the model calls a function that
         // is not there — caught at boot rather than at call time.
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
 
         await expect(tools.install([tool({
             name: "liar",
@@ -221,7 +236,7 @@ describe("Tools — a broken tool fails LOUDLY", () => {
 
     it("leaves nothing half-installed when a tool fails", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
 
         await expect(tools.install([
             greeter,
@@ -242,7 +257,7 @@ describe("Tools — a broken tool fails LOUDLY", () => {
 describe("Tools — reload", () => {
     it("drops a namespace the author deleted", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         tools.remove("greeter")
@@ -251,7 +266,7 @@ describe("Tools — reload", () => {
 
     it("clears everything for a rebuild", async () => {
         const { mediation } = recorder()
-        const tools = Tools({ mediation })
+        const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         tools.clear()

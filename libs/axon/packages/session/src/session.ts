@@ -4,7 +4,7 @@ import type {
     AxonBlueprint,
     AxonEntry,
     AxonEntryEvent,
-    AxonEventContext,
+    AxonCommitContext,
     AxonEventMap,
     AxonKernelEvent,
     AxonSessionEvent,
@@ -49,8 +49,12 @@ type AxonSessionOpts = {
     persist?: boolean
 }
 
-/** Correlation a caller may attach to a commit — everything else is stamped here. */
-type CommitContext = Partial<Pick<AxonEventContext, "runId" | "spanId">>
+/**
+ * Correlation a caller may attach to a commit — everything else is stamped
+ * here. Aliased to the shared type: it crosses the supervisor link now, so one
+ * definition has to serve both the writer and the wire.
+ */
+type CommitContext = AxonCommitContext
 
 // ── Writer ────────────────────────────────────────────────────────────────────
 
@@ -430,7 +434,23 @@ async function SessionState(opts: SessionStateOpts) {
     // and a build-created file gets one on the runtime's first touch.
     await home.data.sessions.open(opts.root, opts.sessionId, opts.agentId)
 
-    await commit(resuming ? "axon:session:restored" : "axon:session:opened", {})
+    /**
+     * Only the session that OWNS the file narrates its beginning.
+     *
+     * Same rule `end()` applies to `axon:session:closed`, and for the same
+     * reason: a non-persisting session is a projection of a record someone
+     * else holds, so "this conversation began/resumed" is not its statement
+     * to make. It is not enough that the append is dropped — the commit still
+     * announces on the bus, and a confined agent's bus is forwarded to the
+     * supervisor over the link.
+     *
+     * That is what put "session resumed" on every fresh boot: the supervisor
+     * opened the file and correctly said `opened`, then the agent opened the
+     * SAME path, found the events the supervisor had just written, and
+     * announced `restored`. The `isBuildEvent` guard below could never have
+     * caught it — by then the prior events were genuinely real.
+     */
+    if (persist) await commit(resuming ? "axon:session:restored" : "axon:session:opened", {})
 
     return {
         id: opts.sessionId,

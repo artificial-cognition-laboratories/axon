@@ -123,6 +123,70 @@ describe("what gets reported", () => {
         }
     })
 
+    test("transport and 5xx failures retry within a bounded budget", async () => {
+        const original = globalThis.fetch
+        let attempts = 0
+        globalThis.fetch = (async () => {
+            attempts++
+            if (attempts === 1) throw new TypeError("offline")
+            if (attempts === 2) return new Response("down", { status: 503 })
+            return new Response("{}", { status: 200 })
+        }) as typeof fetch
+    
+        try {
+            const reporting = Reporting({ baseUrl: "http://x" })
+            reporting.send({ source: "runtime", message: "retry-me", severity: "fatal" })
+            await reporting.flush()
+            expect(attempts).toBe(3)
+        } finally {
+            globalThis.fetch = original
+        }
+    })
+    
+    test("4xx and 429 are final and never retried", async () => {
+        const original = globalThis.fetch
+        let attempts = 0
+        globalThis.fetch = (async () => {
+            attempts++
+            return new Response("refused", { status: 429 })
+        }) as typeof fetch
+    
+        try {
+            const reporting = Reporting({ baseUrl: "http://x" })
+            reporting.send({ source: "runtime", message: "rate-limited", severity: "fatal" })
+            await reporting.flush()
+            expect(attempts).toBe(1)
+        } finally {
+            globalThis.fetch = original
+        }
+    })
+    
+    test("payload fields are bounded before transport", async () => {
+        const { sent, restore } = collect()
+        try {
+            const reporting = Reporting({ baseUrl: "http://x" })
+            reporting.send({
+                source: "runtime",
+                message: "m".repeat(3_000),
+                stack: "s".repeat(20_000),
+                cause: "c".repeat(3_000),
+                frames: Array.from({ length: 40 }, () => ({
+                    functionName: "f",
+                    fileName: "x.ts",
+                    lineNumber: 1,
+                })),
+            })
+            await reporting.flush()
+    
+            expect(String(sent[0]?.message)).toHaveLength(2_000)
+            expect(String(sent[0]?.stack)).toHaveLength(16_000)
+            expect(String(sent[0]?.cause)).toHaveLength(2_000)
+            expect(sent[0]?.frames).toHaveLength(30)
+        } finally {
+            restore()
+        }
+    })
+    
     test("disabling reporting sends nothing at all", async () => {
         const { sent, restore } = collect()
         try {

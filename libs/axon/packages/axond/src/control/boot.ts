@@ -64,8 +64,10 @@ export function Boot(opts: BootOpts) {
         /** True when a unit is installed and names the current command. */
         installed(): boolean {
             if (!supported() || !existsSync(target)) return false
+            const absolute = resolved(opts.command)
+            if (absolute === null) return false
             try {
-                return readFileSync(target, "utf-8") === contents(opts.command)
+                return readFileSync(target, "utf-8") === contents(absolute)
             } catch {
                 return false
             }
@@ -97,7 +99,30 @@ export function Boot(opts: BootOpts) {
              */
             if (!verify(opts.command)) return false
 
-            const body = contents(opts.command)
+            /**
+             * Resolve the binary to an absolute path before writing it.
+             *
+             * systemd does NOT search the user's PATH for `ExecStart`. A bare
+             * `axon` is looked for in a fixed set of system directories only,
+             * so a CLI installed under the user's home — which is where every
+             * supported install puts it — is never found, and the unit fails
+             * with 203/EXEC at every boot. It reports `enabled` throughout,
+             * so nothing surfaces the failure.
+             *
+             * `verify` above passes regardless, because it runs in the shell
+             * the user invoked, where PATH does contain the CLI. Working when
+             * checked and failing when run is precisely the trap this whole
+             * file was written to avoid, reached by a route its comments did
+             * not anticipate.
+             *
+             * Resolving on every install keeps it current: the install is
+             * idempotent by content, so a CLI that moves is repaired by the
+             * next `daemon up` rather than left stale.
+             */
+            const absolute = resolved(opts.command)
+            if (absolute === null) return false
+
+            const body = contents(absolute)
             mkdirSync(dirname(target), { recursive: true })
 
             // Written only when it differs, so an install on every `up` does
@@ -167,6 +192,7 @@ function contents(command: string[]): string {
         "",
         "[Service]",
         "Type=simple",
+        `Environment=PATH=${servicePath()}`,
         `ExecStart=${command.join(" ")}`,
         "Restart=on-failure",
         "RestartSec=5",
@@ -177,21 +203,95 @@ function contents(command: string[]): string {
     ].join("\n")
 }
 
+/**
+ * A PATH the unit can actually run the CLI with.
+ *
+ * Resolving `axon` to an absolute path (see install()) fixed systemd not
+ * searching the user's PATH — and uncovered the SAME trap one level down. The
+ * CLI is a script whose shebang is `#!/usr/bin/env bun`, and a systemd user
+ * service inherits a minimal PATH with no `~/.bun/bin` in it, so `env` cannot
+ * find the interpreter and every start exits 127 with
+ * `env: 'bun': No such file or directory`.
+ *
+ * It fails exactly as invisibly as its predecessor: the unit reports `enabled`,
+ * `axon daemon status` works perfectly in the user's own shell, and the service
+ * simply restarts forever. This machine reached 671 attempts before anyone
+ * looked, having never once started the daemon the whole product assumes is
+ * resident.
+ *
+ * So the interpreter's directory is written into the unit alongside the system
+ * ones. Resolved at install time from wherever bun actually is, rather than
+ * guessed: an install that moved it would otherwise reintroduce this.
+ */
+function servicePath(): string {
+    const standard = ["/usr/local/bin", "/usr/bin", "/bin"]
+    const interpreter = Bun.which("bun")
+    const home = homedir()
+    const candidates = [
+        ...(interpreter ? [dirname(interpreter)] : []),
+        // The two locations the installer uses, included even when bun is not
+        // on THIS shell's PATH — the unit outlives the shell that wrote it.
+        join(home, ".bun", "bin"),
+        join(home, ".cache", ".bun", "bin"),
+        ...standard,
+    ]
+    return candidates.filter((entry, index) => candidates.indexOf(entry) === index).join(":")
+}
+
 function which(binary: string): boolean {
     return run(["which", binary])
 }
 
 /**
+ * The command with its binary as an absolute path, or null when it cannot be
+ * found at all.
+ *
+ * Null rather than a guess: a unit naming a path that does not exist is the
+ * silent boot failure this module exists to prevent, and `install` reporting
+ * false is the honest alternative.
+ */
+function resolved(command: string[]): string[] | null {
+    const [binary, ...rest] = command
+    if (!binary) return null
+    if (binary.startsWith("/")) return command
+
+    const path = Bun.which(binary)
+    return path ? [path, ...rest] : null
+}
+
+/**
  * Does this command actually reach a daemon that can serve?
  *
- * `axon daemon status` is the cheapest verb that fails on a CLI predating the
- * group — it exits non-zero with "Unknown command: daemon" — and succeeds
- * whether or not a daemon happens to be running.
+ * It used to swap the last word for `status` and check THAT — verifying a
+ * different command from the one it was about to write. `serve` existed only
+ * on the `axond` binary while the unit named `axon daemon serve`, so this
+ * returned true and installed a unit that exited 1 at every start, on every
+ * machine, silently, because the service reports `enabled` throughout.
+ *
+ * So it now asks about the REAL command: `--help` on the group, which lists
+ * the verbs. Cheap, no side effects, and false exactly when the CLI cannot do
+ * what the unit is about to ask of it.
  */
 function verify(command: string[]): boolean {
     const [binary, ...rest] = command
     if (!binary || !which(binary)) return false
-    return run([binary, ...rest.slice(0, -1), "status"])
+    const verb = rest[rest.length - 1]
+    if (!verb) return false
+    const listing = capture([binary, ...rest.slice(0, -1), "--help"])
+    return listing !== null && listing.includes(verb)
+}
+
+/** A command's output, or null when it could not be run. Never throws. */
+function capture(argv: string[]): string | null {
+    try {
+        const [command, ...args] = argv
+        if (!command) return null
+        const probed = spawnSync(command, args, { encoding: "utf-8" })
+        if (probed.status !== 0) return null
+        return `${probed.stdout ?? ""}${probed.stderr ?? ""}`
+    } catch {
+        return null
+    }
 }
 
 /** Run a command, reporting only whether it succeeded. Never throws. */

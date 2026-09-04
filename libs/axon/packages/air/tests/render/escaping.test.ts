@@ -1,5 +1,6 @@
 import type { AxonEntry, AxonEntryEvent } from "@arcforge/types"
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 let seq = 1
 function entry<K extends keyof AxonEntryEvent>(type: K, data: AxonEntryEvent[K], runId?: string): AxonEntry {

@@ -13,6 +13,7 @@ import type { AgentToSupervisor, InferCall, SupervisorToAgent } from "../src/sup
 function agentSide(over: Partial<SupervisorToAgent> = {}): SupervisorToAgent {
     return {
         stimulus: async () => ({ admitted: true }),
+        ingest: async () => {},
         update: async () => {},
         interrupt: () => {},
         shutdown: async () => {},

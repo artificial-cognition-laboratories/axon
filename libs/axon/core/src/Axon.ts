@@ -16,7 +16,7 @@ import { Inference } from "./runtime/inference"
 import { Cognet } from "./cognet"
 import { Modules } from "./modules"
 import { Tools } from "./tools"
-import { resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 type AxonOpts = {
     blueprint: AxonPartialBlueprint
@@ -200,7 +200,40 @@ export async function Axon(opts?: AxonOpts) {
             // to coincide with confinement. Anything booted without it loaded
             // ZERO tools, so a script run that way failed with "fs is not
             // defined" for a module its config plainly installed.
-            const tools = Tools({ mediation: kernel.mediation })
+            const tools = Tools({
+                mediation: kernel.mediation,
+                // The agent's own frame, derived from paths.data — its sibling
+                // `cache` room is documented as regenerable and disposable,
+                // which is exactly what materialized tool source is. Never the
+                // OS temp directory: this process is spawned with an
+                // environment built from nothing and `TMPDIR` is not on the
+                // pass-through list, so host and agent resolved different
+                // directories and the import failed.
+                // Resolved against the agent root: `paths.data` defaults to the
+                // RELATIVE ".agent/data" for a programmatic blueprint, and a
+                // relative scratch path would resolve against whatever cwd the
+                // process happens to hold — which is exactly the ambient
+                // dependence this change exists to remove.
+                scratch: resolve(blueprint.paths.root, dirname(blueprint.paths.data), "cache", "tools"),
+                /**
+                 * A name two tools both export, reported on the durable record.
+                 *
+                 * Flat placement means the second one wins, and silence is how
+                 * the previous behaviour hid: a capability the author declared
+                 * was simply not there, with nothing anywhere saying which tool
+                 * had taken the name. `build:warning` is the family for exactly
+                 * this — its own doc names "a tool shadowed by one of the same
+                 * name" — and it is recoverable rather than fatal, because an
+                 * agent with one shadowed export still serves everything else.
+                 */
+                onClash: ({ name, previous, next }) => {
+                    void session.commit("build:warning", {
+                        domain: "tools",
+                        message: `\`${name}\` is exported by both \`${previous}\` and \`${next}\` — \`${next}\` wins.`
+                            + " Rename one export, or call the shadowed one through axon.tools.",
+                    })
+                },
+            })
             await tools.install(blueprint.tools)
 
             // user facing handle
@@ -215,6 +248,8 @@ export async function Axon(opts?: AxonOpts) {
                 // A thunk: a hot reload rebuilds the set, and a captured map
                 // would keep serving a tool the author deleted.
                 loaded: () => tools.globals(),
+                namespaced: () => tools.namespaced(blueprint.tools),
+                reload: next => tools.reload(next),
             })
 
             // inject before [middleware, plugins, hooks]. The blueprint rides

@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Install the Axon Omarchy plugin and desktop entry.
+#
+#   bin/install          copy the plugin into ~/.config/omarchy/plugins
+#   bin/install --link    symlink it instead, so edits in the repo hot-reload
+#
+# The shell reloads plugin code on save, so --link is the development loop.
+# Note that `omarchy plugin validate` refuses a symlinked plugin folder; run it
+# against this directory directly instead.
+
+set -euo pipefail
+
+ID="arclabs.axon"
+SOURCE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+PLUGINS="$HOME/.config/omarchy/plugins"
+TARGET="$PLUGINS/$ID"
+APPS="$HOME/.local/share/applications"
+ICONS="$HOME/.local/share/icons/hicolor/scalable/apps"
+
+link=false
+[[ ${1:-} == "--link" ]] && link=true
+
+command -v omarchy-plugin-validate >/dev/null 2>&1 \
+    || { echo "This is not an Omarchy machine — omarchy-plugin-validate is missing." >&2; exit 1; }
+
+omarchy-plugin-validate "$SOURCE"
+
+mkdir -p "$PLUGINS" "$APPS" "$ICONS"
+
+# Replace whatever is there. A stale copy beside a fresh symlink is how the
+# shell ends up loading the version you are not editing.
+rm -rf "$TARGET"
+
+if [[ $link == "true" ]]; then
+    ln -s "$SOURCE" "$TARGET"
+    echo "linked  $TARGET -> $SOURCE"
+else
+    cp -r "$SOURCE" "$TARGET"
+    rm -rf "$TARGET/bin" "$TARGET/system"
+    echo "copied  $TARGET"
+fi
+
+install -m 644 "$SOURCE/assets/axon.svg" "$ICONS/axon.svg"
+install -m 644 "$SOURCE/system/Axon.desktop" "$APPS/Axon.desktop"
+install -m 644 "$SOURCE/system/Axon-Models.desktop" "$APPS/Axon-Models.desktop"
+echo "apps    $APPS/Axon.desktop"
+echo "        $APPS/Axon-Models.desktop"
+
+# The shell picks up new plugin code on its own; a rescan is the honest nudge
+# when a whole plugin directory appeared rather than a file changing inside one.
+omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+
+echo
+echo "Enable it with:  omarchy plugin enable $ID"
+echo
+echo "Open the model browser:  omarchy-shell shell toggle $ID"
+echo "Bind it, in ~/.config/hypr/bindings.lua:"
+echo "  o.bind(\"SUPER + SHIFT + CTRL + M\", \"Axon Models\", \"omarchy-shell shell toggle $ID\")"

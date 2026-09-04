@@ -39,6 +39,22 @@ export function toScopeModule(tool: AxonTool): AxonScopeModule {
         ...(tool.description ? { description: tool.description } : {}),
         members: tool.fns,
         ...(tool.ambientTypes ? { ambientTypes: tool.ambientTypes } : {}),
+        /**
+         * There is NO placement decision here any more.
+         *
+         * `flat` used to be derived from origin, and three surfaces spelled it
+         * — the model's `<scope>`, the editor's `.d.ts`, and the runtime's
+         * actual globals. Carrying the decision was meant to stop them
+         * disagreeing; it could not, because it is one more thing to keep in
+         * step and it drifted anyway: the renderers wrapped a module's tools
+         * in a namespace the runtime did not install, so a model called what
+         * its own scope promised and found nothing there.
+         *
+         * Every tool is now placed flat, unconditionally. A tool exporting an
+         * object is already its own namespace, and a name two tools both claim
+         * is reported (Tools.onClash) rather than resolved by silently
+         * renaming one — which is the author's call, not the runtime's.
+         */
     }
 }
 

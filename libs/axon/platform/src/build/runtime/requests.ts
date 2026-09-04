@@ -3,17 +3,13 @@ import type { AxonRequestInput, AxonResult } from "@arcforge/types"
 import type { InstancesT } from "./instances"
 
 /**
- * The envelope on agent-initiated spawning.
+ * The in-process door for agent-initiated spawning.
  *
- * A user may run as many agents side by side as they like — ten ambient agents
- * is a normal fleet, and nothing here constrains that. These bound the one path
- * that can run away without anyone asking: an agent whose own code spawns
- * another agent, which spawns another. Depth caps recursion, children caps one
- * agent's fan-out, descendants caps the whole tree beneath one root.
+ * The LIMITS on it (depth, fan-out, descendants) are enforced by the daemon —
+ * see its `checkSubagentLimits`. They lived here while this was the only route
+ * an agent could spawn through; it no longer is, and a rule implemented per
+ * route is a rule that eventually differs by route.
  */
-const MAX_DEPTH = 4
-const MAX_LIVE_CHILDREN = 4
-const MAX_LIVE_DESCENDANTS = 12
 
 type RequestsOpts = {
     instances: InstancesT
@@ -51,29 +47,23 @@ export function Requests(opts: RequestsOpts) {
         return { prompt: prompt }
     }
 
-    /** Refuse before booting anything — a limit checked after the spawn has already cost the spawn. */
+    /**
+     * Resolve the parent. The LIMITS are the daemon's.
+     *
+     * Depth, fan-out and descendant caps used to be enforced here, and this
+     * was described as "the ONLY caller-initiated spawn path with limits
+     * attached". That stopped being true: an agent shelling out to
+     * `axon <ref> --parent <id>` spawns through the daemon and never touches
+     * this function, so the limits guarded one of two routes.
+     *
+     * They live in the daemon now — the one place every spawn passes through,
+     * and the only one that sees the whole ownership graph. Two
+     * implementations of one rule is how they come to disagree about what a
+     * limit means, which is worse than either answer.
+     */
     function checkLimits(parentSessionId: string) {
         const parent = instances.get(parentSessionId)
         if (!parent) throw err("PARENT_INSTANCE_NOT_RUNNING", { context: { sessionId: parentSessionId } })
-
-        if (parent.depth >= MAX_DEPTH) {
-            throw err("SUBAGENT_DEPTH_EXCEEDED", {
-                detail: `maximum depth is ${MAX_DEPTH}`,
-                context: { sessionId: parent.sessionId, depth: parent.depth, limit: MAX_DEPTH },
-            })
-        }
-        if (instances.children(parent.sessionId).length >= MAX_LIVE_CHILDREN) {
-            throw err("SUBAGENT_CHILD_LIMIT_EXCEEDED", {
-                detail: `maximum live children is ${MAX_LIVE_CHILDREN}`,
-                context: { sessionId: parent.sessionId, limit: MAX_LIVE_CHILDREN },
-            })
-        }
-        if (instances.descendants(parent.rootSessionId).length >= MAX_LIVE_DESCENDANTS) {
-            throw err("SUBAGENT_DESCENDANT_LIMIT_EXCEEDED", {
-                detail: `maximum live descendants is ${MAX_LIVE_DESCENDANTS}`,
-                context: { rootSessionId: parent.rootSessionId, limit: MAX_LIVE_DESCENDANTS },
-            })
-        }
         return parent
     }
 

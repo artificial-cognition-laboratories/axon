@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
+import { stubFetch } from "../../setup/fetch"
 
 /**
  * A credential can die WHILE the app is running.
@@ -68,12 +70,12 @@ describe("a credential that dies mid-session", () => {
             platform.cloud.onSessionExpired(() => { fired++ })
 
             // Boot is fine — this is the state the old code never left.
-            await withFetch((async () => ok(id, email)) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => ok(id, email)), async () => {
                 expect(await platform.cloud.validate()).toBe("valid")
             })
 
             // ...then the credential is revoked from the web.
-            await withFetch((async () => unauthorized()) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => unauthorized()), async () => {
                 await platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {})
                 await settle()
             })
@@ -96,7 +98,7 @@ describe("a credential that dies mid-session", () => {
             const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             platform.cloud.onSessionExpired(() => {})
 
-            await withFetch((async () => unauthorized()) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => unauthorized()), async () => {
                 await expect(platform.cloud.client.user.billing.ledger.list({ limit: 1 })).rejects.toThrow()
             })
         })
@@ -116,7 +118,7 @@ describe("a credential that dies mid-session", () => {
             platform.cloud.onSessionExpired(() => { throw new Error("subscriber exploded") })
             platform.cloud.onSessionExpired(() => { reached = true })
 
-            await withFetch((async () => unauthorized()) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => unauthorized()), async () => {
                 await platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {})
                 await settle()
             })
@@ -138,7 +140,7 @@ describe("a credential that dies mid-session", () => {
             let fired = 0
             platform.cloud.onSessionExpired(() => { fired++ })
 
-            await withFetch((async () => unauthorized()) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => unauthorized()), async () => {
                 await Promise.all([
                     platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {}),
                     platform.cloud.client.user.keys.list().catch(() => {}),
@@ -163,7 +165,7 @@ describe("a credential that dies mid-session", () => {
             const off = platform.cloud.onSessionExpired(() => { fired++ })
             off()
 
-            await withFetch((async () => unauthorized()) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => unauthorized()), async () => {
                 await platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {})
                 await settle()
             })
@@ -188,7 +190,7 @@ describe("the auth ladder does not re-enter the observer", () => {
             let fired = 0
             platform.cloud.onSessionExpired(() => { fired++ })
 
-            await withFetch((async () => unauthorized()) as typeof fetch, async () => {
+            await withFetch(stubFetch(async () => unauthorized()), async () => {
                 expect(await platform.cloud.validate()).toBe("rejected")
                 await settle()
             })

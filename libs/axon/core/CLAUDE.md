@@ -59,27 +59,44 @@ are one list by construction.
 ```ts
 Axon({ blueprint, cwd?, cloud?, host?, escalate? })  // the runtime
 Tools({ mediation })                                  // in-process executable scope
-  .install(tools) / .globals() / .remove(ns) / .clear()
+  .install(tools) / .reload(tools) / .remove(ns) / .clear()
+  .globals()      // flat, origin-aware — backs the ambient scope
+  .namespaced(declared?)  // by namespace — backs axon.tools.*
 ```
 
-## Two Tool Paths, One Gate
+## Two Tool Surfaces, One Gate
 
-`axon.tools.<ns>.<fn>()` resolves differently depending on where the tool's
-code lives, and `Tools()` (`runtime/source/tools.ts`) owns that choice:
+A tool's exports reach callers two ways, and both go through the same mediator:
 
-- **In-process** — the runtime was built with `remote`, so it is confined and
-  the tool is in this heap. The call is a function call.
-- **Capsule** — the tool is in a subprocess whose only conversation is
-  `run(code)`, so a call is SYNTHESISED as the same kind of code an
-  agent-generated `<typescript>` block sends, shipped over JSONL, and eval'd
-  there. That bridge exists solely because of the boundary and disappears with
-  it.
+- **Flat globals** — the primary path. `export function add()` is `add()`, in
+  model-emitted code, scripts, routes, hooks and prompts alike. Placement
+  follows ORIGIN: the agent's own `src/tools/` and the shared workspace's go
+  flat; a MODULE's tools live under the module's name (`github.openPr()`), so
+  an installed module cannot claim a bare name in the author's scope.
+- **`axon.tools.<ns>.<fn>()`** — the ESCAPE HATCH, for when a bare name cannot
+  serve: the name is already taken (a tool exporting `fetch` never replaces the
+  host builtin, so this is the only way to call it), or the caller wants to be
+  explicit about which tool it means.
 
-**Mediation survives the boundary's removal, and is the point.** `Mediation()`
+Both are projected from the same loaded set — one loader, one `mediate()`
+wrapper — so policy, tracing and escalation cannot drift between them. Both are
+thunks read through getters, never snapshots: a hot reload rebuilds the set
+(`Tools.reload()`), and a captured map kept serving tools the author had
+deleted while newly added ones stayed unreachable until restart.
+
+A namespace the blueprint declares but nothing could load is PRESENT in
+`axon.tools` and rejects when called, naming itself. Absent, the call dies as a
+property error pointing at the caller; no-op'd, it reports success for work
+that never happened. Neither says the true thing.
+
+**Mediation is the gate, and survives the boundary's removal.** `Mediation()`
 in `@arcforge/kernel` gates in-process calls against the SAME resolved policy
 the capsule enforces — `defaultPolicy()` is exported precisely so there is one
 resolution, since two would let a tool be permitted on one path and denied on
-the other with nothing to say which is right. Event names are unchanged
+the other with nothing to say which is right. The policy ADDRESS stays
+`<namespace>.<fn>` on both surfaces even though the global is flat: a rule is
+written against the tool the user installed, and a bare export name would make
+one rule cover every module exporting `read`. Event names are unchanged
 (`capsule:fn:*`, `capsule:policy:*`), because Fleet folds its flame graph
 straight out of them.
 

@@ -116,11 +116,151 @@ describe("domains", () => {
         expect(Array.isArray(axond.models.state().resident)).toBe(true)
     })
 
-    test("an unwired domain throws rather than answering emptily", async () => {
-        // Invariant 7: a stub returning [] is indistinguishable from a real
-        // answer, and the next caller builds on it without knowing.
+    test("the schedule domain answers with durable state", async () => {
         const axond = await daemon()
 
-        expect(() => axond.schedule.state()).toThrow(/not wired/i)
+        expect(axond.schedule.state()).toEqual({
+            schedules: [],
+            running: false,
+            nextRunAt: null,
+        })
+    })
+})
+
+describe("a detached daemon's paths", () => {
+    /**
+     * The regression: `daemonPaths()` reads NODE_ENV to pick `~/.axon` or
+     * `~/.axon-dev`, but a bundler INLINES that value — so in a published CLI
+     * `process.env.NODE_ENV` is undefined at runtime and a spawned child
+     * re-deriving the answer got "development" while the parent that spawned
+     * it had "production" compiled in. The client then waited out its timeout
+     * on a socket the daemon was never going to bind, and `axon daemon up`
+     * failed for every user of a published build.
+     *
+     * Asserted through the OBSERVABLE property rather than by intercepting the
+     * spawn: a daemon started under an explicit root must be reachable at that
+     * root's socket, whatever the environment says. A child that re-derived
+     * its own answer would bind elsewhere and this would time out.
+     */
+    test("a daemon started under an explicit root is reachable there", async () => {
+        const root = await mkdtemp(join(tmpdir(), "axond-spawn-"))
+        roots.push(root)
+
+        const axond = Axond({ root: root, version: "9.9.9" })
+        await axond.serve()
+
+        // The socket exists where the caller said it would, not where a
+        // re-derivation from NODE_ENV would have put it.
+        expect(existsSync(axond.paths.socket)).toBe(true)
+        expect(axond.paths.socket.startsWith(root)).toBe(true)
+
+        await axond.shutdown()
+    })
+})
+
+describe("a machine with no ~/.axon yet", () => {
+    /**
+     * The regression: `Server.listen()` bound the socket before `Lifecycle`
+     * created its directory — deliberately, so that a live pidfile always
+     * implies a listening socket. On a fresh install that ordering made the
+     * very first `axon daemon up` die with `ENOENT: listen`: the first thing a
+     * new user does was the one thing that could not work.
+     */
+    test("the first start creates the socket's directory", async () => {
+        const parent = await mkdtemp(join(tmpdir(), "axond-fresh-"))
+        roots.push(parent)
+
+        // Nothing exists below it — the state a machine is in before Axon has
+        // ever run on it.
+        const root = join(parent, "never", "created", "daemon")
+        expect(existsSync(root)).toBe(false)
+
+        const axond = Axond({ root: root, version: "9.9.9" })
+        await axond.serve()
+
+        expect(existsSync(axond.paths.socket)).toBe(true)
+
+        await axond.shutdown()
+    })
+})
+
+/**
+ * A daemon from an older build is not a running daemon.
+ *
+ * `axon update` replaces the CLI and never touches the supervisor, and `up`
+ * returned `already` on the strength of a live pid alone. So the new CLI
+ * talked to whatever was listening — indefinitely, since `up` runs before
+ * every agent command and nothing ever told the user to restart. Observed
+ * with 28h uptime across a day of releases: the CLI dispatched verbs the old
+ * process had never heard of and got DAEMON_NOT_WIRED.
+ *
+ * The diagnostic made it invisible. `status()` reported `opts.version` — the
+ * CALLER'S build, not the running daemon's — so the one command that should
+ * have revealed a stale daemon confirmed it was current.
+ */
+describe("daemon staleness", () => {
+    test("the pidfile records the build that wrote it", async () => {
+        // On the record rather than asked for over the socket: "is the running
+        // daemon current" has to be answerable before a client dials one.
+        const axond = await daemon()
+        try {
+            await axond.serve()
+            expect(axond.lifecycle.status().version).toBe("9.9.9")
+        } finally {
+            await axond.shutdown()
+        }
+    })
+
+    test("status reports the RUNNING build, not the caller's", async () => {
+        // The bug that made this invisible: status echoed `opts.version`, so
+        // whichever CLI asked saw its own number and a daemon left behind by
+        // an update looked current.
+        const root = await mkdtemp(join(tmpdir(), "axond-test-"))
+        roots.push(root)
+
+        const serving = Axond({ root, version: "1.0.0" })
+        try {
+            await serving.serve()
+            // A DIFFERENT build asking. It must not see its own version.
+            expect(Axond({ root, version: "2.0.0" }).lifecycle.status().version).toBe("1.0.0")
+        } finally {
+            await serving.shutdown()
+        }
+    })
+
+    test("a matching build is recognised as already running", async () => {
+        // The common path must not restart the supervisor on every command.
+        const root = await mkdtemp(join(tmpdir(), "axond-test-"))
+        roots.push(root)
+
+        const serving = Axond({ root, version: "1.0.0" })
+        try {
+            await serving.serve()
+            const status = Axond({ root, version: "1.0.0" }).lifecycle.status()
+            expect(status.running).toBe(true)
+            if (status.running) expect(status.version).toBe("1.0.0")
+        } finally {
+            await serving.shutdown()
+        }
+    })
+
+    test("a record with no version reads as stale, never as current", async () => {
+        // A pidfile written by a build that predates this field predates
+        // everything after it too. "Unknown" is the honest answer and it must
+        // not compare equal to a real version.
+        const root = await mkdtemp(join(tmpdir(), "axond-test-"))
+        roots.push(root)
+
+        const serving = Axond({ root, version: "1.0.0" })
+        try {
+            await serving.serve()
+            const paths = serving.paths
+            // Rewrite as the OLD format: a bare pid, no version line.
+            await Bun.write(paths.pid, String(process.pid))
+
+            expect(Axond({ root, version: "1.0.0" }).lifecycle.status().version).toBe("unknown")
+        } finally {
+            await serving.shutdown()
+        }
     })
 })

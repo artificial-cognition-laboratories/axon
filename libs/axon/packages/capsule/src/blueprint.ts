@@ -77,7 +77,20 @@ export function mergeCapsuleConfig(current: CapsuleBlueprint, partial: CapsulePa
     return Blueprint({
         ...current,
         ...partial,
-        env: { ...current.env, ...partial.env },
+        /**
+         * Env REPLACES, exactly as `policy` does below.
+         *
+         * A merge cannot express a REMOVED key, and removal is the operation
+         * that matters most here: deleting a line from `.env` is how a user
+         * revokes a credential. Merged, the old value stayed live in the
+         * capsule for the rest of the session while the file said otherwise -
+         * the same "reads as enforced, is not" shape that made `policy`
+         * replace rather than merge.
+         *
+         * `partial.env` being absent still means "no statement about env", so
+         * the current value stands. Present-and-empty means what it says.
+         */
+        env: partial.env ?? current.env,
         /**
          * Surfaces REPLACE rather than merge.
          *

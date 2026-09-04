@@ -74,6 +74,22 @@ export type RemoteTarget = {
  * this against the daemon's own return would invert it.
  */
 export type AgentSupervisor = {
+    /**
+     * What the supervisor knows about an agent it did not necessarily spawn
+     * for THIS process — its place in the ownership graph.
+     *
+     * Needed because a parent is not always a local instance. Agent code that
+     * shells out (`axon @x -p "…" --parent <id>`) runs in its own process, so
+     * the CLI serving that spawn has an empty registry and cannot see the
+     * agent that asked for it. The daemon can: it is the only thing that sees
+     * every spawn, which is exactly why it writes the records.
+     *
+     * Null for an id the supervisor has never heard of — a caller passing a
+     * stale or invented parent gets a refusal rather than a silently rooted
+     * child.
+     */
+    lineage?(sessionId: string): { rootSessionId: string; depth: number } | null
+
     supervise(input: {
         sessionId: string
         blueprint: unknown
@@ -274,10 +290,35 @@ export function Instances(opts: InstancesOpts) {
             throw err("SESSION_ALREADY_RUNNING", { context: { sessionId: spawnOpts.session } })
         }
 
-        const parent = spawnOpts.parentSessionId ? instances.get(spawnOpts.parentSessionId) : undefined
-        if (spawnOpts.parentSessionId && !parent) {
+        /**
+         * The parent, which may not be an instance THIS process holds.
+         *
+         * A subagent spawned in-heap has its parent right here. One spawned by
+         * agent code shelling out to the CLI does not: that runs in its own
+         * process, whose registry is empty, and the parent is alive in a
+         * different one entirely.
+         *
+         * So the local registry is asked first and the SUPERVISOR second. The
+         * daemon sees every spawn — it is what writes the records the tree is
+         * read from — and can answer for an agent this process never met.
+         * Without the fallback, `--parent` could only ever name something in
+         * the same heap, which is precisely the case that never happens.
+         */
+        const local = spawnOpts.parentSessionId ? instances.get(spawnOpts.parentSessionId) : undefined
+        const remote = !local && spawnOpts.parentSessionId
+            ? opts.daemon?.lineage?.(spawnOpts.parentSessionId) ?? null
+            : null
+
+        if (spawnOpts.parentSessionId && !local && !remote) {
             throw err("PARENT_INSTANCE_NOT_RUNNING", { context: { sessionId: spawnOpts.parentSessionId } })
         }
+
+        /** The parentage this spawn inherits, from whichever source knew it. */
+        const lineage = local
+            ? { parentSessionId: local.sessionId, rootSessionId: local.rootSessionId, depth: local.depth + 1 }
+            : remote
+                ? { parentSessionId: spawnOpts.parentSessionId!, rootSessionId: remote.rootSessionId, depth: remote.depth + 1 }
+                : null
 
         const project = await resolve(target)
         // Read at spawn time, not at construction: the TUI starts serving after
@@ -340,9 +381,9 @@ export function Instances(opts: InstancesOpts) {
                     dataRoot: join(project.root, ".agent/data"),
                     // The ownership graph travels with the spawn: the daemon
                     // writes the record, so it needs what the record says.
-                    parentSessionId: parent?.sessionId ?? null,
-                    rootSessionId: parent?.rootSessionId ?? sessionId,
-                    depth: parent ? parent.depth + 1 : 0,
+                    parentSessionId: lineage?.parentSessionId ?? null,
+                    rootSessionId: lineage?.rootSessionId ?? sessionId,
+                    depth: lineage?.depth ?? 0,
                     ...(spawnOpts.job ? { job: spawnOpts.job } : {}),
                     ...(control ? { control: control } : {}),
                 })
@@ -370,7 +411,44 @@ export function Instances(opts: InstancesOpts) {
                      * it.
                      */
                     async reload(): Promise<void> {
-                        current = await rescan()
+                        /**
+                         * The rescan half is the PLATFORM'S, so its failure is
+                         * recorded here.
+                         *
+                         * `axon:reload:*` is emitted by the agent's own
+                         * runtime.update() — but a reload that dies in the
+                         * rescan never reaches the agent, so nothing emitted
+                         * anything at all. A caller got a rejected promise and
+                         * a session log with no record of what broke, which is
+                         * exactly the untraced path the span exists to close:
+                         * "I saved a typo in axon.config.ts and the agent went
+                         * quiet" left no evidence on the durable record.
+                         *
+                         * The span is OPENED AND CLOSED together on this path.
+                         * A bare `:failed` is its own ontology break — it
+                         * leaves an unpaired bracket for anything that counts
+                         * span depth, the same defect as a close with no open.
+                         * On the SUCCESS path nothing is emitted here: the
+                         * rescan simply continues into the agent, which opens
+                         * and closes the span itself, so emitting a start here
+                         * too would double every successful reload.
+                         */
+                        const started = Date.now()
+                        let next: unknown
+                        try {
+                            next = await rescan()
+                        } catch (cause) {
+                            const failure = err(cause)
+                            // Revision 0: the agent numbers revisions, and a
+                            // rescan that never reached it was never assigned
+                            // one. Claiming a number the agent did not issue
+                            // would put two different reloads on the same
+                            // revision; 0 reads as "before any of the agent's".
+                            await live.session.commit("axon:reload:start", { revision: 0 })
+                            await live.session.commit("axon:reload:failed", { error: failure, durationMs: Date.now() - started })
+                            throw failure
+                        }
+                        current = next as typeof current
                         await live.link.update(current as never)
                     },
                     async shutdown(): Promise<void> {
@@ -399,9 +477,9 @@ export function Instances(opts: InstancesOpts) {
                     ),
                 }
                 : {}),
-            parentSessionId: parent?.sessionId ?? null,
-            ...(parent ? { rootSessionId: parent.rootSessionId } : {}),
-            depth: parent ? parent.depth + 1 : 0,
+            parentSessionId: lineage?.parentSessionId ?? null,
+            ...(lineage ? { rootSessionId: lineage.rootSessionId } : {}),
+            depth: lineage?.depth ?? 0,
             ...(spawnOpts?.session ? { session: spawnOpts.session } : {}),
             ...(spawnOpts?.onProgress ? { onProgress: spawnOpts.onProgress } : {}),
             ...(spawnOpts?.onTiming ? { onTiming: spawnOpts.onTiming } : {}),
@@ -411,9 +489,9 @@ export function Instances(opts: InstancesOpts) {
         const sessionId = agent.sessionId
         const instance: InstanceT = {
             sessionId: sessionId,
-            parentSessionId: parent?.sessionId ?? null,
-            rootSessionId: parent?.rootSessionId ?? sessionId,
-            depth: parent ? parent.depth + 1 : 0,
+            parentSessionId: lineage?.parentSessionId ?? null,
+            rootSessionId: lineage?.rootSessionId ?? sessionId,
+            depth: lineage?.depth ?? 0,
             // Every spawn takes the confined path — `Agent()` calls
             // bootLinked unconditionally — so there is one kind. The "local"
             // branch was for an embedder building Agent() without a `confined`

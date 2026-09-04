@@ -1,0 +1,17 @@
+[Desktop Entry]
+Version=1.0
+Name=Axon
+Comment=Build, run and deploy agents
+# Through an interactive shell deliberately. The Axon installer adds its bin
+# directory to ~/.bashrc and ~/.zshrc only, so `axon` exists in interactive
+# shells and nowhere else — not on the graphical session's PATH, which is what
+# a desktop entry is launched with. Naming an absolute path here would hardcode
+# wherever bun happened to install it; asking the user's own shell resolves it
+# the same way their terminal does.
+Exec=xdg-terminal-exec --app-id=TUI.tile -e bash -ic axon
+Terminal=false
+Type=Application
+Icon=axon
+StartupNotify=true
+Categories=Development;
+Keywords=agent;ai;axon;arclabs;

@@ -1,6 +1,7 @@
 import { fromPolicy } from "../../src/confine/spec"
 import { Bwrap } from "../../src/confine/bwrap"
 import type { CapsulePolicy } from "@arcforge/types"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The link socket directory must exist inside the box.

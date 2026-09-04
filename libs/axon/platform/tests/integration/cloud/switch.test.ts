@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
+import { stubFetch } from "../../setup/fetch"
 
 function disposableId(): string {
     return `test-user-${crypto.randomUUID()}`
@@ -30,11 +32,11 @@ function sessionAuth(userId: string) {
  */
 function acceptingBackend(userId: string, email: string): () => void {
     const original = globalThis.fetch
-    globalThis.fetch = (async () => new Response(JSON.stringify({
+    globalThis.fetch = stubFetch(async () => new Response(JSON.stringify({
         // /api/user/me/session's shape: the user sits at the top level, which
         // is what Auth.me()'s `record(raw, "session").user` reads.
         user: { id: userId, email, username: email, createdAt: new Date().toISOString() },
-    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch
+    }), { status: 200, headers: { "content-type": "application/json" } }))
     return () => { globalThis.fetch = original }
 }
 
@@ -44,10 +46,10 @@ describe("cloud.switch", () => {
         const id = disposableId()
         const email = disposableEmail()
         const originalFetch = globalThis.fetch
-        globalThis.fetch = (async () => new Response(JSON.stringify({
+        globalThis.fetch = stubFetch(async () => new Response(JSON.stringify({
             statusCode: 401,
             statusMessage: "Unauthorized: invalid or expired token",
-        }), { status: 401 })) as typeof fetch
+        }), { status: 401 }))
 
         try {
             const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, distribution: "production" })

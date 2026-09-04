@@ -2,6 +2,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Boot } from "@arcforge/platform/build/blueprint/scan/boot"
+import { describe, it, expect } from "bun:test"
 
 describe("Boot()", () => {
     it("returns empty warnings and no boot content when neither file exists", async () => {

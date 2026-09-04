@@ -44,14 +44,30 @@ export type DevServerOpts = {
     links?: Array<[label: string, url: string]>
     /** Milliseconds to ready. */
     readyMs?: number
+    /**
+     * Draw the "Axon dev server" heading and the blank line above it.
+     *
+     * On by default: rendered ALONE — which is how the gallery shows it, and
+     * how it was printed before the boot phases existed — the block needs to
+     * say what it is.
+     *
+     * Off when it is composed beneath something that already said so. `axon
+     * dev` renders the phase checklist under its own "Axon dev" header and
+     * then this block below it; a second heading three lines later names the
+     * same surface twice and pushes the thing you actually came to read
+     * further down the terminal.
+     */
+    header?: boolean
 }
 
 export function devServer(r: RendererHandle, opts: DevServerOpts): string {
     const lines: string[] = []
 
-    lines.push("")
-    lines.push(header(r, { title: opts.title, subtitle: "dev server" }))
-    lines.push("")
+    if (opts.header !== false) {
+        lines.push("")
+        lines.push(header(r, { title: opts.title, subtitle: "dev server" }))
+        lines.push("")
+    }
 
     // Both groups share one alignment width so the value column is a single
     // straight edge down the whole block — computed across them, then rendered

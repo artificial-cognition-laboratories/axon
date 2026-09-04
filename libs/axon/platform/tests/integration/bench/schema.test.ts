@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The schema is authored as a TypeScript type and must survive as a runtime
@@ -37,7 +38,7 @@ describe("bench schema extraction", () => {
 
         try {
             const config = await (await Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: root }).projects.openAs("bench", root)).bench!.config()
-            const byId = Object.fromEntries(config.measurements.map(m => [m.id, m]))
+            const byId = Object.fromEntries((config.measurements ?? []).map(m => [m.id, m]))
 
             // Property name is the id; the doc comment is the description.
             expect(byId.resolved?.description).toBe("Did it work?")
@@ -86,7 +87,7 @@ describe("bench schema extraction", () => {
 
         try {
             const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: root })
-            expect((await (await platform.projects.openAs("bench", root)).bench!.config()).measurements.map(m => m.id)).toEqual(["one"])
+            expect((await (await platform.projects.openAs("bench", root)).bench!.config()).measurements?.map(m => m.id)).toEqual(["one"])
 
             await writeFile(join(root, "bench.config.ts"), `
                 type Schema = {
@@ -100,7 +101,7 @@ describe("bench schema extraction", () => {
             `)
 
             // Keyed on config content, so an edit invalidates and a re-read does not.
-            expect((await (await platform.projects.openAs("bench", root)).bench!.config()).measurements.map(m => m.id)).toEqual(["one", "two"])
+            expect((await (await platform.projects.openAs("bench", root)).bench!.config()).measurements?.map(m => m.id)).toEqual(["one", "two"])
         } finally {
             await rm(root, { recursive: true, force: true })
         }

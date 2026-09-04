@@ -34,7 +34,6 @@ import { ENTRY_EVENT_PREFIXES } from "./events/entries"
  */
 export function isKernelEvent(type: string): boolean {
     if (type === "process:attach" || type === "process:detach") return false
-    if (type === "process:attach" || type === "process:detach") return false
     return type.startsWith("kernel:")
         || type.startsWith("cognet:")
         || type.startsWith("process:")

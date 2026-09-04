@@ -50,6 +50,21 @@ export type AxonEventContext = {
 }
 
 /**
+ * The correlation half of the context, as a COMMITTER supplies it.
+ *
+ * `agentId` and `sessionId` are the session's own identity and are stamped by
+ * the writer, so a caller never supplies them. What a caller can know is which
+ * request and which logical operation its event belongs to — and those are
+ * exactly the two fields that must survive every seam an event crosses.
+ *
+ * Named here rather than inside the session package because it now travels:
+ * a confined agent commits over the supervisor link, and a context that is not
+ * part of the wire contract is a context that gets dropped at the boundary.
+ * That is not hypothetical — it is the bug this type exists to prevent.
+ */
+export type AxonCommitContext = Partial<Pick<AxonEventContext, "runId" | "spanId">>
+
+/**
  * The envelope. `M` is a registry map (event name → payload shape);
  * `K` narrows to one event type.
  */

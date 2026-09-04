@@ -15,6 +15,36 @@ import { InProcSandbox } from "./capsule"
 export type CapsuleExecResult = {
     value: unknown
     scope: CapsuleScope
+    /**
+     * Calls policy REFUSED during this execution.
+     *
+     * A CONVENIENCE for a caller holding only the result — the authoritative
+     * source is `process:policy:denied` on the bus, which every consumer can
+     * correlate by `commandId`. The kernel reads the bus rather than this,
+     * deliberately: a denied tool call THROWS and never reaches a resolved
+     * result, so a caller that trusted this field alone would classify half
+     * the refusals as ordinary exceptions.
+     *
+     * Empty for the overwhelmingly common case, so a caller checks `.length`
+     * rather than testing for absence.
+     */
+    denials: CapsuleDenial[]
+}
+
+/** One refused call — what was asked for, and which rule refused it. */
+export type CapsuleDenial = {
+    /** Fully-qualified verb: "shell.run:sleep", "process.spawn", "network.api.github.com". */
+    fn: string
+    /** The policy module that owns the decision — "shell", "network", a tool's name. */
+    module: string
+    /**
+     * WHY, as the decider named it: a rule spelling ("no-policy", "not-allowed",
+     * "raw-shell"), or an escalation outcome ("escalation-denied",
+     * "escalation-timeout"). The difference is actionable — add a rule, remove
+     * one, or answer the prompt — so it travels rather than collapsing to
+     * "denied".
+     */
+    rule: string
 }
 
 /**
@@ -97,6 +127,20 @@ export function InProcCapsule(input?: CapsulePartialConfig) {
                 fn()
             }
 
+            /**
+             * Denials for THIS command, collected as they happen.
+             *
+             * Subscribed before the run starts, for the same reason the
+             * mediator registers its resolver before announcing: emission is
+             * synchronous in one heap, so a listener attached later would miss
+             * refusals that already fired.
+             */
+            const denials: CapsuleDenial[] = []
+            offs.push(bus.on("process:policy:denied", event => {
+                if (event.commandId !== id) return
+                denials.push({ fn: event.fn, module: event.module, rule: event.rule })
+            }))
+
             const timeout = runOpts.timeout ?? 300_000
             const timer = setTimeout(() => {
                 bus.emit("process:cmd:interrupt:requested", { id, reason: "timeout" })
@@ -130,11 +174,18 @@ export function InProcCapsule(input?: CapsulePartialConfig) {
                         // deliberately here instead of by accident there.
                         value: event.result === undefined ? null : event.result,
                         scope: event.scope ?? EMPTY_CAPSULE_SCOPE,
+                        denials: denials,
                     }))
                 }),
                 bus.on("process:cmd:failed", event => {
                     if (event.id !== id) return
-                    settle(() => reject(err("CAPSULE_CMD_FAILED", { detail: event.error?.message ?? "command failed", context: { id } })))
+                    // `commandId`, not `id`: this is the JOIN KEY the timeline
+                    // uses to attach an error to the tool-call row rendering
+                    // it (see isToolCallFailure). Tagged `id` here and
+                    // `commandId` on the subprocess path, the same failure was
+                    // deduplicated on one path and rendered as a free-floating
+                    // incident card on the other.
+                    settle(() => reject(err("CAPSULE_CMD_FAILED", { detail: event.error?.message ?? "command failed", context: { commandId: id } })))
                 }),
                 bus.on("process:cmd:interrupted", event => {
                     if (event.id !== id) return
@@ -166,6 +217,19 @@ export function InProcCapsule(input?: CapsulePartialConfig) {
     return {
         run: (code: string, runOpts?: Parameters<typeof exec>[1]) => exec(code, runOpts).then(result => result.value),
         exec,
+
+        /**
+         * The block executing on this async path, or null outside one.
+         *
+         * Forwarded from the sandbox because the KERNEL mediates tool calls
+         * while the capsule owns the store that knows which block is running.
+         * Read LIVE through `sandbox` — a reload replaces it, and a captured
+         * reference would report the old one's store, which after a reload is
+         * always null.
+         */
+        get commandId(): string | null {
+            return sandbox.commandId
+        },
 
         /**
          * Cancel every running submission.

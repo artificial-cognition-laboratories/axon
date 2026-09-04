@@ -431,21 +431,22 @@ export const errorMap = {
     },
     /**
      * Replaced CONFIG_ENGINE_UNPARSEABLE, which described AST-editing an
-     * `engine: X({ ... })` call — a field that no longer exists. Warning
-     * rather than fatal for the deprecation window: an agent carrying
-     * `engine:` still boots (on the profile pool, which is what it was
-     * silently doing already), and the author gets told once per load what
-     * to write instead. It becomes fatal when the field is removed.
+     * `engine: X({ ... })` call — a field that no longer exists.
+     *
+     * FATAL, after a spell as a warning. The warning reasoned that an agent
+     * carrying `engine:` still booted on the profile pool, so refusing would
+     * break working agents over an ignored field. What that missed is what
+     * "boots on the profile pool" means in practice: the agent runs on a
+     * different, BILLED provider than the one its config names, and nothing
+     * downstream can tell. A config declaring `engine: Mock()` made real paid
+     * inference calls, which is the opposite of what it asked for.
      */
     CONFIG_ENGINE_DEPRECATED: {
         code: "AX-PROJECT-033",
-        title: "`engine:` Is Deprecated And Ignored",
-        description: "This agent's axon.config.ts declares `engine:`, which the runtime no longer reads — inference is resolving against the profile's providers instead. Use `model: \"codex:gpt-5.6-terra\"` for a cortex pin, and `providers: [...]` for a source the user would not otherwise have.",
+        title: "`engine:` Has Been Removed",
+        description: "This agent's axon.config.ts declares `engine:`, which the runtime does not read. Loading is refused rather than resolving against the profile's providers instead — that would run the agent on a different, billed provider than its config names. Use `model: \"codex:gpt-5.6-terra\"` for a cortex pin, and `providers: [...]` for a source the user would not otherwise have.",
         source: "manifest",
-        // DEGRADED, not fatal: the agent boots and runs, but not on the
-        // inference its config names. That is exactly what degraded means,
-        // and it is the honest label for the deprecation window.
-        severity: "degraded",
+        severity: "fatal",
     },
     MODULE_DEPENDENCY_INSTALL_FAILED: {
         code: "AX-PROJECT-004",
@@ -529,6 +530,15 @@ export const errorMap = {
      * carried in `detail` — this code says WHERE it failed, not what went
      * wrong, which is the script's own business.
      */
+    SCRIPT_NOT_LOCAL: {
+        code: "AX-SCRIPT-501",
+        title: "Scripts Are Local Only",
+        description: "This agent is a deployment reached over the network. A script is code that runs INSIDE an agent's own process, so a deployment runs its own — driving one from here would be this terminal reaching across the boundary that exists to stop it.",
+        source: "runtime",
+        severity: "fatal",
+        expected: true,
+    },
+
     SCRIPT_FAILED: {
         code: "AX-SCRIPT-500",
         title: "Script Failed",
@@ -1089,50 +1099,50 @@ export const errorMap = {
      * keeps the full report, because that one is ours to debug.
      */
     ENGINE_NOT_CONNECTED: {
-        code: "AX-KERNEL-015",
+        code: "AX-PROVIDER-001",
         title: "Provider Not Connected",
         description: "This model's route is not connected to your account yet — run `:provider <name> connect` for the provider named below, or pick a model on a route you are already signed in to.",
-        source: "kernel",
+        source: "provider",
         severity: "fatal",
         expected: true,
     },
     ENGINE_AUTH_FAILED: {
-        code: "AX-KERNEL-016",
+        code: "AX-PROVIDER-002",
         title: "Provider Rejected Your Credentials",
         description: "The provider refused the credential this agent is using — it has expired, been revoked, or is for a different account. Reconnect the provider, or pick a model on a route you are signed in to.",
-        source: "kernel",
+        source: "provider",
         severity: "fatal",
         expected: true,
     },
     ENGINE_RATE_LIMITED: {
-        code: "AX-KERNEL-017",
+        code: "AX-PROVIDER-003",
         title: "Provider Rate Limit Reached",
         description: "The provider is refusing further calls right now — either too many requests in a short window, or a subscription whose allowance is spent. Waiting usually clears the first; the second needs a plan change or a different model.",
-        source: "kernel",
+        source: "provider",
         severity: "fatal",
         expected: true,
     },
     ENGINE_QUOTA_EXHAUSTED: {
-        code: "AX-KERNEL-018",
+        code: "AX-PROVIDER-004",
         title: "Provider Credits Exhausted",
         description: "This route has no credit left to spend. Top it up, or switch to a model on a route that does — the conversation is intact either way.",
-        source: "kernel",
+        source: "provider",
         severity: "fatal",
         expected: true,
     },
     ENGINE_REQUEST_REJECTED: {
-        code: "AX-KERNEL-019",
+        code: "AX-PROVIDER-005",
         title: "Provider Rejected The Request",
         description: "The provider refused this call as malformed or unsupported — commonly a model id it does not serve, a context window this conversation has outgrown, or a parameter that route does not accept.",
-        source: "kernel",
+        source: "provider",
         severity: "fatal",
         expected: true,
     },
     ENGINE_UNREACHABLE: {
-        code: "AX-KERNEL-020",
+        code: "AX-PROVIDER-006",
         title: "Could Not Reach The Provider",
         description: "The provider could not be reached, or kept failing, across every retry — usually a network problem on this machine or an outage on their side. Nothing about this agent needs changing; try again.",
-        source: "kernel",
+        source: "provider",
         severity: "fatal",
         expected: true,
     },
@@ -1154,7 +1164,7 @@ export const errorMap = {
         severity: "fatal",
     },
     /**
-     * RETIRED — superseded by ENGINE_NOT_CONNECTED (AX-KERNEL-015).
+     * RETIRED — superseded by ENGINE_NOT_CONNECTED (AX-PROVIDER-001).
      *
      * This was the one hand-written special case in the kernel's failure path:
      * `AUTH_NOT_CONNECTED` AND `provider === "codex"`. Every other provider hit
@@ -2210,6 +2220,15 @@ export const errorMap = {
         severity: "fatal",
     },
 
+    NOT_SIGNED_IN: {
+        code: "AX-TUI-053",
+        title: "You Are Not Signed In",
+        description: "The backend refused the request because this machine has no valid session. Run `axon login`. Resolving an engine, publishing, and deploying all need an account; building and running an agent against a local model do not.",
+        source: "cli",
+        severity: "fatal",
+        expected: true,
+    },
+
     TEST_PRELOAD_MISSING: {
         code: "AX-TUI-036",
         title: "Test API Loaded Without Its Preload",
@@ -2351,7 +2370,7 @@ export const errorMap = {
         severity: "degraded",
         expected: true,
     },
-    MODEL_NOT_CACHED: {
+    MODEL_NOT_ON_MACHINE: {
         code: "AX-MODEL-035",
         title: "That Model Is Not On This Machine",
         description: "A weight was asked for that has not been fetched. The daemon caches models content-addressed and machine-wide, so one download serves every agent — but it only serves what has actually been downloaded.",
@@ -2367,12 +2386,124 @@ export const errorMap = {
         severity: "degraded",
         expected: true,
     },
+    MODEL_RUN_FAILED: {
+        code: "AX-MODEL-038",
+        title: "That Model Failed While Running",
+        description: "A loaded weight threw during inference. The runtime's own message is carried through — the model is on this machine and its session opened, so this is about the call rather than the download. Wrapped rather than passed along raw because an error with no code loses its identity crossing the daemon's socket and arrives as a generic fault.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    MODEL_INPUT_INVALID: {
+        code: "AX-MODEL-037",
+        title: "That Is Not Input This Runtime Takes",
+        description: "A weight was handed something its runtime cannot read — a generation model given anything but a prompt, most often. The adapter contract passes input through untyped on purpose, because an ASR call and an embedding call share no shape, so the runtime that finally receives it is the only place that can tell. Refused rather than coerced: a prompt silently read as \"[object Object]\" costs tokens and returns nonsense.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    MODEL_DOWNLOAD_RUNNING: {
+        code: "AX-MODEL-038",
+        title: "That Model Is Already Downloading",
+        description: "A fetch was asked for while the same weight was already in flight. Downloads belong to the daemon rather than to whoever started one, so a second request is almost always a second click rather than a second intent — and starting again would write the same bytes twice and leave two records of one transfer.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
     MODEL_NO_RUNTIME: {
         code: "AX-MODEL-030",
         title: "No Runtime Can Execute This Model",
         description: "The weight is on this machine and no adapter claims it. Runtimes are registered per format — ONNX, llama.cpp — and a file none of them recognises can be fetched and cached but not loaded. Either the format needs an adapter, or the file is not the model it appears to be.",
         source: "daemon",
         severity: "fatal",
+        expected: true,
+    },
+    DICTATION_UNAVAILABLE: {
+        code: "AX-DICTATION-001",
+        title: "Dictation Is Not Ready",
+        description: "Something asked the daemon to start dictating and a prerequisite is missing — a speech-recognition model on disk, or the tool that types the transcript into the focused window. Checked BEFORE the microphone opens on purpose: discovering it after someone has spoken a paragraph means the paragraph is gone.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_ALREADY_RECORDING: {
+        code: "AX-DICTATION-002",
+        title: "Already Recording",
+        description: "A second recording was started while one was open. That is a keybind firing twice or someone forgetting they were recording, never a request for two microphones — and silently replacing the first would throw away what was just said.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_NOT_RECORDING: {
+        code: "AX-DICTATION-003",
+        title: "Nothing Is Being Recorded",
+        description: "Dictation was asked to stop with no microphone open. In hold-to-talk this is a release whose press never landed, which usually means the compositor has a keybind for one half of the chord and not the other.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_NO_RECORDER: {
+        code: "AX-DICTATION-004",
+        title: "No Way To Record Audio",
+        description: "None of pw-record, parecord or arecord is installed, so the daemon cannot open a microphone. Any one of them is enough; PipeWire is what a current desktop will already be running.",
+        source: "daemon",
+        severity: "fatal",
+        expected: true,
+    },
+    DICTATION_NO_AUDIO: {
+        code: "AX-DICTATION-005",
+        title: "The Recording Was Empty",
+        description: "The recorder ran and produced no audio. Usually a muted or unplugged input, or a device the session cannot open — the transcript would otherwise come back blank with nothing to explain why.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_NO_TYPIST: {
+        code: "AX-DICTATION-006",
+        title: "Nothing Can Type The Transcript",
+        description: "wtype is not installed. It drives the Wayland virtual-keyboard protocol, which is how the transcript reaches the window that already has focus — deliberately not the clipboard, because destroying whatever someone had copied is the kind of side effect that gets a feature turned off for good.",
+        source: "daemon",
+        severity: "fatal",
+        expected: true,
+    },
+    DICTATION_TYPE_FAILED: {
+        code: "AX-DICTATION-007",
+        title: "The Transcript Could Not Be Typed",
+        description: "wtype ran and refused. The usual cause is a compositor that does not implement the virtual-keyboard protocol; the words were recognised and have nowhere to go.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_BIND_FAILED: {
+        code: "AX-DICTATION-009",
+        title: "The Shortcut Could Not Be Registered",
+        description: "The compositor refused the keybinding. Registered live through `hyprctl eval` rather than by editing a config file — a plugin that rewrites someone's hand-maintained bindings owns a merge problem forever and leaves a dead keybind behind when it is uninstalled. Live registration means the daemon re-applies it at each start instead.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_BIND_FAILED: {
+        code: "AX-DICTATION-009",
+        title: "The Shortcut Could Not Be Registered",
+        description: "The compositor refused the keybinding. It is registered live through `hyprctl eval` rather than by editing a config file — a plugin that rewrites someone's hand-maintained bindings owns a merge problem forever, and leaves a dead keybind behind when it is uninstalled. Live registration means the daemon re-applies it at each start instead.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    DICTATION_NO_TRANSCRIPT: {
+        code: "AX-DICTATION-008",
+        title: "The Model Returned No Text",
+        description: "A speech model ran and gave back a shape with no readable transcript in it. Refused rather than coerced: typing a stringified object into whatever holds focus is worse than failing, and this means the adapter's output shape has moved.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    MACHINE_BUDGET_INVALID: {
+        code: "AX-MACHINE-001",
+        title: "That Is Not A Video Memory Budget",
+        description: "A ceiling was declared as something other than a non-negative number of bytes. Null clears the declaration and lets the measured hardware be the limit; zero is a real choice meaning nothing may load. A negative or non-finite value is neither, and storing it would push the failure to the next admission check — far from the control that caused it.",
+        source: "daemon",
+        severity: "degraded",
         expected: true,
     },
     DAEMON_NOT_RUNNING: {
@@ -2404,6 +2535,78 @@ export const errorMap = {
         source: "daemon",
         severity: "fatal",
     },
+    DAEMON_STALE: {
+        code: "AX-DAEMON-006",
+        title: "The Running Daemon Is From an Older Build",
+        description: "`axon update` replaces the CLI and does not touch the supervisor, so a daemon started before the update keeps running the old code — dispatching verbs it has never heard of, or worse, answering with old behaviour. It is normally replaced automatically on the next command; this is reported instead when the daemon is supervising live agents, because a restart ends them and that is not a decision to make on someone's behalf.",
+        source: "daemon",
+        severity: "fatal",
+        expected: true,
+    },
+
+    JOB_NOT_FOUND: {
+        code: "AX-JOB-001",
+        title: "No Such Job",
+        description: "Nothing on this machine matches that job reference. `axon job list` shows what exists; refs are the first eight characters of the id.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_REF_AMBIGUOUS: {
+        code: "AX-JOB-002",
+        title: "That Job Reference Matches Several",
+        description: "A short ref matched more than one job. It refuses rather than picking one, because the verbs that take a ref include cancel, and cancelling the wrong job is not recoverable.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_NEEDS_CONTENT: {
+        code: "AX-JOB-003",
+        title: "A Job Needs an Instruction",
+        description: "A job with no content is not a job. Say what to do: `axon job create -c \"...\"`.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_NEEDS_A_PERSON: {
+        code: "AX-JOB-004",
+        title: "That Is a Person's Decision",
+        description: "Acknowledging, cancelling and retrying belong to whoever delegated the work. An agent can create jobs and report on them, but an agent that could mark its own work complete would make the list meaningless — everything would arrive already ticked off by the thing that did it.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_STILL_RUNNING: {
+        code: "AX-JOB-005",
+        title: "That Job Has Not Finished",
+        description: "Retry starts a fresh agent run against the same job, so the current one has to be over first. Cancel it if you want to stop it now.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    DAEMON_NOT_AUTHENTICATED: {
+        code: "AX-DAEMON-007",
+        title: "The Daemon Has No Account Signed In",
+        description: "Supervising an agent needs the provider credential, which the daemon reads from the same store `axon login` writes. Nobody is signed in for this store root — and a source checkout reads `~/.axon-dev` while an installed CLI reads `~/.axon`, so logging in with one does not sign the other in. Everything that does not boot an agent still works.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    DAEMON_SETTING_INVALID: {
+        code: "AX-DAEMON-008",
+        title: "That Daemon Setting Does Not Take That Value",
+        description: "A daemon preference was given a value of the wrong shape — a switch handed something that is not true or false. Refused rather than coerced: a flag that quietly reads a typo as `false` turns a setting nobody can see into behaviour nobody asked for.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
     DAEMON_NOT_WIRED: {
         code: "AX-DAEMON-005",
         title: "That Part of the Daemon Is Not Built Yet",
@@ -2424,6 +2627,14 @@ export const errorMap = {
         code: "AX-EXT-009",
         title: "Plugin Failed to Load",
         description: "A file in plugins/ threw while being imported, so its hooks were not registered. Other plugins in the same folder are unaffected — each file is loaded independently.",
+        source: "tui",
+        severity: "degraded",
+        expected: true,
+    },
+    UNKNOWN_HOOK: {
+        code: "AX-EXT-036",
+        title: "Unknown Lifecycle Hook",
+        description: "tui.hook() or a line component's `on:` named a hook the terminal never emits — usually a typo or a hook that has since been renamed. Registering it would silently never fire, so it is refused at registration where the mistake is visible, rather than presenting as a component that mysteriously never updates.",
         source: "tui",
         severity: "degraded",
         expected: true,

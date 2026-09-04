@@ -1,8 +1,8 @@
 import { err } from "@arcforge/err"
 import type { ModelRef } from "@arcforge/types"
-import { fetchModel } from "./fetch"
+import { fetchManifest, fetchModel } from "./fetch"
 import { parseModels, type ParsedModel } from "./specifier"
-import { ModelStore, type ModelStoreT } from "./store"
+import { ModelStore, type ModelStoreT, type StoredModel } from "./store"
 
 /**
  * Models — a cognet's declared weights, from specifier to absolute path.
@@ -60,6 +60,35 @@ export function Models(opts: ModelsOpts = {}) {
         },
 
         /**
+         * Resolve one model that is a SET of files, to the directory holding it.
+         *
+         * The counterpart of `resolve` for repositories rather than weights.
+         * Deliberately singular: a set is chosen by a person or a planner
+         * looking at one repository's file list, where `resolve` reconciles a
+         * whole cognet's declarations at once.
+         *
+         * What comes back is a DIRECTORY, and that is the point — a runtime
+         * that needs a tokeniser beside its weights is handed the layout it
+         * expects, and `ResolveResult.paths` stays `name → path` for both
+         * kinds without a consumer learning the difference.
+         */
+        async resolveSet(
+            repo: { host: "hf"; repo: string; rev: string; key: string },
+            files: string[],
+            primary: string,
+            resolveOpts: {
+                onDownload?: (model: ParsedModel) => void
+                onProgress?: (progress: { model: ParsedModel; received: number; total: number | null }) => void
+            } = {},
+        ): Promise<StoredModel> {
+            return await fetchManifest(repo, files, primary, {
+                store,
+                ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
+                ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
+            })
+        },
+
+        /**
          * Resolve every declared model to an absolute path, fetching what is
          * absent.
          *
@@ -69,7 +98,12 @@ export function Models(opts: ModelsOpts = {}) {
          */
         async resolve(
             models: Record<string, ModelRef> | undefined,
-            resolveOpts: { frozen?: boolean; onDownload?: (model: ParsedModel) => void } = {},
+            resolveOpts: {
+                frozen?: boolean
+                onDownload?: (model: ParsedModel) => void
+                /** Bytes as they arrive. Forwarded straight to the fetcher — see FetchOpts. */
+                onProgress?: (progress: { model: ParsedModel; received: number; total: number | null }) => void
+            } = {},
         ): Promise<ResolveResult> {
             const parsed = parseModels(models)
             if (parsed.length === 0) return { paths: {}, fetched: [] }
@@ -99,6 +133,10 @@ export function Models(opts: ModelsOpts = {}) {
                         fetched.push(m.key)
                         resolveOpts.onDownload?.(m)
                     },
+                    // Threaded rather than dropped: the fetcher reports bytes as
+                    // they land, and a caller that cannot see them can only show
+                    // a spinner for a five-gigabyte transfer.
+                    ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
                 })
                 paths[model.key] = stored.path
             }

@@ -9,6 +9,7 @@ import { Mediator } from "../process/mediator"
 import { SandboxProcs } from "../process/procs"
 import { Escalation } from "../sandbox/escalation"
 import { Runner } from "../process/runner"
+import { join } from "node:path"
 import { Scope } from "../process/scope"
 import { installScope } from "../scope/scope"
 import { InProcWire } from "./emitter"
@@ -65,11 +66,15 @@ export function InProcSandbox(opts: InProcOpts) {
 
     const wire = InProcWire(opts.bus)
     const sandboxConsole = Console({ wire })
-    const mediator = Mediator({ policy: opts.config.policy, wire })
-    // Constructed before its consumers: scope/activities correlate their
-    // emissions to the running command through this one store.
+    // Constructed before its consumers: mediator/scope/activities correlate
+    // their emissions to the running command through this one store.
     const execution = Execution()
-    const scope = Scope({ dispatch: false, mediator, wire, execution })
+    const mediator = Mediator({ policy: opts.config.policy, wire, execution })
+    // The agent's own scratch, from the config. Falling back to the cwd's
+    // frame keeps a programmatic caller that never set one working, and both
+    // are the agent's own tree rather than the host's temp directory.
+    const scratch = opts.config.scratch ?? join(configuredCwd, ".agent", "cache", "tools")
+    const scope = Scope({ dispatch: false, mediator, wire, execution, scratch })
     const procs = SandboxProcs({ mediator, wire })
     const activities = Activities({ wire, execution })
     const runner = Runner({ dispatch: false, scope, wire, console: sandboxConsole, execution, activities })
@@ -111,6 +116,11 @@ export function InProcSandbox(opts: InProcOpts) {
             rebind: true,
             run: (command, runOpts) => procs.run(command, runOpts, execution.current?.signal),
             spawn: (command, spawnOpts) => procs.spawn(command, spawnOpts),
+            // The model's own view of what it has running. Without these its
+            // only settled signal was `exited`, so a background process could
+            // be observed only by waiting for it to die.
+            procs: () => procs.list(),
+            proc: procId => procs.get(procId),
             write: (level, data) => sandboxConsole.write(level, data),
             // Only capture while a command is running — the host shares this
             // process's stdout and must not be silenced by an agent's
@@ -151,89 +161,118 @@ export function InProcSandbox(opts: InProcOpts) {
     return {
         /** Load the configured tools. Sequential, and a failure is an event as before. */
         async boot(tools: CapsuleTool[]): Promise<void> {
-            /**
-             * ENTER the configured directory.
-             *
-             * The subprocess was spawned with `cwd`, so it simply started
-             * there. Nothing does that in one heap — the process is wherever
-             * the host left it — so a capsule configured with a working
-             * directory ran in the host's instead, and every relative path
-             * model code wrote resolved against the wrong root.
-             *
-             * Moving the whole process is the honest cost of the merge, and
-             * it is why shutdown restores: while this capsule is alive, its
-             * cwd IS the process's.
-             */
-            /**
-             * The configured env, applied to THIS process.
-             *
-             * `config.env` overlaid the spawned subprocess's environment. In
-             * one heap there is no spawn, so an agent's declared vars simply
-             * never existed — model code reading `process.env.MY_KEY` got
-             * undefined for something the config plainly set.
-             *
-             * Overlaid rather than replacing: the agent needs the ambient
-             * environment too (PATH, HOME, the provider vars the runtime
-             * resolved), and the config narrows or adds to it. Keys are
-             * restored on shutdown for the same reason cwd is — this process
-             * is shared, and what one capsule sets must not leak to the next.
-             */
-            for (const [key, value] of Object.entries(opts.config.env ?? {})) {
-                priorEnv.set(key, process.env[key])
-                process.env[key] = value
-            }
-
-            if (process.cwd() !== configuredCwd) {
-                try { process.chdir(configuredCwd) } catch { /* gone — the run will fail on its own terms */ }
-            }
-            install()
-            for (const tool of tools) {
+            // OPEN the boot span before doing any of the work it measures.
+            //
+            // The subprocess path emitted this when the child announced
+            // itself; in one heap there is no announcement, and the open half
+            // was simply lost while `process:boot:complete` survived. Every
+            // consumer that pairs a span's ends then saw a close with no
+            // start: the ontology suite counted the depth at -1, and Fleet's
+            // flame graph had a bar it could not place or time.
+            //
+            // `durationMs` was hardcoded to 0 for the same reason — with no
+            // start there was nothing to measure from. It is real now.
+            const bootStarted = Date.now()
+            wire.emit("process:boot:start", {})
+            // Everything the span measures runs inside the try, so a boot that
+            // THROWS still closes it. Tool loading and the scope handshake both
+            // throw deliberately (a capsule missing scope the agent was
+            // promised is invalid state, not a warning) — and an open span that
+            // never closes is the same ontology break as a close with no open,
+            // just harder to see: the depth stays positive forever and the
+            // flame graph grows a bar with no end.
+            //
+            // Rethrown, never swallowed. `process:boot:failed` is the durable
+            // record of what happened; the caller still has to fail.
+            try {
                 /**
-                 * Load, then VERIFY the tool is what it declared.
+                 * ENTER the configured directory.
                  *
-                 * The subprocess build did this across the wire: it sent a
-                 * `tool:load`, waited for `tool:load:complete`, and compared
-                 * the exports it reported against the members the scope
-                 * declared — failing the boot on a mismatch, because a capsule
-                 * missing scope the agent was promised is invalid state rather
-                 * than a warning.
+                 * The subprocess was spawned with `cwd`, so it simply started
+                 * there. Nothing does that in one heap — the process is wherever
+                 * the host left it — so a capsule configured with a working
+                 * directory ran in the host's instead, and every relative path
+                 * model code wrote resolved against the wrong root.
                  *
-                 * That handshake went with the wire, and the check has to come
-                 * with it: what the model is TOLD it can call must be what
-                 * actually loaded, or the model calls a function that is not
-                 * there and gets "not defined" at the worst possible moment.
+                 * Moving the whole process is the honest cost of the merge, and
+                 * it is why shutdown restores: while this capsule is alive, its
+                 * cwd IS the process's.
                  */
-                let failure: unknown = null
-                const off = opts.bus.on("process:tool:load:failed", event => {
-                    if (event.namespace === tool.namespace) failure = event.error
-                })
-                try {
-                    await scope.load({
-                        type: "tool:load",
-                        namespace: tool.namespace,
-                        ...("source" in tool ? { source: tool.source } : { path: tool.path }),
-                    } as never)
-                } finally {
-                    off()
+                /**
+                 * The configured env, applied to THIS process.
+                 *
+                 * `config.env` overlaid the spawned subprocess's environment. In
+                 * one heap there is no spawn, so an agent's declared vars simply
+                 * never existed — model code reading `process.env.MY_KEY` got
+                 * undefined for something the config plainly set.
+                 *
+                 * Overlaid rather than replacing: the agent needs the ambient
+                 * environment too (PATH, HOME, the provider vars the runtime
+                 * resolved), and the config narrows or adds to it. Keys are
+                 * restored on shutdown for the same reason cwd is — this process
+                 * is shared, and what one capsule sets must not leak to the next.
+                 */
+                for (const [key, value] of Object.entries(opts.config.env ?? {})) {
+                    priorEnv.set(key, process.env[key])
+                    process.env[key] = value
                 }
 
-                if (failure) {
-                    throw err("CAPSULE_TOOL_FAILED", {
-                        detail: `"${tool.namespace}" — ${(failure as { message?: string }).message ?? "failed to load"}`,
-                        context: { namespace: tool.namespace },
-                    })
+                if (process.cwd() !== configuredCwd) {
+                    try { process.chdir(configuredCwd) } catch { /* gone — the run will fail on its own terms */ }
                 }
+                install()
+                for (const tool of tools) {
+                    /**
+                     * Load, then VERIFY the tool is what it declared.
+                     *
+                     * The subprocess build did this across the wire: it sent a
+                     * `tool:load`, waited for `tool:load:complete`, and compared
+                     * the exports it reported against the members the scope
+                     * declared — failing the boot on a mismatch, because a capsule
+                     * missing scope the agent was promised is invalid state rather
+                     * than a warning.
+                     *
+                     * That handshake went with the wire, and the check has to come
+                     * with it: what the model is TOLD it can call must be what
+                     * actually loaded, or the model calls a function that is not
+                     * there and gets "not defined" at the worst possible moment.
+                     */
+                    let failure: unknown = null
+                    const off = opts.bus.on("process:tool:load:failed", event => {
+                        if (event.namespace === tool.namespace) failure = event.error
+                    })
+                    try {
+                        await scope.load({
+                            type: "tool:load",
+                            namespace: tool.namespace,
+                            ...("source" in tool ? { source: tool.source } : { path: tool.path }),
+                        } as never)
+                    } finally {
+                        off()
+                    }
 
-                const declared = tool.scope.members.map(member => member.name).sort()
-                const loaded = Object.keys(scope.exportsOf(tool.namespace) ?? {}).sort()
-                if (declared.length !== loaded.length || declared.some((name, i) => name !== loaded[i])) {
-                    throw err("CAPSULE_TOOL_SCOPE_MISMATCH", {
-                        detail: `"${tool.namespace}" declares [${declared.join(", ")}] but exports [${loaded.join(", ")}]`,
-                        context: { namespace: tool.namespace, declared, loaded },
-                    })
+                    if (failure) {
+                        throw err("CAPSULE_TOOL_FAILED", {
+                            detail: `"${tool.namespace}" — ${(failure as { message?: string }).message ?? "failed to load"}`,
+                            context: { namespace: tool.namespace },
+                        })
+                    }
+
+                    const declared = tool.scope.members.map(member => member.name).sort()
+                    const loaded = Object.keys(scope.exportsOf(tool.namespace) ?? {}).sort()
+                    if (declared.length !== loaded.length || declared.some((name, i) => name !== loaded[i])) {
+                        throw err("CAPSULE_TOOL_SCOPE_MISMATCH", {
+                            detail: `"${tool.namespace}" declares [${declared.join(", ")}] but exports [${loaded.join(", ")}]`,
+                            context: { namespace: tool.namespace, declared, loaded },
+                        })
+                    }
                 }
+            
+            } catch (cause) {
+                wire.emit("process:boot:failed", { durationMs: Date.now() - bootStarted, error: err(cause).toJSON() })
+                throw cause
             }
-            wire.emit("process:boot:complete", { durationMs: 0 })
+            wire.emit("process:boot:complete", { durationMs: Date.now() - bootStarted })
         },
 
         /** Execute one submission and settle when it completes. */
@@ -245,6 +284,24 @@ export function InProcSandbox(opts: InProcOpts) {
         kill: runner.kill,
         scope,
         procs,
+
+        /**
+         * The block executing on this async path, or null outside one.
+         *
+         * Exposed because the KERNEL mediates tool calls (mediation.ts) while
+         * the capsule owns the execution store that knows which block is
+         * running. A tool call happens inside a capsule block, so the id is
+         * right here — the kernel just had no way to read it, and stubbed
+         * `commandId: ""` on every span it committed.
+         *
+         * Reading through the AsyncLocalStorage rather than a mutable field is
+         * what makes this correct under concurrency: `runBatch` runs blocks
+         * together, and a shared "current id" would attribute one block's
+         * denial to whichever started last.
+         */
+        get commandId(): string | null {
+            return execution.current?.id ?? null
+        },
 
         /** Kill every managed child, and hand the process back where we found it. */
         shutdown(): void {
@@ -262,6 +319,14 @@ export function InProcSandbox(opts: InProcOpts) {
                 // Back to where the HOST was, not where we were configured:
                 // the host's directory is the one another capsule (or the
                 // test runner) expects to find on its next call.
+                //
+                // A RELOAD IS THE EXCEPTION, and it is handled by the caller
+                // rather than guessed at here: reload boots the new sandbox
+                // BEFORE shutting the old one down (an overlap, not a gap —
+                // see AxonCapsule.reload), so by the time this runs a
+                // successor is already parked where it wants to be. This
+                // sandbox cannot see that successor, so AxonCapsule re-applies
+                // the directory after the outgoing shutdown instead.
                 if (process.cwd() !== hostCwd) process.chdir(hostCwd)
             } catch {
                 // The entry cwd is itself gone — nothing to restore to, and

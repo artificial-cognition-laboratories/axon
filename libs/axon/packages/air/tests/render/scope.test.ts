@@ -1,5 +1,6 @@
 import type { AxonScope, AxonScopeModule } from "@arcforge/types"
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 /** Only renderer of the capsule's authoritative TypeScript scope. */
 describe("Air render: scope", () => {

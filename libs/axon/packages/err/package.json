@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/err",
-    "version": "2.0.165",
+    "version": "2.0.187",
     "description": "Structured Axon errors — the code map every user-facing failure is rendered from.",
     "type": "module",
     "private": false,

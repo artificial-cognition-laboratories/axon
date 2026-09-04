@@ -1,3 +1,4 @@
+import { dirname, resolve } from "node:path"
 import { Capsule, CapsuleT } from "@arcforge/capsule"
 import type { CapsulePartialConfig, CapsuleTool } from "@arcforge/capsule"
 import { err } from "@arcforge/err"
@@ -10,12 +11,16 @@ import { isLoadable, toScopeModule } from "./scope"
 
 /**
  * Project-scanned tools carry self-contained bundled source (produced at scan
- * time, with the tool's own imports inlined). The capsule materializes that
- * source inside the sandbox and imports it there, so NO tool file — and none of
- * the project around it — is ever mounted into the box. This is what keeps the
- * sandbox filesystem exactly what the fs policy declares and nothing more. A
- * raw entryPath is a fallback only for programmatic blueprints that never went
- * through scan/bundling.
+ * time, with the tool's own imports inlined). Bundled source has no path to
+ * import, so it is materialized to a real file first — into the agent's OWN
+ * frame cache, never the OS temp directory (see @arcforge/capsule/materialize).
+ * A raw entryPath is a fallback only for programmatic blueprints that never
+ * went through scan/bundling.
+ *
+ * The sandbox no longer has a filesystem of its own to keep source out of —
+ * the capsule is a mediated scope inside the agent process, not a subprocess
+ * behind a mount namespace — so materializing is a mechanical need rather than
+ * a containment one.
  *
  * Membership is isLoadable()/toScopeModule() from ./scope — the same
  * decision that produces the model's <scope> and the editor's ambient
@@ -28,11 +33,10 @@ function toCapsuleTools(blueprint: AxonBlueprint): CapsuleTool[] {
         .map(tool => ({
             namespace: tool.name,
             scope: toScopeModule(tool),
-            // Bundled source is authoritative: the capsule materializes it inside
-            // the sandbox, so no tool file (and none of the project around it) is
-            // mounted into the box. entryPath is a fallback only for tools that
-            // were never bundled (programmatic blueprints); scanned tools always
-            // carry source now.
+            // Bundled source is authoritative: it is self-contained, so it
+            // imports identically wherever the agent runs. entryPath is a
+            // fallback only for tools that were never bundled (programmatic
+            // blueprints); scanned tools always carry source now.
             ...(tool.source ? { source: tool.source } : { path: tool.entryPath! }),
         }))
 }
@@ -116,6 +120,10 @@ export async function AxonCapsule(opts: AxonCapsuleOpts) {
         return {
             name: blueprint.agent.name,
             cwd: liveCwd ?? opts.cwd,
+            // The agent's own frame cache, not the OS temp directory — see
+            // @arcforge/capsule/materialize. Derived from paths.data so it
+            // follows the agent wherever its frame is, including a deployment.
+            scratch: resolve(blueprint.paths.root, dirname(blueprint.paths.data), "cache", "tools"),
             env: blueprint.env,
             tools: toCapsuleTools(blueprint),
             policy: defaultPolicy(blueprint),
@@ -178,8 +186,27 @@ export async function AxonCapsule(opts: AxonCapsuleOpts) {
         // move as it happened (capsule:cwd), so there is nothing to ask it
         // for on the way out. This used to execute process.cwd() inside a
         // dying incarnation and silently keep a stale value when that failed.
+        const parked = liveCwd ?? opts.cwd
         current = await boot()
         await previous?.shutdown()
+        // Re-park AFTER the outgoing sandbox has gone.
+        //
+        // The sandboxes share one process, so cwd is shared state with an
+        // owner rather than a value each holds. The outgoing one restores the
+        // directory it entered with — correct when nothing succeeded it, and
+        // wrong here, because the successor booted first and had already
+        // chdir'd the process to where it was configured. Without this, a
+        // `cwd` passed to Axon() and any mid-session chdir() silently reset to
+        // the host's directory on every hot reload, and the model's "cwd
+        // persists across blocks" contract broke at exactly the seam it was
+        // least visible.
+        //
+        // Done here rather than inside the sandbox because this is the only
+        // layer that knows a successor exists: from inside, "someone else owns
+        // the cwd now" is indistinguishable from "nobody does".
+        if (process.cwd() !== parked) {
+            try { process.chdir(parked) } catch { /* gone — the next run fails on its own terms */ }
+        }
         if (previousId) await detach(previousId, "reload")
     }
 

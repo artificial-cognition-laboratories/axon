@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "id": "arclabs.axon",
+  "name": "Axon",
+  "version": "0.1.0",
+  "author": "ArcLabs",
+  "license": "MIT",
+  "description": "What Axon is running on this machine: live agents, resident models, and the resources they hold.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "overlay"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "views/bar/Bar.qml",
+    "overlay": "views/Overlay.qml",
+    "service": "src/Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Axon",
+    "description": "One bar icon and one panel: GPU, VRAM, RAM and CPU as the Axon daemon sees them, which models are resident, and which agents are holding them.",
+    "category": "AI",
+    "aliases": [
+      "axon",
+      "agents",
+      "models",
+      "inference"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showWhenIdle": false,
+      "mockData": false,
+      "watchCommand": "",
+      "commandPrefix": "",
+      "simulateMissing": false,
+      "installerSource": ""
+    },
+    "schema": [
+      {
+        "key": "showWhenIdle",
+        "type": "enum",
+        "label": "Show when nothing is running",
+        "options": [
+          "false",
+          "true"
+        ],
+        "defaultValue": "false",
+        "description": "By default the icon leaves the bar entirely when the daemon is down and nothing is resident."
+      },
+      {
+        "key": "mockData",
+        "type": "enum",
+        "label": "Use mock data",
+        "options": [
+          "false",
+          "true"
+        ],
+        "defaultValue": "false",
+        "description": "Feed the views synthetic readings instead of the daemon. For building and reviewing the panel before a daemon is running."
+      },
+      {
+        "key": "watchCommand",
+        "type": "string",
+        "label": "Watch command (development)",
+        "defaultValue": "",
+        "description": "Override what produces the state stream. Empty uses the installed CLI. For working against a source checkout before a build carrying `axon daemon watch` exists."
+      },
+      {
+        "key": "commandPrefix",
+        "type": "string",
+        "label": "Command prefix (development)",
+        "defaultValue": "",
+        "description": "Override what runs daemon verbs. Empty uses `axon daemon`. Pairs with the watch override for working against a source checkout."
+      },
+      {
+        "key": "simulateMissing",
+        "type": "enum",
+        "label": "Show the install offer (development)",
+        "options": [
+          "false",
+          "true"
+        ],
+        "defaultValue": "false",
+        "description": "Pretend Axon is not installed, so the first-run install flow can be reviewed on a machine that already has it. Pressing Install still runs the real installer; the pretence lifts as soon as it succeeds."
+      },
+      {
+        "key": "installerSource",
+        "type": "string",
+        "label": "Installer source (development)",
+        "defaultValue": "",
+        "description": "Where the install script is fetched from. Empty uses the published one. A file:// path runs a working copy, for testing a fix to the script before it is deployed."
+      }
+    ]
+  },
+  "keepLoaded": true
+}

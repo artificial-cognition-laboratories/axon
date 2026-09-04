@@ -35,7 +35,6 @@ export function Grammar(opts: AirOpts = {}) {
         meta: protocol.meta,
         rules: [...protocol.rules, ...(opts.extraRules ?? [])],
         examples: protocol.examples,
-        preflight: protocol.preflight ?? [],
 
         /** Default description for a mode, unless the mode overrides it. */
         describe(mode: AirMode): string {

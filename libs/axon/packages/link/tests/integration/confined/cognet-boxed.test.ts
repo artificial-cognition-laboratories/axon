@@ -5,6 +5,7 @@ import { prepare } from "../../../src/spawn"
 import { Confinement, probe } from "../../../src/confine"
 import { boxedPid } from "../../../src/confine/netns"
 import type { CapsulePolicy } from "@arcforge/types"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 
 /**
  * THE PROOF: a whole agent inside one OS box, with the COGNET'S OWN CODE bound

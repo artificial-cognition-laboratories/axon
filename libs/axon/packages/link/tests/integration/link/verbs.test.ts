@@ -4,9 +4,10 @@ import { join } from "node:path"
 import { serve, connect, type LinkChannels, type SocketPaths } from "../../../src/socket"
 import { SupervisorLink, supervisorHandlers, type SupervisorServices } from "../../../src/supervisor"
 import { agentHandlers, supervisorProxy, RemoteDriver, type AgentServices } from "../../../src/agent"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 
 /**
- * The six verbs, end to end, over real sockets.
+ * The verbs, end to end, over real sockets.
  *
  * A supervisor and an agent wired exactly as they will be in production — the
  * supervisor holding the driver, the log and the decider; the agent holding
@@ -37,11 +38,25 @@ describe("link verbs — supervisor ↔ agent", () => {
 
     async function wire(agent: Partial<AgentServices>, services: Partial<SupervisorServices> = {}) {
         const agentSide: AgentServices = {
+            // ALL NINE verbs, matching what agentHandlers dispatches. The
+            // default set had five — every test happened to supply whichever
+            // it exercised, so the three missing ones (request, run, prompts,
+            // serve) only surfaced once these tests were typechecked. A
+            // fixture that is incomplete by default is a test asserting
+            // against a shape the real agent never has.
             stimulus: async () => ({ admitted: true }),
+            ingest: async () => {},
+            request: async () => ({ ok: true }),
+            run: async () => undefined,
+            prompts: async () => undefined,
+            serve: async (port: number) => ({ port }),
             update: async () => {},
             interrupt: () => {},
             shutdown: async () => {},
-            ...agent,
+            // Only DEFINED overrides: spreading a Partial puts explicit
+            // `undefined` over a required verb, which is exactly what the
+            // defaults above exist to prevent.
+            ...Object.fromEntries(Object.entries(agent).filter(([, v]) => v !== undefined)),
         }
         const supervisorSide: SupervisorServices = {
             async *infer() {},
@@ -118,7 +133,7 @@ describe("link verbs — supervisor ↔ agent", () => {
             })()
 
             await new Promise(r => setTimeout(r, 80))
-            expect(interrupted).toBe("user")
+            expect(interrupted as string | null).toBe("user")
             controller.abort()
             await consume
         })
@@ -154,7 +169,7 @@ describe("link verbs — supervisor ↔ agent", () => {
                 if ((event as { type: string }).type === "text:delta") seen.push((event as { content: string }).content)
             }
             expect(seen.join("")).toBe("hello")
-            expect(sawRole).toBe("main")
+            expect(sawRole as string | null).toBe("main")
         })
 
         it("appends to the log without being able to rewrite it", async () => {
@@ -195,6 +210,27 @@ describe("link verbs — supervisor ↔ agent", () => {
     })
 
     describe("RemoteDriver — inference as an ordinary driver", () => {
+        it("preserves a retryable engine fault from the supervisor", async () => {
+            const fault = {
+                code: "EMPTY_RESPONSE" as const,
+                message: "codex: empty response from model \\\"gpt-test\\\"",
+                retryable: true,
+                provider: "codex",
+                model: "gpt-test",
+            }
+            const { fromAgent } = await wire({}, {
+                async *infer() { throw Object.assign(new Error(fault.message), { fault }) },
+            })
+            const driver = RemoteDriver({ role: "main", supervisor: fromAgent })
+
+            try {
+                await Array.fromAsync(driver.stream({ messages: [] } as never))
+                throw new Error("expected remote inference to fail")
+            } catch (error) {
+                expect(error).toMatchObject({ fault })
+            }
+        })
+
         it("satisfies AxonEngineDriver so the Engine manager cannot tell it is remote", async () => {
             // The whole trick: AxonEngineDriver is already "a dumb token pipe",
             // which is what a wire is. AIR parsing, retries and the stall guard

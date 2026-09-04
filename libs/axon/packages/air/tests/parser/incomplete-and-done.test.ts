@@ -1,4 +1,5 @@
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 describe("Air parser: incomplete blocks and done detection", () => {
     it("flush() on an unclosed text block emits incomplete:true with the partial content", () => {

@@ -94,7 +94,12 @@ async function project(setup: Setup) {
     // dependency half — so the activation set is stubbed rather than parsed,
     // keeping the fixture a plain file instead of a compilable agent.
     const declaredNames = manifest.config.declared
-    manifest.config.declared = (async () => activated) as typeof declaredNames
+    // Returns a Set, matching the real signature. The array cast compiled
+    // only while these tests went untypechecked — and a caller doing
+    // `.has(name)` on an array gets `undefined is not a function`, not a
+    // wrong answer, so the stub was one behaviour change away from a
+    // confusing failure.
+    manifest.config.declared = (async () => new Set(activated)) as typeof declaredNames
 
     const installer = Installer({
         root,

@@ -1,11 +1,13 @@
 import { err } from "@arcforge/err"
 import type { AxonBlueprint, AxonEventMap, AxonSpanName, EngineCapability, EngineCloud } from "@arcforge/types"
 import { buildProvider, providerPool } from "@arcforge/engines/providers"
-import { Engines, gather, type AxonProvider, type Catalogue, type EnginesT } from "@arcforge/engines/catalogue"
+import { Engines, gather, type AxonProvider, type Catalogue, type EnginesT, type LocalRuntime } from "@arcforge/engines/catalogue"
 
 type InferenceOpts = {
     blueprint: AxonBlueprint
     cloud: EngineCloud
+    /** Machine-local inference, owned by the host/daemon rather than the agent. */
+    local?: LocalRuntime
     /**
      * Where to report resolution cost. Optional so an embedded host or a
      * test can resolve roles without a session.
@@ -103,7 +105,11 @@ async function resolveRoles(opts: InferenceOpts): Promise<Resolved> {
     const providers = new Map<string, AxonProvider>()
 
     for (const declared of pool) {
-        providers.set(declared.provider, buildProvider(declared, { cloud: opts.cloud, env: opts.blueprint.env }))
+        providers.set(declared.provider, buildProvider(declared, {
+            cloud: opts.cloud,
+            env: opts.blueprint.env,
+            ...(opts.local ? { local: opts.local } : {}),
+        }))
     }
 
     const gathered = await gatherTraced([...providers.values()], opts.session)

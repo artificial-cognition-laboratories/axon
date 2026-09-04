@@ -54,11 +54,15 @@ describe("kernel policy: escalation", () => {
 
         // The decider was actually consulted — not defaulted past.
         expect(seen.length).toBe(1)
-        // The bare fn, because this tool is `flat` — its exports land as
-        // top-level globals rather than under a namespace. Worth pinning:
-        // a grant is keyed on the fn, so if this ever gained a prefix every
-        // stored grant would silently stop matching.
-        expect(seen[0]!.fn).toBe("greet")
+        // `<namespace>.<export>`, NOT the bare fn — the POLICY address, which
+        // is deliberately namespaced even though the global is flat: a rule is
+        // written against the tool the user installed, and a bare export name
+        // would make one rule cover every module exporting `greet`. Both
+        // enforcement points key it this way (core tools/load.ts and the
+        // capsule's process/scope.ts) and they must not diverge. Worth pinning:
+        // a grant is keyed on this string, so a change of form silently stops
+        // every stored grant from matching.
+        expect(seen[0]!.fn).toBe("greeter.greet")
         expect(ranOk(runtime)).toBe(true)
 
         await runtime.shutdown()

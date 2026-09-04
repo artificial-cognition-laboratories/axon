@@ -2,6 +2,7 @@ import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { prepare, socketRoot, type SpawnedAgent } from "../../../src/spawn"
 import type { SupervisorServices } from "../../../src/supervisor"
+import { describe, it, expect, afterEach } from "bun:test"
 
 /**
  * The full boundary, with a REAL child process.

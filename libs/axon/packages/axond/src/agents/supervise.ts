@@ -2,7 +2,7 @@ import { err } from "@arcforge/err"
 import { isEntryEvent, Policy } from "@arcforge/types"
 import { spawnConfined, agentEntrypoint } from "@arcforge/link"
 import { AGENT_ENTRYPOINTS, SupervisorSideServices } from "@arcforge/platform/link"
-import type { AxonBlueprint } from "@arcforge/types"
+import type { AxonBlueprint, EngineCapability } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 
 type SuperviseOpts = {
@@ -25,6 +25,8 @@ type SuperviseOpts = {
      * an unattended agent strictly more privileged than an attended one.
      */
     decide?: (input: { agent: string; sessionId: string }, call: unknown) => Promise<boolean>
+    /** Thunk because Models is assembled after the supervisor. */
+    local?: () => { catalogue(): Promise<EngineCapability[]>; run(model: string, input: unknown): Promise<unknown> }
 }
 
 type SpawnInput = {
@@ -77,6 +79,16 @@ export function Supervise(opts: SuperviseOpts) {
                 blueprint: input.blueprint,
                 cloud: opts.cloud(),
                 sessionId: input.sessionId,
+                ...(opts.local ? {
+                    local: {
+                        catalogue: () => opts.local!().catalogue(),
+                        run: async (model, prompt) => {
+                            const result = await opts.local!().run(model, prompt)
+                            if (typeof result !== "string") throw new Error(`LOCAL_RESULT_INVALID: ${model} returned a non-text result`)
+                            return result
+                        },
+                    },
+                } : {}),
             })
 
             const resolved = Policy({
@@ -112,12 +124,12 @@ export function Supervise(opts: SuperviseOpts) {
                      * runtime routes on, so both agree by construction rather
                      * than by a second list kept in step.
                      */
-                    commit: (type, data) => {
+                    commit: (type, data, ctx) => {
                         if (isEntryEvent(type as string)) {
-                            void services.session.commitEntry(type as never, data as never)
+                            void services.session.commitEntry(type as never, data as never, ctx)
                             return
                         }
-                        void services.session.commit(type, data)
+                        void services.session.commit(type, data, ctx)
                     },
                     ...(opts.decide
                         ? {

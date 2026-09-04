@@ -1,6 +1,7 @@
 import { Ecs } from "../../src/ecs"
+import { describe, it, expect } from "bun:test"
 
-declare module "../../../../src/cognet/ecs" {
+declare module "../../src/ecs" {
     interface ComponentRegistry {
         position: { x: number }
         velocity: { dx: number }

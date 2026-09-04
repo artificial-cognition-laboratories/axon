@@ -1,5 +1,6 @@
 import type { AxonEntry, AxonEntryEvent } from "@arcforge/types"
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 function entry<K extends keyof AxonEntryEvent>(type: K, data: AxonEntryEvent[K], runId?: string): AxonEntry {
     return {
@@ -33,9 +34,14 @@ function conversation(entries: AxonEntry[]) {
  * marker (deliberately — see `Protocol["preflight"]`). Its size is the honest
  * way to skip it, and it is asserted directly in its own test.
  */
-/** Render only the caller's own turns — the preflight has its own suite. */
+/**
+ * Render only the caller's own turns.
+ *
+ * No preflight passed, so none is rendered — omission is how a caller says
+ * "just my conversation". The preflight has its own suite.
+ */
 function render(input: { history: AxonEntry[] }) {
-    return Air().render({ ...input, preflight: false })
+    return Air().render(input)
 }
 
 const turns = (entries: AxonEntry[]) => conversation(entries)
@@ -242,5 +248,62 @@ describe("Air render: history is a conversation", () => {
         } finally {
             delete process.env.AXON_AIR_TIMELINE
         }
+    })
+})
+
+/**
+ * Markdown bodies are never indented.
+ *
+ * The transcript is the strongest instruction a model gets — stronger than the
+ * contract — so an indented example teaches it to indent its own replies. Four
+ * leading spaces IS an indented code block in CommonMark, which turned a
+ * 9,439-char answer into a single `code_block`: raw source, unwrapped and
+ * clipped, instead of 68 paragraphs, 14 headings and 24 fences.
+ */
+describe("Air render: markdown is flush-left", () => {
+    const entry = (type: string, data: unknown, seq: number): AxonEntry => ({
+        id: `e${seq}`, type, time: { ms: seq, seq }, context: { runId: "r1" }, data,
+    } as unknown as AxonEntry)
+
+    it("never indents an agent's <text> body", () => {
+        const messages = Air().render({
+            history: [
+                entry("cognet:stimulus:text", { channel: "terminal", content: "hi" }, 1),
+                entry("cognet:output:text", { channel: "reply", content: "## Heading\n\nA paragraph." }, 2),
+            ],
+        })
+
+        const spoken = messages.filter(m => String(m.content).includes("<text from=\"agent\""))
+        expect(spoken.length).toBeGreaterThan(0)
+        for (const message of spoken) {
+            expect(String(message.content)).not.toMatch(/<text[^>]*>\n {4}\S/)
+        }
+    })
+
+    it("never indents a user's <text> body", () => {
+        const messages = Air().render({
+            history: [entry("cognet:stimulus:text", { channel: "terminal", content: "- a list\n- of items" }, 1)],
+        })
+
+        for (const message of messages.filter(m => String(m.content).includes("<text from=\"user\""))) {
+            expect(String(message.content)).not.toMatch(/<text[^>]*>\n {4}\S/)
+        }
+    })
+
+    it("still indents a <script> body", () => {
+        // Code is not markdown. Leading whitespace is content there, and the
+        // indent keeps the block readable inside its turn.
+        const messages = Air().render({
+            history: [
+                entry("cognet:stimulus:text", { channel: "terminal", content: "go" }, 1),
+                entry("cognet:action:typescript", { id: "x1", content: "const a = 1" }, 2),
+            ],
+        })
+
+        // Only the assistant turn: the contract system block mentions
+        // `<script>` in its prose and would otherwise match first.
+        const scripts = messages.filter(m => String(m.content).includes("<script from=\"agent\""))
+        expect(scripts.length).toBeGreaterThan(0)
+        expect(String(scripts[0]!.content)).toMatch(/<script[^>]*>\n {4}\S/)
     })
 })

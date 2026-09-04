@@ -38,7 +38,8 @@ async function bundleDir(): Promise<string> {
 
 describe("assets: what ships", () => {
     test("a project with no assets folder publishes nothing and does not fail", async () => {
-        const result = await Assets({ root: await project() }).collect(await bundleDir())
+        const root = await project()
+        const result = await Assets({ root, stage: Stage({ root }) }).collect(await bundleDir())
 
         expect(result.tarball).toBeNull()
         expect(result.assets).toEqual([])

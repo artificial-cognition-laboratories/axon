@@ -3,6 +3,7 @@ import type { AxonEntry, AxonKernelEvent, AxonSessionEvent, AxonStimulusEvent, A
 import type { AxonOutputEvent } from "./session/events/stdio/output"
 import type { AxonScript } from "./scripts"
 import type { AxonPrompt, AxonPromptName, AxonPromptProps } from "./prompts"
+import type { AxonToolNamespaces } from "./tools"
 import type { AxonPartialBlueprint } from "./blueprint"
 import type { AxonHookName, AxonHooks, AxonModuleEvents } from "./hooks"
 import type { AxonAmbient } from "./session/events/activity"
@@ -205,6 +206,31 @@ export type AxonHandle = {
      * actually receive them.
      */
     prompt<K extends AxonPromptName>(name: K, props?: AxonPromptProps<K>): Promise<string>
+
+    /**
+     * This agent's tools, addressed by namespace —
+     * `axon.tools.<namespace>.<fn>()`.
+     *
+     * An ESCAPE HATCH, not the primary path. A tool's exports are installed
+     * as flat globals (`add(1, 2)`), which is how the model's `<scope>` block
+     * and the generated `.agent/tool-globals.d.ts` describe them, and how
+     * agent-authored code normally calls them. Reach for this surface when a
+     * bare name cannot serve:
+     *
+     *   - the name is already taken. A tool exporting `fetch` never replaces
+     *     the host builtin, so this is the only way to call it.
+     *   - the caller wants to name the tool it means rather than depend on
+     *     the ambient scope — a route, a hook, a prompt's `<script setup>`.
+     *
+     * Live, not a snapshot: a hot reload replaces the loaded set and this
+     * reflects it. The functions are the SAME mediated ones the globals
+     * expose, so policy, tracing and escalation are identical on both paths.
+     *
+     * A namespace the blueprint declares but nothing could load is present
+     * here and REJECTS when called, naming itself — never absent (a property
+     * error pointing at the caller) and never a silent no-op.
+     */
+    readonly tools: AxonToolNamespaces
 
     /**
      * This agent's installed modules, as configured.

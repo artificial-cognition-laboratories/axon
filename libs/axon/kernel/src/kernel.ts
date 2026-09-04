@@ -209,6 +209,40 @@ function interruptedResult(reason: unknown): AxonRunResult {
 }
 
 /**
+ * The Codex text channel occasionally leaks a fragment of a different tool
+ * protocol into the beginning of an otherwise valid AIR <script> body:
+ *
+ *   tagger to=fs.read …
+ *   <![CDATA[
+ *
+ * AIR has correctly parsed the OUTER block by this point, but neither prefix
+ * is TypeScript. Sending it to the capsule records it as an ordinary action,
+ * then feeds the poisoned source and its parse error back into the next model
+ * context. That turns one bad completion into a long-session copying loop.
+ *
+ * This is deliberately a narrow quarantine, not a second TypeScript parser.
+ * Bun remains the authority on whether ordinary source is valid; these are
+ * transport/control preambles which cannot be meaningful Axon scripts.
+ */
+function scriptControlPreamble(code: string): "tagger" | "cdata" | undefined {
+    const first = code.trimStart()
+    if (/^<!\[CDATA\[/i.test(first)) return "cdata"
+    if (/^tagger(?:\s|$)/i.test(first)) return "tagger"
+    return undefined
+}
+
+function scriptControlCorrection(kind: "tagger" | "cdata"): string {
+    const leaked = kind === "tagger" ? "provider routing text (for example `tagger to=…`)" : "a CDATA wrapper"
+    return [
+        "## Script not run",
+        "",
+        `The previous script began with ${leaked}, not TypeScript. It was rejected before execution.`,
+        "",
+        "Emit only TypeScript inside `<script>`: no provider routing text, CDATA, XML, JSON labels, or other preamble before the first TypeScript token.",
+    ].join("\n")
+}
+
+/**
  * Run one block against the capsule and normalize the outcome — the ABI
  * boundary this seam exists for. Exec() below (capsule's own contract)
  * still rejects; a program should never have to catch three different
@@ -221,6 +255,21 @@ function interruptedResult(reason: unknown): AxonRunResult {
  * output back as part of the result reads `stdout` here, no callback wired
  * by hand.
  */
+/**
+ * A refusal as a sentence the model can act on.
+ *
+ * Names the verb and the rule, because those imply opposite fixes: a
+ * `not-allowed` needs a rule added, a `deny` needs one removed, and an
+ * `escalation-denied` means a person said no and retrying is pointless.
+ * "Denied by policy" tells a model nothing it can do anything about — the
+ * same reasoning `shellDenial()` already applies in the capsule.
+ */
+function denialMessage(denials: { fn: string; rule: string }[]): string {
+    const first = denials[0]!
+    const rest = denials.length > 1 ? ` (and ${denials.length - 1} more)` : ""
+    return `denied by policy: ${first.fn} — ${first.rule}${rest}`
+}
+
 async function runOne(capsule: AxonCapsuleT, code: string, opts?: { signal?: AbortSignal; id?: string; origin?: CapsuleCommandOrigin }): Promise<AxonRunResult> {
     const stdout: string[] = []
     const onConsole = (level: string, args: unknown[]) => {
@@ -228,15 +277,71 @@ async function runOne(capsule: AxonCapsuleT, code: string, opts?: { signal?: Abo
         stdout.push(level === "log" || level === "info" ? line : `[${level}] ${line}`)
     }
 
+    /**
+     * Denials seen for THIS block, whether it returned or threw.
+     *
+     * Collected here rather than read off the result alone because the two
+     * refusal shapes settle differently: a denied `process.spawn()` RETURNS
+     * (the handle reports `exited`), while a denied TOOL call THROWS
+     * (`CAPSULE_POLICY_DENIED` out of the mediate wrapper). Reading only the
+     * resolved result classified the throwing half as a plain "exception" —
+     * true but useless, since "your policy refused this" and "your code has a
+     * bug" are the two things a reader most needs to tell apart.
+     */
+    const denials: { fn: string; module: string; rule: string }[] = []
+    const offDenied = capsule.current.on("process:policy:denied", event => {
+        if (opts?.id && event.commandId !== opts.id) return
+        denials.push({ fn: event.fn, module: event.module, rule: event.rule })
+    })
+
     try {
         // exec() rather than run(): the bindings come back alongside the
         // value, so a cognet rendering a template from the same turn has
         // something to interpolate against.
         const { value, scope } = await capsule.current.exec(code, { onConsole, signal: opts?.signal, id: opts?.id, origin: opts?.origin })
+
+        /**
+         * A block whose calls were REFUSED is not a block that succeeded.
+         *
+         * `ok` used to mean "did the code throw", which is the wrong question:
+         * a denial does not throw. `process.spawn()` hands back a handle whose
+         * status is `exited`, and `process.run()` returns `{ ok: false }` as a
+         * VALUE — neither reaches the catch below. So a policy could refuse
+         * every call a block made and the kernel still committed
+         * `cognet:action:result` with `ok: true`.
+         *
+         * That is a silent failure at the one boundary the whole policy system
+         * exists to make visible. The model believed it had spawned a process,
+         * the timeline rendered an ordinary tool call, and the user's own
+         * policy had stopped it with nothing anywhere saying so.
+         *
+         * The value and stdout are kept: a block that made ten calls and had
+         * one refused still did nine real things, and throwing that away would
+         * replace one silent failure with another.
+         */
+        if (denials.length > 0) {
+            return {
+                ok: false,
+                value,
+                stdout,
+                scope,
+                denials: denials,
+                // "policy", the kind the entry ontology already had and nothing
+                // ever set — a slot reserved for exactly this and left empty.
+                error: { kind: "policy", message: denialMessage(denials) },
+            }
+        }
+
         return { ok: true, value, stdout, scope }
     } catch (cause) {
         const interrupted = opts?.signal?.aborted || (cause instanceof Error && cause.name === "AbortError")
         const timedOut = cause instanceof Error && /timed out/.test(cause.message)
+        // A recorded denial is the more SPECIFIC truth than "it threw", and
+        // it is what the throw was caused by — so it wins the classification.
+        // An interrupt still outranks it: cancelling mid-block can refuse a
+        // call on the way out, and reporting that as a policy problem would
+        // send a reader after a rule that is working fine.
+        const denied = denials.length > 0 && !interrupted && !timedOut
         return {
             ok: false,
             stdout,
@@ -244,11 +349,14 @@ async function runOne(capsule: AxonCapsuleT, code: string, opts?: { signal?: Abo
             // the honest value, and keeps callers from having to test for
             // absence before every interpolation.
             scope: EMPTY_CAPSULE_SCOPE,
+            ...(denials.length > 0 ? { denials } : {}),
             error: {
-                kind: interrupted ? "interrupt" : timedOut ? "timeout" : "exception",
-                message: cause instanceof Error ? cause.message : String(cause),
+                kind: denied ? "policy" : interrupted ? "interrupt" : timedOut ? "timeout" : "exception",
+                message: denied ? denialMessage(denials) : cause instanceof Error ? cause.message : String(cause),
             },
         }
+    } finally {
+        offDenied()
     }
 }
 
@@ -329,6 +437,11 @@ export async function Kernel(opts: KernelOpts) {
         session,
         ...(opts.escalate ? { escalate: opts.escalate } : {}),
         run: () => scheduler.current(),
+        // Read LIVE through the capsule manager's `current`, never captured:
+        // a reload replaces the capsule, and a captured handle would keep
+        // reporting the old one's execution store — which after a reload is
+        // always null, silently orphaning every span again.
+        commandId: () => capsule.current.commandId,
     })
 
     const engine = Engine({
@@ -456,6 +569,22 @@ export async function Kernel(opts: KernelOpts) {
         // and BEFORE the action is committed — a script that never ran must
         // not appear in the log as one that did.
         if (runOpts?.signal?.aborted) throw interruptedError(runOpts.signal)
+
+        const preamble = scriptControlPreamble(code)
+        if (preamble) {
+            // Do not commit an action or a result. It neither ran nor is it a
+            // useful assistant example for the next inference. The durable
+            // system fact is enough to correct the model without preserving
+            // the contaminating bytes in its conversational history.
+            const message = scriptControlCorrection(preamble)
+            await recordFault({ code: "SCRIPT_CONTROL_PREAMBLE", message }, run)
+            return {
+                ok: false,
+                stdout: [],
+                scope: EMPTY_CAPSULE_SCOPE,
+                error: { kind: "exception", message: "script rejected: provider control preamble" },
+            }
+        }
 
         const id = Bun.randomUUIDv7()
         await session.commitEntry("cognet:action:typescript", { id, content: code }, run)
@@ -998,6 +1127,44 @@ export async function Kernel(opts: KernelOpts) {
 
         /** Invoke on a stimulus arrival — invocation-mode cognets only; throws for continuous-mode. */
         stream: streamWithContract,
+
+        /**
+         * Deliver a stimulus into the wake that is ALREADY running.
+         *
+         * `request`/`stream` both reserve, so a caller holding a message while
+         * the brain is mid-conversation has only two options today: refuse it
+         * (RUN_IN_PROGRESS) or wait for the whole agent loop to finish. Both
+         * are wrong for the case this exists for — a user typing while the
+         * agent works. The message is not a new conversation, it is more of
+         * the one in flight, and it should reach the brain at the first moment
+         * the brain can hear it.
+         *
+         * That moment already exists. A cognet's loop re-reads the session log
+         * each pass (zero's `sync()`), so an entry committed mid-wake is
+         * folded into the next turn's history automatically — the scheduler's
+         * own comment has promised this the whole time ("it stays on the queue
+         * and the running wake's own drain picks it up"); there was simply no
+         * public verb that could put it there without also trying to start a
+         * wake.
+         *
+         * So this is ingest and nothing else: commit the entry, push it on the
+         * stimuli buffer, return. No reservation, no wake, no admission
+         * verdict. If NO wake is running the entry still lands durably, and
+         * the scheduler's bus subscription starts one — which is exactly the
+         * behaviour a caller racing the end of a wake wants, and the reason
+         * this does not need to know whether one is in flight.
+         */
+        async ingest(input: KernelInput = {}): Promise<void> {
+            const contents = input.content === undefined
+                ? []
+                : Array.isArray(input.content) ? input.content : [input.content]
+            for (const content of contents) {
+                await opts.session.stimuli.ingest("cognet:stimulus:text", {
+                    channel: input.channel ?? "terminal",
+                    content,
+                })
+            }
+        },
 
         /**
          * Collect a full wake: every durable entry, in commit order.

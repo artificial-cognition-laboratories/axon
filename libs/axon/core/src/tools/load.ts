@@ -1,7 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { createHash } from "node:crypto"
+import { materializeTool } from "@arcforge/capsule/materialize"
 import { err } from "@arcforge/err"
 import type { AxonTool } from "@arcforge/types"
 import { mediate, type MediateOpts } from "./mediate"
@@ -24,21 +21,15 @@ export type LoadedTool = {
  * ever mounted into the box, which is what kept the sandbox filesystem exactly
  * what the fs policy declared. In-process that reason is gone; the tool's own
  * file is part of the agent, so it can simply be imported. Materializing is
- * kept only because bundled source has no path to import, and it writes to the
- * OS temp dir rather than into the agent's tree.
+ * kept only because bundled source has no path to import.
+ *
+ * WHERE it materializes is `@arcforge/capsule/materialize` — shared with the
+ * capsule's own loader so the two cannot drift, and rooted in the agent's own
+ * frame rather than the OS temp directory. See that module for why: the agent
+ * process gets an environment built from nothing, `TMPDIR` is not on the
+ * pass-through list, and the resulting host/agent disagreement stopped agents
+ * booting on macOS entirely.
  */
-async function materialize(source: string): Promise<string> {
-    // Content-hashed: repeated loads of identical source (a reload, two agents
-    // sharing a module) reuse one file rather than leaking a new one per call.
-    // A data: URI cannot be used — real tool sources exceed the OS module
-    // specifier length ceiling and throw NameTooLong.
-    const dir = join(tmpdir(), "axon-tools")
-    await mkdir(dir, { recursive: true })
-    const file = join(dir, `${createHash("sha256").update(source).digest("hex")}.ts`)
-    await writeFile(file, source)
-    return file
-}
-
 /**
  * Load one tool and mediate everything it exports.
  *
@@ -56,9 +47,9 @@ async function materialize(source: string): Promise<string> {
  * A capsule missing scope the agent was promised is invalid state, not a
  * warning — which is exactly what the host half already believed.
  */
-export async function loadTool(tool: AxonTool, mediation: MediateOpts): Promise<LoadedTool> {
+export async function loadTool(tool: AxonTool, mediation: MediateOpts, scratch: string): Promise<LoadedTool> {
     const specifier = tool.source !== undefined
-        ? await materialize(tool.source)
+        ? await materializeTool(scratch, tool.source)
         : tool.entryPath
 
     if (!specifier) {

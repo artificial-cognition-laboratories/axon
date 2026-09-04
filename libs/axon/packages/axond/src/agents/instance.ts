@@ -109,6 +109,9 @@ export function Instance(opts: InstanceOpts) {
         },
 
         /** Deliver a stimulus. Resolves on admission. */
+        ingest(entry: AxonStimulusEntry) {
+            return contract().ingest(entry)
+        },
         stimulus(entry: AxonStimulusEntry) {
             return contract().stimulus(entry)
         },

@@ -37,6 +37,16 @@ const hasDisk = typeof process !== "undefined" && process.versions?.node !== und
  *
  * Nothing here is user data and nothing is a secret, which is what makes a
  * shared file on disk the right shape rather than a per-agent copy.
+ *
+ * THAT PREMISE IS THE ENTRY CONDITION, not a property of this file. It holds
+ * for the axon and openrouter catalogues and NOT for the merged one
+ * (`/api/registry/models`), which attaches codex routes reflecting the
+ * caller's own subscription entitlement — the backend marks that response
+ * `Cache-Control: private` for exactly this reason. Caching it here made one
+ * user's entitlement the machine's answer for every later caller, anonymous
+ * ones included. The key is a catalogue NAME with no notion of who asked, so
+ * a per-caller response cannot be stored here safely at all; `Models.all()`
+ * opts out rather than this file learning about identity.
  */
 
 /** Where the cache lives — one per machine, shared by every agent and the TUI. */

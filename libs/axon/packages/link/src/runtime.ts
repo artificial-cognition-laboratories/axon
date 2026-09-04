@@ -21,6 +21,8 @@ export type RuntimeForAgent = {
     kernel: {
         /** Deliver a stimulus. Throws RUN_IN_PROGRESS when the brain refuses one mid-wake. */
         request(input: { content?: string | string[]; channel?: string }): Promise<unknown>
+        /** Commit a stimulus into a wake already running — no reservation, no wake started. */
+        ingest(input: { content?: string | string[]; channel?: string }): Promise<void>
         interrupt(reason: "user" | "shutdown"): void
         /** Execute code in the agent's scope, as the console/devtools eval does. */
         run(code: string, opts?: { origin?: string }): Promise<unknown>
@@ -107,6 +109,26 @@ export function AgentRuntime(runtime: RuntimeForAgent): AgentServices {
             // blueprint, and merging it into the live one would let a removed
             // field survive a reload that deliberately dropped it.
             return runtime.update(blueprint, { mode: "replace" }).then(() => {})
+        },
+
+        /**
+         * Hand a message to a wake that is already running.
+         *
+         * The counterpart to `stimulus` for the one case admission answers
+         * badly: a user typing WHILE the agent works. `stimulus` asks "may I
+         * start a conversation" and is correctly refused mid-wake; this says
+         * "add this to the conversation you are already having", which the
+         * cognet picks up at its next turn boundary. No verdict comes back
+         * because there is no decision to report — the entry is durable either
+         * way, and a wake that is not running will be started by the
+         * scheduler's own subscription.
+         */
+        async ingest(entry: AxonStimulusEntry): Promise<void> {
+            const { content, channel } = toRequestInput(entry)
+            await runtime.kernel.ingest({
+                ...(content !== undefined ? { content } : {}),
+                ...(channel !== undefined ? { channel } : {}),
+            })
         },
 
         interrupt(reason: "user" | "shutdown") {

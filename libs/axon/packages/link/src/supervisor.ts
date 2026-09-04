@@ -2,6 +2,7 @@ import { err } from "@arcforge/err"
 import type {
     AgentToSupervisor,
     AxonBlueprint,
+    AxonCommitContext,
     AxonEngineRawEvent,
     AxonEventMap,
     AxonStimulusEntry,
@@ -36,8 +37,19 @@ export type SupervisorServices = {
      * the manager moves agent-side, and AIR never crosses.
      */
     infer(call: InferCall, signal: AbortSignal): AsyncIterable<AxonEngineRawEvent>
-    /** Append to the session log. The agent may add to the record, never rewrite it. */
-    commit<K extends keyof AxonEventMap>(type: K, data: AxonEventMap[K]): void
+    /**
+     * Append to the session log. The agent may add to the record, never
+     * rewrite it.
+     *
+     * `ctx` carries the event's correlation ids (runId, spanId) across the
+     * seam. It is not optional decoration: the agent's kernel mints a spanId
+     * per engine call and the three events of that call are correlated by
+     * nothing else, so a commit verb that could not carry it silently
+     * un-correlated every span the moment agents moved into subprocesses.
+     * Absent means the committer genuinely had no context, never that the
+     * boundary lost it.
+     */
+    commit<K extends keyof AxonEventMap>(type: K, data: AxonEventMap[K], ctx?: AxonCommitContext): void
     /** Ask a human. Absent = no decider attached, which means deny. */
     escalate?(call: EscalationCall): Promise<{ allow: boolean }>
 }
@@ -51,6 +63,7 @@ type SupervisorLinkOpts = {
 /** Verb names on the wire. Kept as constants so both ends cannot drift on a typo. */
 export const VERB = {
     stimulus: "stimulus",
+    ingest: "ingest",
     update: "update",
     interrupt: "interrupt",
     shutdown: "shutdown",
@@ -78,6 +91,17 @@ export function SupervisorLink(opts: SupervisorLinkOpts): SupervisorToAgent & { 
          */
         stimulus(entry: AxonStimulusEntry) {
             return channels.control.call<{ admitted: boolean }>(VERB.stimulus, entry)
+        },
+
+        /**
+         * Add a message to the wake already running.
+         *
+         * On the CONTROL channel for the same reason `interrupt` is: it must
+         * land WHILE inference streams on the data channel, not queue behind
+         * the tokens it is meant to join.
+         */
+        ingest(entry: AxonStimulusEntry) {
+            return channels.control.call<void>(VERB.ingest, entry)
         },
 
         update(blueprint: AxonBlueprint) {
@@ -156,8 +180,12 @@ export function supervisorHandlers(services: SupervisorServices) {
         data: {
             send(verb: string, arg: unknown): void {
                 if (verb !== VERB.commit) throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
-                const { type, data } = arg as { type: keyof AxonEventMap; data: AxonEventMap[keyof AxonEventMap] }
-                services.commit(type, data)
+                const { type, data, ctx } = arg as {
+                    type: keyof AxonEventMap
+                    data: AxonEventMap[keyof AxonEventMap]
+                    ctx?: AxonCommitContext
+                }
+                services.commit(type, data, ctx)
             },
             stream(verb: string, arg: unknown, signal: AbortSignal): AsyncIterable<unknown> {
                 if (verb !== VERB.infer) throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
@@ -173,8 +201,8 @@ export function agentServices(channels: LinkChannels): AgentToSupervisor {
         infer(call: InferCall, signal: AbortSignal) {
             return channels.data.stream<AxonEngineRawEvent>(VERB.infer, call, signal)
         },
-        commit(type, data) {
-            channels.data.send(VERB.commit, { type, data })
+        commit(type, data, ctx) {
+            channels.data.send(VERB.commit, { type, data, ...(ctx ? { ctx } : {}) })
         },
         escalate(call: EscalationCall) {
             return channels.control.call<{ allow: boolean }>(VERB.escalate, call)

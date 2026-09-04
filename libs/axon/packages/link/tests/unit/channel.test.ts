@@ -1,4 +1,5 @@
 import { Channel, type ChannelHandlers } from "../../src/channel"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Channel is the correlation layer: calls to replies, opens to streams,
@@ -32,19 +33,19 @@ function pair(a: ChannelHandlers = {}, b: ChannelHandlers = {}) {
 describe("Channel — calls", () => {
     it("resolves a call with the peer's value", async () => {
         const { left } = pair({}, { call: async (verb, arg) => `${verb}:${arg}` })
-        expect(await left.call("greet", "world")).toBe("greet:world")
+        expect(await left.call<string>("greet", "world")).toBe("greet:world")
     })
 
     it("rejects a call when the peer's handler throws", async () => {
         const { left } = pair({}, { call: async () => { throw new Error("nope") } })
-        await expect(left.call("x", null)).rejects.toThrow("nope")
+        await expect(left.call<string>("x", null)).rejects.toThrow("nope")
     })
 
     it("rejects when the peer has no handler for the verb", async () => {
         // Silence would be worse: the caller would hang forever on a verb the
         // peer never implemented.
         const { left } = pair({}, {})
-        await expect(left.call("missing", null)).rejects.toThrow(/AX-LINK-001|missing/i)
+        await expect(left.call<string>("missing", null)).rejects.toThrow(/AX-LINK-001|missing/i)
     })
 
     it("keeps concurrent calls correlated to their own replies", async () => {
@@ -54,7 +55,7 @@ describe("Channel — calls", () => {
                 return arg
             },
         })
-        const results = await Promise.all([1, 2, 3, 4, 5].map(n => left.call("echo", n)))
+        const results = await Promise.all([1, 2, 3, 4, 5].map(n => left.call<number>("echo", n)))
         expect(results).toEqual([1, 2, 3, 4, 5])
     })
 
@@ -66,7 +67,7 @@ describe("Channel — calls", () => {
             }),
         })
         const controller = new AbortController()
-        const call = left.call("slow", null, controller.signal)
+        const call = left.call<string>("slow", null, controller.signal)
         controller.abort()
         await expect(call).rejects.toThrow()
         await new Promise(r => setTimeout(r, 10))
@@ -159,7 +160,7 @@ describe("Channel — a broken wire fails LOUDLY", () => {
         // The capsule's failure mode: a reply that could not be delivered was
         // swallowed by `catch {}` and the caller hung until its signal fired.
         const { left } = pair({}, { call: () => new Promise(() => {}) })
-        const call = left.call("never", null)
+        const call = left.call<string>("never", null)
         left.fail(new Error("peer died"))
         await expect(call).rejects.toThrow("peer died")
     })
@@ -176,7 +177,7 @@ describe("Channel — a broken wire fails LOUDLY", () => {
         const { left } = pair()
         left.fail(new Error("gone"))
         expect(left.isClosed).toBe(true)
-        await expect(left.call("x", null)).rejects.toThrow("gone")
+        await expect(left.call<string>("x", null)).rejects.toThrow("gone")
     })
 
     it("fails the channel on a desynchronised stream rather than skipping", () => {

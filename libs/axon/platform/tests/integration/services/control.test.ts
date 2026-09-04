@@ -27,19 +27,25 @@ function instanceOf(server: ReturnType<typeof ControlServer>): AxonInstance {
 
 describe("control channel", () => {
     test("editor calls the tui and receives its return value", async () => {
-        const sent: string[] = []
+        // `capsule`, not `send`: the property under test is that a RETURN
+        // VALUE round-trips the channel, and `send` is declared
+        // `Promise<void>` — the surface promises nothing back. Asserting on a
+        // value there tested the fixture's invention rather than the
+        // transport, and only compiled while these tests went unchecked.
+        const ran: string[] = []
+        const outcome = { ok: true, value: 42, stdout: ["done"] }
         const server = ControlServer({
-            handle: { tui: { send: async (content: string) => { sent.push(content); return `ack:${content}` } } },
+            handle: { tui: { capsule: async (_sessionId: string, code: string) => { ran.push(code); return outcome } } },
         })
         server.listen()
 
         const client = ControlClient({ handle: {} })
         await client.connect(instanceOf(server))
 
-        const result = await client.tui.call("send", "hello agent")
+        const result = await client.tui.call("capsule", "s1", "40 + 2")
 
-        expect(sent).toEqual(["hello agent"])
-        expect(result).toBe("ack:hello agent")
+        expect(ran).toEqual(["40 + 2"])
+        expect(result).toEqual(outcome)
 
         client.disconnect()
         server.close()

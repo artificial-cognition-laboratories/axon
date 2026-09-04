@@ -1,10 +1,10 @@
 import type { EngineCloud, ProviderEntry } from "@arcforge/types"
-import { HostedProvider, OllamaProvider, type AxonProvider } from "../catalogue"
+import { HostedProvider, OllamaProvider, type AxonProvider, type LocalRuntime } from "../catalogue"
 import { EngineFailure } from "../shared"
 import { AxonDriver, CodexDriver, OllamaDriver, OpenRouterDriver, MockDriver } from "../drivers"
 import { DIRECT_PROVIDERS } from "../aisdk/catalogue"
 import { DirectProvider } from "../aisdk"
-import type { MockHandler, MockReply } from "../mock"
+import type { MockInput, MockReply } from "../mock"
 
 /**
  * Provider factories — what a user writes in `providers: [...]`.
@@ -55,6 +55,16 @@ export function Axon(options?: ProviderOptions): ProviderEntry {
     return entry("axon", options)
 }
 
+/**
+ * Inference available on this machine, managed by Axond.
+ *
+ * Local is implicit: declaring it is only for overriding policy such as the
+ * concurrency ceiling. The runtime and source format stay behind Axond.
+ */
+export function Local(options?: ProviderOptions): ProviderEntry {
+    return entry("local", options)
+}
+
 /** The user's ChatGPT subscription, through a connected OpenAI account. */
 export function Codex(options?: ProviderOptions): ProviderEntry {
     return entry("codex", options)
@@ -100,7 +110,17 @@ export function HuggingFace(options?: ProviderOptions): ProviderEntry {
  * provider whose declaration carries behaviour, which is exactly what makes it
  * a test double rather than a source of inference.
  */
-export function Mock(script?: MockHandler | MockReply | ProviderOptions): ProviderEntry {
+/**
+ * `MockInput`, not `MockHandler | MockReply` — the map form
+ * (`Mock({ hello: "hi" })`) is the one the docs lead with and the one the
+ * implementation below explicitly handles ("a bare options object and a reply
+ * MAP are both plain objects"), but the type omitted it. Every call site using
+ * it was an error nobody saw, because these tests were not typechecked.
+ *
+ * `MockReply` stays in the union for the bare single-step form
+ * (`Mock("hi")`, `Mock(run("..."))`), which `MockInput` does not cover.
+ */
+export function Mock(script?: MockInput | MockReply | ProviderOptions): ProviderEntry {
     // A bare options object and a reply MAP are both plain objects, so options
     // are distinguished by carrying ONLY known option keys.
     //
@@ -203,9 +223,22 @@ type BuildOpts = {
     cloud: EngineCloud
     /** Resolved agent environment — no process.env reads inside a provider. */
     env: Record<string, string | undefined>
+    /** The machine-local inference bridge, supplied by the host when available. */
+    local?: LocalRuntime
 }
 
 const OLLAMA_DEFAULT_HOST = "http://localhost:11434"
+
+/**
+ * The only providers an offline run may build.
+ *
+ * An ALLOWLIST, not a list of metered ones: `DIRECT_PROVIDERS` is a table that
+ * grows, and a new BYOK route added to it must be refused offline by default
+ * rather than by someone remembering to add it here. `mock` is local and
+ * scripted; `ollama` runs on this machine and costs nothing. A supplied driver
+ * never reaches the switch at all.
+ */
+const OFFLINE_PROVIDERS = new Set(["mock", "ollama", "local"])
 
 /**
  * Turn one user declaration into a live provider.
@@ -227,6 +260,34 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
     // declares inference exactly the way anything else does.
     const supplied = (declared as ProviderEntry & { driver?: { name?: string; create(res: never): unknown } }).driver
     if (supplied) return SuppliedProvider(declared.provider, supplied, opts)
+
+    // A test run must never reach a metered provider.
+    //
+    // `AXON_NO_NETWORK_INFERENCE` is set by the test preloads. It exists
+    // because a fixture asking for offline inference had no way to ENFORCE it:
+    // a declaration that failed to bind fell through to the profile's pool,
+    // which in a test carries the developer's real credentials. Fourteen
+    // fixtures declared a mock engine through a removed config field, resolved
+    // against live OpenRouter instead, and billed a real account on every
+    // suite run — silently, because a working agent on the wrong provider looks
+    // exactly like a working agent.
+    //
+    // Refused HERE rather than at the config seam because this is where every
+    // boot path converges: whatever route a test took to ask for inference, a
+    // metered provider is built through this function or not at all.
+    // `process.env`, not `opts.env`: the latter is the AGENT's resolved
+    // environment, built from nothing and deliberately not inherited from this
+    // process. This guard is about the process actually holding the credential
+    // and making the call — the supervisor — so it reads the environment that
+    // process was started with.
+    if (process.env.AXON_NO_NETWORK_INFERENCE === "true" && !OFFLINE_PROVIDERS.has(declared.provider)) {
+        throw new Error(
+            `NETWORK_INFERENCE_IN_TEST: refusing to build the "${declared.provider}" provider — `
+            + "this run is offline (AXON_NO_NETWORK_INFERENCE). A test reaching a metered provider "
+            + "is either a fixture that meant to declare `providers: [Mock()]` and did not bind, "
+            + "or a test that should be asking for a supplied driver.",
+        )
+    }
 
     switch (declared.provider) {
         case "axon":
@@ -252,6 +313,9 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
                 driver: model => OpenRouterDriver({ model }).create({ env: opts.env, cloud: opts.cloud }),
                 ...(slots !== undefined ? { slots } : {}),
             })
+
+        case "local":
+            return LocalProvider(opts.local, slots)
 
         case "ollama":
             return OllamaProvider({
@@ -280,7 +344,7 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
                     ...(slots !== undefined ? { slots } : {}),
                 })
             }
-            const known = ["axon", "codex", "openrouter", "ollama", "mock", ...Object.keys(DIRECT_PROVIDERS)]
+            const known = ["axon", "local", "codex", "openrouter", "ollama", "mock", ...Object.keys(DIRECT_PROVIDERS)]
             throw new EngineFailure({
                 code: "INVALID_REQUEST",
                 message: `PROVIDER_UNKNOWN: "${declared.provider}" — known providers: ${known.join(", ")}`,
@@ -304,6 +368,46 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
  * resolver's arithmetic, and the driver it supplied is the one it means to
  * run.
  */
+/**
+ * The one machine-local route. A host without Axond still builds it safely as
+ * an empty provider; that preserves ordinary cloud/mock boots while making a
+ * local-capable host authoritative for both discovery and execution.
+ */
+function LocalProvider(local: LocalRuntime | undefined, slots: number | undefined): AxonProvider {
+    const empty: LocalRuntime = {
+        catalogue: async () => [],
+        run: async () => { throw new Error("LOCAL_RUNTIME_UNAVAILABLE") },
+    }
+    const runtime = local ?? empty
+
+    const catalogue = async () => (await runtime.catalogue()).map(capability => ({
+        ...capability,
+        provider: "local",
+        ...(slots !== undefined ? { slots } : {}),
+    }))
+
+    return {
+        name: "local",
+        catalogue,
+        async resolve(ref) {
+            return (await catalogue()).find(capability => capability.id === ref) ?? null
+        },
+        create(capability) {
+            return {
+                async *stream(request) {
+                    const { Collect } = await import("../shared")
+                    const { extractUserText } = await import("../mock")
+                    const collect = Collect({ provider: "local", model: capability.id })
+                    const text = await runtime.run(capability.id, extractUserText(request))
+                    const event = collect.feed({ type: "text:delta", content: text })
+                    if (event) yield event
+                    yield collect.done({ ...(request.signal ? { signal: request.signal } : {}) })
+                },
+            }
+        },
+    }
+}
+
 function SuppliedProvider(
     name: string,
     def: { name?: string; create(res: never): unknown },
@@ -333,33 +437,87 @@ function SuppliedProvider(
 /**
  * Scripted inference that satisfies any generate role.
  *
- * Its catalogue is one entry with deliberately generous limits, because a
- * test declaring a 200k-context role should exercise the resolver's wiring
- * rather than its arithmetic. Not `local`, so a test that also lists a real
- * local provider still prefers the real one.
+ * ── A provider with MODELS, not a single model ──────────────────────────────
+ *
+ * Mock is a provider like any other, and it was modelled as though it were one
+ * model — which is why the pin read `mock:mock`, the same word twice because
+ * the catalogue held one hardcoded capability named after its own provider.
+ *
+ * It offers two:
+ *
+ *   mock:default  the standard command set (see MOCK_COMMANDS) — the UI
+ *                 surfaces that are otherwise hard to provoke on purpose.
+ *                 Always present, because mock is in every pool.
+ *   mock:custom   the script the user passed to `Mock(...)`, when they passed
+ *                 one. ADDED, never replacing default: declaring your own
+ *                 replies should not cost you every standard command, and the
+ *                 old behaviour silently did exactly that.
+ *
+ * Capabilities carry deliberately generous limits, because a test declaring a
+ * 200k-context role should exercise the resolver's wiring rather than its
+ * arithmetic. Not `local`, so a test that also lists a real local provider
+ * still prefers the real one.
  */
 function MockProvider(script?: unknown): AxonProvider {
-    const capability = {
-        id: "mock",
+    const capability = (id: string, name: string) => ({
+        id,
         provider: "mock",
-        name: "Mock",
+        name,
         type: "generate" as const,
         in: ["text" as const],
         out: ["text" as const],
         context: 1_000_000,
         structured: true,
-    }
+    })
+
+    const standard = capability("default", "Mock")
+    const custom = script === undefined ? null : capability("custom", "Mock (custom)")
+
+    /**
+     * The USER'S model leads when they supplied one.
+     *
+     * Catalogue order is preference order, so listing `default` first made it
+     * win every unpinned role — and `Mock(handler)` silently ran the standard
+     * commands instead of the handler. That is what `Mock(...)` has always
+     * meant and what every test relies on: passing a script makes THAT the
+     * mock.
+     *
+     * `default` stays in the catalogue behind it, so the standard commands are
+     * still reachable by pinning `mock:default` — which is the gain over the
+     * old behaviour, where a declared script replaced them outright.
+     */
+    const models = custom ? [custom, standard] : [standard]
 
     return {
         name: "mock",
         async catalogue() {
-            return [capability]
+            return models
         },
         async resolve(ref: string) {
-            return ref === "mock" ? capability : null
+            /**
+             * `mock` still resolves, to default.
+             *
+             * Every existing pin, test fixture and doc example says `mock:mock`
+             * or bare `mock`. Breaking those to rename a model would be a
+             * migration paid by every caller for a spelling — so the old name
+             * keeps working and points at the model it always meant.
+             */
+            if (ref === "mock" || ref === "default") return standard
+            if (ref === "custom") return custom
+            return models.find(model => model.id === ref) ?? null
         },
-        create() {
-            return MockDriver(script as never).create({ env: {}, cloud: undefined as never })
+        create(capability) {
+            /**
+             * The SCRIPT is chosen by WHICH MODEL WON.
+             *
+             * `create()` is handed the capability resolution picked, so
+             * `mock:custom` runs what the user wrote and everything else runs
+             * the standard set. Reading it here rather than closing over one
+             * script is what makes the two models actually different — without
+             * it they would be two catalogue entries sharing one behaviour.
+             */
+            const chosen = capability.id === "custom" ? script : undefined
+            return MockDriver(chosen as never).create({ env: {}, cloud: undefined as never })
         },
     }
 }

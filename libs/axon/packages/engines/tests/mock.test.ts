@@ -219,4 +219,44 @@ describe("Mock engine: extractUserText", () => {
 
         expect(extractUserText(req)).toBe("plain content")
     })
+
+    it("finds the user's words when a preflight turn folded into the same message", () => {
+        // A preflight ending on an interrupt folds into the session's opening
+        // turn, so ONE user message carries the boundary marker, a runtime
+        // record, and the user's actual words together.
+        //
+        // The prefix test ("does this message start with <system>?") read the
+        // whole turn as runtime-authored and skipped it, landing on the
+        // preflight's demonstration turns and answering a systems check
+        // nobody asked for. Extraction now looks for the user block wherever
+        // it sits rather than only where the message happens to begin.
+        const req: AxonEngineRequest = {
+            messages: [{
+                role: "user",
+                content: [
+                    `<system type="session:start"/>`,
+                    `<interrupt from="terminal" reason="user"/>`,
+                    `<text from="user" id="u1" channel="terminal" lang="md">`,
+                    `    the real message`,
+                    `</text>`,
+                ].join("\n"),
+            }],
+        }
+
+        expect(extractUserText(req)).toBe("the real message")
+    })
+
+    it("still skips a turn that is ONLY a runtime record", () => {
+        // The skip is still needed: a stdout or a correction is not the user
+        // speaking, and extraction must keep looking back past it.
+        const req: AxonEngineRequest = {
+            messages: [
+                { role: "user", content: `<text from="user" id="u1" lang="md">\n    older words\n</text>` },
+                { role: "assistant", content: `<text from="agent" lang="md">ok</text>` },
+                { role: "user", content: `<stdout for="e1" lang="json" ok="true">\n    {}\n</stdout>` },
+            ],
+        }
+
+        expect(extractUserText(req)).toBe("older words")
+    })
 })

@@ -17,6 +17,8 @@ type CloudOpts = {
      * credentials — that is this leaf's own policy.
      */
     distribution: Distribution
+    /** Shipped host version stamped onto every crash report. */
+    release: string
 }
 
 export type Distribution = "production" | "development"
@@ -138,6 +140,7 @@ export function Cloud(opts: CloudOpts) {
             ...(profile?.record.auth.apiKey ? { key: profile.record.auth.apiKey } : {}),
             ...(session ? { session } : {}),
             environmentCredentials: policy.environmentCredentials,
+            release: opts.release,
             onUnauthorized: () => { void onSessionExpired() },
         })
     }

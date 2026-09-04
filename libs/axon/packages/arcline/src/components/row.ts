@@ -63,7 +63,14 @@ export function rows(r: RendererHandle, items: Row[], opts: RowsOpts = {}): stri
         // an enhancement the terminal may or may not honour.
         const painted = item.href ? r.c.primary(item.value) : r.c.text(item.value)
         const value = item.href && r.links ? hyperlink(item.href, painted) : painted
-        return `${lead}${lead ? "  " : ""}${label}  ${value}`
+        // ONE space after the lead, not two.
+        //
+        // The arrow is a single cell, so two spaces after it put the label
+        // column three cells in while an unarrowed row's blank lead put it
+        // two — the two groups in a dev-server block did not line up with
+        // each other. One space makes the arrow column exactly one cell wide
+        // for every row, arrowed or not, and the labels form a single edge.
+        return `${lead}${lead ? " " : ""}${label}  ${value}`
     })
 }
 

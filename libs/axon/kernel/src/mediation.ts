@@ -32,6 +32,16 @@ type MediationOpts = {
     escalate?: AxonEscalate
     /** Correlates each span to the run that caused it, when one is active. */
     run?: () => { runId: string } | null
+    /**
+     * The capsule block currently executing, or null outside one.
+     *
+     * A tool call happens INSIDE a block, so every span and every denial this
+     * layer records belongs to one. The id lives in the capsule's execution
+     * store; this reads it so a surface can hang a refusal under the
+     * `Run(...)` that provoked it. Every span here committed `commandId: ""`
+     * before, which is why a denied tool call was an orphan on the log.
+     */
+    commandId?: () => string | null
 }
 
 /** How long an unanswered escalation waits before failing closed. */
@@ -40,6 +50,11 @@ const ESCALATION_TIMEOUT_MS = 30_000
 const POLICY_WILDCARD = "*"
 
 export function Mediation(opts: MediationOpts) {
+    /** The block this call belongs to — "" when there is none, as the span shape expects. */
+    function commandId(): string {
+        return opts.commandId?.() ?? ""
+    }
+
     /**
      * Resolve which rule governs a call, by walking its ADDRESS.
      *
@@ -102,7 +117,7 @@ export function Mediation(opts: MediationOpts) {
 
         if (verdict === "deny") {
             await opts.session.commit("process:policy:denied", {
-                id: randomUUID(), module: owner, fn, args, rule: String(rule),
+                id: randomUUID(), commandId: commandId() || null, module: owner, fn, args, rule: String(rule),
             }, span())
             return false
         }
@@ -113,7 +128,7 @@ export function Mediation(opts: MediationOpts) {
         // with nothing written is a hole in its only function.
         const id = randomUUID()
         await opts.session.commit("process:policy:escalation", {
-            id, module: owner, fn, args, rule: String(rule),
+            id, commandId: commandId() || null, module: owner, fn, args, rule: String(rule),
         }, span())
 
         const started = Date.now()
@@ -121,7 +136,32 @@ export function Mediation(opts: MediationOpts) {
         await opts.session.commit("process:policy:decision", {
             id, allow, durationMs: Date.now() - started,
         }, span())
+        // A refused escalation is a DENIAL and says so on the record. The
+        // decision event alone says WHAT was answered; only this says the call
+        // did not happen, which is the fact a surface renders.
+        if (!allow) {
+            /**
+             * "Nobody was there to ask" is a different fact from "a person said
+             * no", and only one of them has a fix.
+             *
+             * A headless run — a script, CI, the subagent module shelling out —
+             * has no decider, so every escalation dies. Reporting that as a
+             * refusal sends the reader looking for a decision nobody made. It
+             * names the grant instead, the same way `withheldMessage` does for
+             * an env var: deny-by-default is only adoptable when its denials
+             * say which line to write.
+             */
+            await opts.session.commit("process:policy:denied", {
+                id: randomUUID(), commandId: commandId() || null, module: owner, fn, args,
+                rule: headless() ? "escalation-headless" : "escalation-denied",
+            }, span())
+        }
         return allow
+    }
+
+    /** True when this run has nobody to ask — a script, CI, a headless invocation. */
+    function headless(): boolean {
+        return !opts.escalate
     }
 
     function decide(id: string, fn: string, args: unknown[]): Promise<boolean> {
@@ -165,11 +205,16 @@ export function Mediation(opts: MediationOpts) {
      * Escalation still routes through the same decider, so a `"escalate"`
      * verdict on an argument pattern prompts exactly like any other.
      */
-    async function shell(argv: string[], owner: string): Promise<ShellDecision> {
+    async function shell(argv: string[], owner: string, command?: string): Promise<ShellDecision> {
         // Axon's posture: an agent whose blueprint declares no shell policy is
         // a personal tool with the user's own privileges. The capsule's is the
         // opposite — see decideShell's `fallback`.
-        const decision = decideShell(opts.policy().shell, argv, "allow")
+        //
+        // `command` is the unsplit line, and only a caller that HAS one passes
+        // it: a chain is invisible once split (a newline becomes whitespace, a
+        // quote disappears), and deciding without it means deciding about the
+        // first program while `/bin/sh -c` runs the rest.
+        const decision = decideShell(opts.policy().shell, argv, "allow", command)
         if (decision.verdict === "allow") return decision
 
         const fn = `shell.run:${decision.program}`
@@ -177,7 +222,7 @@ export function Mediation(opts: MediationOpts) {
 
         if (decision.verdict === "deny") {
             await opts.session.commit("process:policy:denied", {
-                id: randomUUID(), module: owner, fn, args: argv, rule: decision.reason,
+                id: randomUUID(), commandId: commandId() || null, module: owner, fn, args: argv, rule: decision.reason,
             }, span())
             return decision
         }
@@ -189,9 +234,14 @@ export function Mediation(opts: MediationOpts) {
     return {
         check,
         shell,
-        /** `shell()` for a command that arrived as a string rather than argv. */
+        /**
+         * `shell()` for a command that arrived as a string rather than argv.
+         *
+         * The string is forwarded ALONGSIDE its argv, because it is the only
+         * form in which a chain is still visible — see decideShell.
+         */
         shellCommand(command: string, owner: string): Promise<ShellDecision> {
-            return shell(splitCommand(command), owner)
+            return shell(splitCommand(command), owner, command)
         },
         /**
          * The span stream every surface reads.
@@ -203,14 +253,14 @@ export function Mediation(opts: MediationOpts) {
          */
         emit: {
             start(input: { module: string; fn: string; args: unknown[] }) {
-                void opts.session.commit("process:fn:start", { commandId: "", ...input }, span())
+                void opts.session.commit("process:fn:start", { commandId: commandId(), ...input }, span())
             },
             complete(input: { module: string; fn: string; result: unknown; durationMs: number }) {
-                void opts.session.commit("process:fn:complete", { commandId: "", ...input }, span())
+                void opts.session.commit("process:fn:complete", { commandId: commandId(), ...input }, span())
             },
             failed(input: { module: string; fn: string; error: unknown; durationMs: number }) {
                 void opts.session.commit("process:fn:failed", {
-                    commandId: "",
+                    commandId: commandId(),
                     module: input.module,
                     fn: input.fn,
                     error: input.error as never,

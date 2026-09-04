@@ -1,4 +1,5 @@
 import { readLinkEnv, writeLinkEnv, AGENT_LINK_ENV } from "../../src/entry"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Assertions match the error's DETAIL, not its code: `err()` puts the detail in

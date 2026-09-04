@@ -11,7 +11,7 @@ const baseUrl = backendUrl()
 // exactly 1M in / 1M out tokens). That mock was removed on purpose — see
 // platform/engine/engine.ts: "There is no environment flag that silently
 // swaps real inference for fake." The sanctioned mock is the user's own
-// `engine: Mock()` from @arcforge/engines, which is agent-side and never
+// `providers: [Mock()]` from @arcforge/engines, which is agent-side and never
 // reaches this endpoint.
 //
 // So there is nothing deterministic left to assert about the CONTENT, and

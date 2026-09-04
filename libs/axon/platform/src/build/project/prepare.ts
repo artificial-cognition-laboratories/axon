@@ -16,6 +16,7 @@ import type { LinkResult, SourceModulesT } from "./modules"
 import type { TypegenResult, TypegenT } from "./typegen"
 import { fsx } from "../../utils/fs"
 import { migrateFrame } from "../frame"
+import { migrateEngineField } from "./manifest/engine-migrate"
 import { KINDS, type ProjectKind } from "./kinds"
 
 export type PrepareResult = {
@@ -274,6 +275,26 @@ export function Prepare(opts: PrepareOpts) {
                 discarded: migration.discarded,
                 dataMoved: migration.dataMoved,
             })
+        }
+
+        // Beside the frame migration and for the same reason: an agent already
+        // on disk carries a field the runtime now REFUSES, and the user did not
+        // put it there — zeno ships to everyone and most people never wrote its
+        // config. Removing it here means the repair happens on the next launch
+        // with nobody typing anything.
+        //
+        // Ahead of every read of the config below, which is the whole ordering
+        // requirement: `engine:` is fatal at load, so a migration running after
+        // the load would never get the chance.
+        if (kind === "agent") {
+            const engine = await migrateEngineField(root)
+            if (engine.migrated) {
+                report?.("build:config:migrated", {
+                    root: root,
+                    field: "engine",
+                    ...(engine.model ? { model: engine.model } : {}),
+                })
+            }
         }
 
         // A prompt package is text: it declares no dependencies, so there is

@@ -1,5 +1,6 @@
 import { err, isAxonError, type AxonError } from "../src/err"
 import { errScope } from "../src/sink"
+import { describe, it, expect } from "bun:test"
 
 describe("err()", () => {
     it("is a real Error — throwable, catchable, instanceof Error", () => {

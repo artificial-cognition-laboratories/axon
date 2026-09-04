@@ -1,4 +1,5 @@
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 /** Splits into fixed-size chunks without dropping newlines (unlike a `.{1,n}` regex, where `.` never matches `\n`). */
 function chunk(s: string, size: number): string[] {

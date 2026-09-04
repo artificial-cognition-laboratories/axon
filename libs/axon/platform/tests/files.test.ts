@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Files } from "../src/services/files"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 
 /**
  * The working-tree index behind the TUI's `@` palette.

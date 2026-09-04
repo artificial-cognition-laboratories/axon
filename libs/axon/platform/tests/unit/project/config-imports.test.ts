@@ -1,4 +1,5 @@
 import { escapingImports } from "../../../src/build/project/bundle/imports"
+import { describe, it, expect } from "bun:test"
 
 /**
  * A config that imports from outside the project cannot be published: the

@@ -1,6 +1,6 @@
 {
   "name": "@arcforge/cognet",
-  "version": "2.0.165",
+  "version": "2.0.187",
   "description": "The cognet authoring surface for Axon — an agent's brain, compiled, versioned and swappable.",
   "type": "module",
   "private": false,

@@ -5,6 +5,7 @@ import { Platform } from "@arcforge/platform/platform"
 import { Blueprint } from "@arcforge/platform/build/blueprint"
 import type { ProjectT } from "@arcforge/platform/build/project"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK } from "../../../../setup/user"
+import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 
 /**
  * Scaffolded ONCE for the whole file.

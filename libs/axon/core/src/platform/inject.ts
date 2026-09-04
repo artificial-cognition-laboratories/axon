@@ -189,20 +189,20 @@ let installedToolGlobals: string[] = []
 /**
  * Tool exports as globals — the agent's whole scope, in one heap.
  *
- * Everything exported from `src/tools/*.ts` (a module's included) lands here
- * under its OWN export name, unaugmented. Filenames group; they do not
- * namespace. `export function add()` is `add()`; `export const fs = {...}`
- * is `fs.read()`. That is the entire rule, and it is the same one the
- * generated `.agent/tool-globals.d.ts` declares.
+ * Placement follows ORIGIN, and `Tools.globals()` has already applied it:
+ * the agent's own `src/tools/*.ts` and the shared workspace's are flat
+ * (`export function add()` is `add()`), a MODULE's live under the module's
+ * name (`github.openPr()`). This installer only writes what it is handed.
  *
  * ONE INSTALLER, ONE SOURCE. These come from the loaded tool scope — the
- * same `scope.globals()` the model's own code executes against — so
+ * same `Tools.globals()` the model's own code executes against — so
  * script-land, prompts, routes, hooks and model-emitted code cannot see
- * different shapes of the same tool. There used to be a second installer
- * here projecting `axon.tools.<file>.<export>`, which double-wrapped a
+ * different shapes of the same tool. A second installer here once projected
+ * `axon.tools.<file>.<export>` off the flat map, which double-wrapped a
  * module exporting one object (`fs` became `{ fs: {...} }`) and silently
- * clobbered the correct binding. Both the projection and the surface it
- * read are gone.
+ * clobbered the correct binding. That projection is not coming back: the
+ * namespaced surface is built by `Tools.namespaced()` from the loaded set's
+ * own namespaces, never re-derived from the flat globals.
  *
  * The values are ALREADY MEDIATED — the loader wraps every export before it
  * reaches this scope — so policy, tracing and escalation are enforced by
@@ -222,13 +222,26 @@ function installToolGlobals(g: Record<string, unknown>, loaded: Record<string, u
     for (const [name, value] of Object.entries(loaded)) {
         // Tool vs tool is fatal: two files exporting the same name give the
         // author no way to say which they meant, and last-one-wins picks
-        // silently. Tool vs HOST BUILTIN is not a collision — `@axon/fs`
-        // exporting `fs` is the author's explicit declaration and the whole
-        // point of installing it, so the tool takes the name. The builtin
-        // stays reachable the correct way, by importing `node:fs`.
+        // silently.
         if (installedToolGlobals.includes(name)) {
             throw err("TOOL_GLOBAL_COLLISION", { context: { name } })
         }
+
+        // Tool vs anything that ALREADY owns the name — a host builtin like
+        // `fetch`, or the runtime's own `axon`/`args` — is not a collision to
+        // resolve, it is a name that is taken. The tool does not get it.
+        //
+        // Silently replacing `fetch` breaks every piece of agent-authored code
+        // around the tool that relies on the real one, and it fails nowhere
+        // near the cause. Overwriting `axon` or `args` is worse: it removes
+        // the runtime handle the rest of the scope is written against.
+        //
+        // Skipping is not a silent failure, because nothing is lost — the tool
+        // stays fully reachable through `axon.tools.<namespace>.<fn>()`, which
+        // is exactly the case that surface exists for. The flat global is a
+        // convenience; the namespaced one is the guarantee.
+        if (name in g) continue
+
         g[name] = value
         installedToolGlobals.push(name)
     }

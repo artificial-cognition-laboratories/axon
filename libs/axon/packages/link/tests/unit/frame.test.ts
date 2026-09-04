@@ -1,4 +1,5 @@
 import { FrameReader, encodeFrame, encodeMessage, decodeMessage, MAX_FRAME_BYTES } from "../../src/frame"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Framing is where stream-socket bugs live. A SOCK_STREAM coalesces and splits
@@ -100,7 +101,7 @@ describe("messages", () => {
     it("round-trips a JSON message", () => {
         const reader = FrameReader()
         const [frame] = reader.push(encodeMessage({ type: "stimulus", id: "a1", data: { text: "hi" } }))
-        expect(decodeMessage(frame!)).toEqual({ type: "stimulus", id: "a1", data: { text: "hi" } })
+        expect(decodeMessage(frame!) as unknown as Record<string, unknown>).toEqual({ type: "stimulus", id: "a1", data: { text: "hi" } })
     })
 
     it("throws on a malformed payload instead of skipping it", () => {
@@ -115,6 +116,6 @@ describe("messages", () => {
         const reader = FrameReader()
         const message = { code: "function f() {\n  return 1\n}" }
         const [frame] = reader.push(encodeMessage(message))
-        expect(decodeMessage(frame!)).toEqual(message)
+        expect(decodeMessage(frame!) as unknown as Record<string, unknown>).toEqual(message)
     })
 })

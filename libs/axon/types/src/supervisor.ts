@@ -2,6 +2,7 @@ import type { AxonEngineRawEvent, AxonEngineRequest } from "./engine"
 import type { AxonRunResult } from "./kernel/abi"
 import type { AxonBlueprint } from "./blueprint"
 import type { AxonEventMap } from "./session/session"
+import type { AxonCommitContext } from "./session/envelope"
 import type { AxonStimulusEntry } from "./session/events/stdio/stimuli"
 import type { EscalationCall } from "./policy"
 
@@ -74,6 +75,22 @@ export type SupervisorToAgent = {
      * the contract — see Scheduler's `reserve({ exclusive })`.
      */
     stimulus(entry: AxonStimulusEntry): Promise<{ admitted: boolean }>
+
+    /**
+     * Add a message to a wake that is ALREADY running.
+     *
+     * The third delivery verb, for the case the other two answer badly: a user
+     * typing while the agent works. `stimulus` asks to START a conversation
+     * and is refused mid-wake; `request` waits for the whole agent loop. This
+     * is neither — the message joins the conversation in flight and the cognet
+     * folds it into its next turn, because a loop re-reads the session log
+     * every pass.
+     *
+     * No verdict comes back: the entry is durable either way, and a wake that
+     * is not running gets started by the scheduler's own subscription. So a
+     * caller racing the end of a wake never has to know which side it landed.
+     */
+    ingest(entry: AxonStimulusEntry): Promise<void>
 
     /** Hot reload: a re-normalised blueprint replaces the live one. */
     update(blueprint: AxonBlueprint): Promise<void>
@@ -225,8 +242,16 @@ export type AgentToSupervisor = {
      * The event NAMES are unchanged (`capsule:*` included) — Fleet folds the
      * flame graph and the process tree straight out of this stream, so keeping
      * the vocabulary keeps every existing surface working across the move.
+     *
+     * `ctx` carries the event's correlation ids across the seam, and is part
+     * of this contract rather than of the payload. The agent's kernel mints a
+     * spanId per engine call, and start/input/complete are correlated by
+     * nothing else — so when this verb could only carry `(type, data)`, moving
+     * agents into subprocesses silently un-correlated every span in the
+     * system and the Engine view rendered empty for every session. Absent
+     * means the committer had no context, never that the wire dropped it.
      */
-    commit<K extends keyof AxonEventMap>(type: K, data: AxonEventMap[K]): void
+    commit<K extends keyof AxonEventMap>(type: K, data: AxonEventMap[K], ctx?: AxonCommitContext): void
 
     /**
      * Ask a human about one call. Resolves with the verdict.

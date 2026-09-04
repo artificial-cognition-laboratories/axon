@@ -46,3 +46,33 @@ export type AxonTool = {
      */
     ambientTypes?: string[]
 }
+
+/**
+ * Every tool namespace this agent declares, as namespace → its functions.
+ *
+ * EMPTY HERE ON PURPOSE, and augmented by generated declarations exactly as
+ * `AxonPromptMap` is — the interface has to be declared here for a
+ * `declare module` block to attach to anything.
+ *
+ * An agent with no generated frame falls back to a permissive shape (see
+ * `AxonToolNamespaces`), so hand-written and pre-prepare code still compiles.
+ */
+export interface AxonToolMap {}
+
+/**
+ * The shape of `axon.tools`: the generated map when there is one, and an
+ * open record of callables when there is not.
+ *
+ * The fallback matters more here than for prompts, because this surface is
+ * reached from `<script setup>` and host code written against no particular
+ * agent. Narrowing to `never` would make every such call an error for the
+ * wrong reason.
+ */
+export type AxonToolNamespaces = keyof AxonToolMap extends never
+    // `unknown[]`, not `never[]`: a parameter typed `never` accepts NO
+    // argument, so `axon.tools.greeter.greet("world")` was an error under the
+    // fallback — the shape meant for agents with no generated frame made every
+    // real call fail to typecheck. The fallback exists to permit calls it
+    // cannot know the signature of; `never[]` forbade all of them.
+    ? Record<string, Record<string, (...args: unknown[]) => Promise<unknown>>>
+    : AxonToolMap

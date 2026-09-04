@@ -91,8 +91,8 @@ export function Render(opts: RenderOpts) {
             for (const state of input.state ?? []) sys(renderState(state))
 
             // The preflight exchange, ahead of everything the agent actually
-            // said. See Protocol["preflight"]: the contract describes the
-            // grammar, this demonstrates it, and a model continues a
+            // said. See AirRenderInput["preflight"]: the contract describes
+            // the grammar, this demonstrates it, and a model continues a
             // conversation far more readily than it follows a description.
             //
             // Only when a real conversation follows. On an empty history it
@@ -103,15 +103,15 @@ export function Render(opts: RenderOpts) {
             // thing it bounds can never disagree.
             let demonstrated = false
 
-            if (input.preflight !== false && input.history && input.history.length > 0 && conversational()) {
+            if (input.preflight?.length && input.history && input.history.length > 0 && conversational()) {
                 // Rendered through the SAME renderer the real history uses, so
                 // the demonstration cannot describe a grammar the renderer no
                 // longer speaks. Hand-written markup made the preflight a
                 // second implementation of the format — the duplication that
                 // let `<meta>` outlive two tag renames.
-                const demo = renderConversation(preflightEntries(grammar.preflight), grammar, { idPrefix: "p" })
+                const demo = renderConversation(preflightEntries(input.preflight), grammar, { idPrefix: "p" })
                 // Set from what was actually PUSHED, not from the conditions
-                // that led here: a protocol carrying no preflight turns
+                // that led here: a caller passing no preflight turns
                 // renders nothing, and a boundary marking the start of a
                 // session that nothing precedes separates two halves of one
                 // thing.
@@ -159,7 +159,45 @@ export function Render(opts: RenderOpts) {
                 // boundary `sections.test.ts` guards.
                 const first = turns[0]
                 if (demonstrated && first) {
-                    turns[0] = { ...first, content: `${renderSessionStart()}\n${first.content}` }
+                    /**
+                     * A preflight ENDING on a user turn folds into this seam
+                     * rather than sitting beside it.
+                     *
+                     * The session always opens with a user turn — something
+                     * had to prompt the agent — so a preflight whose last turn
+                     * is also `user` puts two of them back to back, which
+                     * providers variously reject or silently merge.
+                     *
+                     * Not hypothetical content: an interrupt is the natural
+                     * way to END a demonstration, because nothing the agent
+                     * says may follow one (the wake closes its channel on
+                     * abort). The shape that most wants demonstrating is
+                     * exactly the shape that collides here.
+                     *
+                     * Folded rather than merged generally: `renderConversation`
+                     * deliberately never joins same-role turns — doing so once
+                     * destroyed a user's actual message by fusing it with a
+                     * system notice. This is the one seam where a join is
+                     * safe, because both halves are ours.
+                     *
+                     * BEHIND the marker, never in front of it. `session:start`
+                     * heads the first real turn, and consumers identify that
+                     * turn by `startsWith(SESSION_START)` — the mock engine's
+                     * `extractUserText` and its step counter both do. Putting
+                     * the folded turn first left the marker mid-string and
+                     * made the user's actual words unreachable, which is the
+                     * failure this ordering exists to avoid.
+                     */
+                    const trailing = messages[messages.length - 1]
+                    const folded = trailing?.role === "user"
+                    if (folded) messages.pop()
+
+                    turns[0] = {
+                        ...first,
+                        content: [renderSessionStart(), folded ? trailing!.content : null, first.content]
+                            .filter(Boolean)
+                            .join("\n"),
+                    }
                 }
 
                 messages.push(...turns)

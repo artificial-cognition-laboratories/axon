@@ -9,6 +9,16 @@
  *                          eval, it is bash, same primitive as Bun's $.
  *   process.spawn(cmd)  — detached: returns a LiveProcHandle immediately for
  *                          a tracked, long-running child process.
+ *   process.procs()     — every process this agent owns, live.
+ *   process.proc(id)    — recover one handle by procId.
+ *
+ * procs/proc exist because spawned processes OUTLIVE the block that created
+ * them, and without them the model had no way to ask whether its own child
+ * was still alive. It could only await `exited` — which for ambient work
+ * never resolves — so an agent that spawned a background process and wanted
+ * to check on it had to guess. One did, guessed wrong, and reported that the
+ * environment could not keep processes alive while its `sleep 3600` was
+ * running perfectly well.
  *
  * Most of `process` (env, cwd, platform, pid, argv, ...) retains Node
  * behavior. Lifecycle and transport capabilities are different: exit is
@@ -30,6 +40,18 @@ export type ScopeOpts = {
     run(command: string, opts?: ProcRunOptions): Promise<ProcRunResult>
     /** Detached shell execution — the real owner of process.spawn(). */
     spawn(command: string, opts?: ProcSpawnOptions): LiveProcHandle
+    /**
+     * Every process this capsule owns, live — the real owner of
+     * process.procs().
+     *
+     * Named `procs`/`proc` rather than `list`/`get` because these hang off the
+     * SHARED `process` global: a bare `get` there is a collision waiting to
+     * happen against anything node or a future runtime puts on it, and a
+     * silently shadowed global is the worst kind of bug to chase.
+     */
+    procs(): LiveProcHandle[]
+    /** One process by id — the real owner of process.proc(). */
+    proc(procId: string): LiveProcHandle | undefined
     write(level: "log" | "error", data: string | Uint8Array): boolean
     /** The capsule-safe Axon facade installed as globalThis.axon. */
     axon: AxonCapsuleHandle
@@ -58,6 +80,8 @@ export function installScope(opts: ScopeOpts): void {
     const proc = process as NodeJS.Process & {
         run?: ScopeOpts["run"]
         spawn?: ScopeOpts["spawn"]
+        procs?: ScopeOpts["procs"]
+        proc?: ScopeOpts["proc"]
     }
 
     /**
@@ -81,6 +105,8 @@ export function installScope(opts: ScopeOpts): void {
 
     proc.run = opts.run
     proc.spawn = opts.spawn
+    proc.procs = opts.procs
+    proc.proc = opts.proc
 
     // The one Axon-owned global besides the process verbs. It is a
     // capsule-safe facade: local activity plus trusted host-backed methods.

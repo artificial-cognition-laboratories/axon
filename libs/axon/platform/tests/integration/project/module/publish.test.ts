@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK_PUBLISHED } from "../../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 function disposableName(): string {
     return `@${TEST_USER.username}/test-module-${crypto.randomUUID().slice(0, 8)}`

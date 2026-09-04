@@ -25,7 +25,11 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("captures stderr separately from stdout", async () => {
-        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
+        // `raw: true` because `;` and `>&2` ARE shell syntax — this command is
+        // a shell program, not one call, and the policy now says so. Without
+        // it the run escalates, which is the correct answer to "may this agent
+        // execute an arbitrary shell line".
+        const capsule = Capsule({ policy: { shell: { allow: ["*"], raw: true } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("echo out; echo err >&2")`) as ProcRunResult
@@ -49,7 +53,9 @@ describe("Capsule process.run — blocking inline shell execution", () => {
     })
 
     it("merges the env option over the inherited environment", async () => {
-        const capsule = Capsule({ policy: { shell: { allow: ["*"] } } })
+        // `$CUSTOM_VAR` is expanded by the SHELL, so this is a shell program
+        // too — see the stderr test above.
+        const capsule = Capsule({ policy: { shell: { allow: ["*"], raw: true } } })
         await capsule.boot()
 
         const result = await capsule.run(`await process.run("echo $CUSTOM_VAR", { env: { CUSTOM_VAR: "hello-env" } })`) as ProcRunResult

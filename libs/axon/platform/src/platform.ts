@@ -8,7 +8,7 @@ import { Deployments } from "./services/deployments"
 import { Projects } from "./build/project"
 import { Profile, Runtime } from "./build/runtime"
 import type { AgentSupervisor } from "./build/runtime/instances"
-import { Extensions, ProfileConfigFile } from "./build/extensions"
+import { Extensions, ProfileConfigFile, readSettingsSync } from "./build/extensions"
 import { Resources } from "./services/resources"
 
 import { TestRunner } from "./services/test"
@@ -52,19 +52,47 @@ export function Platform(opts: PlatformOpts) {
      * A cached synchronous snapshot, because `extraRoots()` is synchronous and
      * every caller of it is: parsing TypeScript per call, on a path resolved
      * during an agent scan, is not something to do lazily.
+     *
+     * `null` means UNREAD, which is not the same as "declares nothing" — and
+     * conflating them is the bug this distinction exists to kill. It began as
+     * `{}`, so every read before someone called `refreshSettings()` answered
+     * "no watched roots" with total confidence. The TUI fills the cache inside
+     * `extensions.load()`, which is deliberately not awaited before the first
+     * frame, so that window was seconds wide on a warm boot and longer on a
+     * cold one: `^` listed nothing for an agent with hundreds of sessions on
+     * disk, and an agent resolved by a watched path could not be found at all.
      */
-    let settingsCache: { paths?: string[] } = {}
+    let settingsCache: { paths?: string[] } | null = null
+
+    /**
+     * The settings, filling the cache on first read.
+     *
+     * Lazy rather than eager because construction is WIRING — a factory does
+     * no fs work — but a synchronous reader that cannot await still has to get
+     * a real answer. The read is one file and an AST parse, no evaluation and
+     * no lock (see readSettingsSync), and it happens once.
+     */
+    function settings(): { paths?: string[] } {
+        if (settingsCache) return settingsCache
+        const profile = store.profiles.active()
+        // No profile yet (a first boot before login) genuinely declares
+        // nothing. NOT cached: a profile appearing later must be read then,
+        // and caching {} here would pin the empty answer for the process.
+        if (!profile) return {}
+        settingsCache = readSettingsSync(profile.root) as { paths?: string[] }
+        return settingsCache
+    }
 
     const store = Store({
         root: opts.store ?? storeRoot(distribution),
-        settings: () => settingsCache,
+        settings: settings,
         setSetting: async (key, value) => {
             const result = await extensions.setSetting(key, value)
             await refreshSettings()
             return result
         },
     })
-    const cloud = Cloud({ store: store, distribution: distribution })
+    const cloud = Cloud({ store: store, distribution: distribution, release: opts.version })
 
     const ollama = Ollama() // local models via the Ollama daemon
     const mic = Mic() // mic capture + visualizer service
@@ -176,9 +204,11 @@ export function Platform(opts: PlatformOpts) {
      */
     async function refreshSettings(): Promise<void> {
         // No profile yet (a first boot before login) is a real "nothing is
-        // declared", not a failure — there is no config to read.
+        // declared", not a failure — there is no config to read. Cleared to
+        // null rather than {}: unread and empty are different answers, and
+        // a profile appearing later must be read rather than assumed empty.
         if (!store.profiles.active()) {
-            settingsCache = {}
+            settingsCache = null
             return
         }
         // Deliberately NOT caught. An unreadable profile.config.ts used to

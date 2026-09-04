@@ -41,10 +41,35 @@ export function SandboxProcs(opts: ProcsOpts) {
         }
     }
 
-    function markExited(entry: ProcEntry, code: number | undefined) {
+    /**
+     * Announce that a spawn has SETTLED — launched with a pid, or refused.
+     *
+     * Separate from markExited because the two are genuinely different
+     * transitions: a process can settle as running and exit an hour later.
+     * Every path out of mediation calls exactly one of these, which is what
+     * makes `started` un-hangable.
+     */
+    function markStarted(entry: ProcEntry, pid: number) {
+        entry.pid = pid
+        entry.status = "running"
+        const set = subscribers.get(entry.procId + ":start")
+        if (set) for (const cb of [...set]) cb("")
+    }
+
+    function markExited(entry: ProcEntry, code: number | undefined, error?: string) {
+        // A spawn refused before it ever launched settles BOTH: it will never
+        // be running, so anything awaiting `started` has its answer now.
+        // Without this a denied spawn left `started` pending forever — the
+        // same silent hang the promise exists to remove.
+        const wasPending = entry.status === "pending"
         entry.status = "exited"
         if (code !== undefined) entry.exitCode = code
+        if (error !== undefined) entry.error = error
         entry.endedAt = Date.now()
+        if (wasPending) {
+            const startSet = subscribers.get(entry.procId + ":start")
+            if (startSet) for (const cb of [...startSet]) cb("")
+        }
         const set = subscribers.get(entry.procId + ":exit")
         if (set) for (const cb of [...set]) cb("")
     }
@@ -77,7 +102,11 @@ export function SandboxProcs(opts: ProcsOpts) {
             procId,
             kind: "managed",
             command,
-            status: "running",
+            // PENDING, not running: mediation and the OS spawn are still
+            // ahead of us. Stamping "running" here was a claim nobody had
+            // made yet — and since a bare `process.spawn(...)` serialises the
+            // handle immediately, that fiction is exactly what the model read.
+            status: "pending",
             stdout: [],
             stderr: [],
             startedAt: Date.now(),
@@ -96,20 +125,26 @@ export function SandboxProcs(opts: ProcsOpts) {
         // Two gates, because spawning is two privileges: may this PROGRAM run
         // at all (the same question `run` asks), and may a long-lived child be
         // held. Either refusing is a refusal.
-        const decision = await mediator.shell(splitCommand(command))
+        const decision = await mediator.shell(splitCommand(command), command)
         const allowed = decision.verdict === "allow"
             && await mediator.check("shell.spawn", command, [command])
 
         if (killedBeforeSpawn.has(procId)) {
             killedBeforeSpawn.delete(procId)
             wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "killed before it could spawn", context: { procId, command } }) })
-            markExited(entry, -1)
+            markExited(entry, -1, "killed before it could spawn")
             return
         }
 
         if (!allowed) {
-            wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "denied by policy", context: { procId, command } }) })
-            markExited(entry, -1)
+            // The REASON travels, for the same reason run() carries one: a
+            // model told "denied" can only guess, and a model told "shells are
+            // off" can rewrite the call.
+            const reason = decision.verdict === "allow"
+                ? "denied by policy: shell.spawn does not permit holding a background process"
+                : shellDenial(decision)
+            wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: reason, context: { procId, command } }) })
+            markExited(entry, -1, reason)
             return
         }
 
@@ -118,16 +153,34 @@ export function SandboxProcs(opts: ProcsOpts) {
             cwd: spawnOpts?.cwd,
             env: spawnOpts?.env ? { ...process.env, ...spawnOpts.env } : process.env,
             stdio: ["pipe", "pipe", "pipe"],
+            /**
+             * Its OWN process group, exactly as `run` does — and for a
+             * stronger reason.
+             *
+             * `shell: true` means the child we hold is `/bin/sh -c "<command>"`,
+             * not the command. A bare `child.kill()` therefore signals the
+             * SHELL: the shell dies, the real workload is orphaned onto init,
+             * and it survives kill(), interrupt() and shutdown() alike. A
+             * `sleep 30` outlived `capsule.shutdown()` by its full duration,
+             * and an agent that spawns ambient work every session leaked one
+             * per session with nothing reporting it.
+             *
+             * A group leader lets killTree() signal the whole tree, so the
+             * thing the agent actually asked for is the thing that dies.
+             */
+            detached: hasProcessGroups(),
         })
 
         if (child.pid === undefined) {
             wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "spawn failed", context: { procId, command } }) })
-            markExited(entry, -1)
+            markExited(entry, -1, "spawn failed")
             return
         }
 
-        entry.pid = child.pid
         entry.cwd = spawnOpts?.cwd ?? process.cwd()
+        // The pid is real and the child is live — this is the ONE transition
+        // that makes the handle's `running` true rather than assumed.
+        markStarted(entry, child.pid)
         wire.emit("process:proc:start", { procId, pid: child.pid, command, cwd: entry.cwd, kind: "managed" })
 
         if (killedBeforeSpawn.has(procId)) {
@@ -180,7 +233,7 @@ export function SandboxProcs(opts: ProcsOpts) {
      */
     async function run(command: string, runOpts?: ProcRunOptions, signal?: AbortSignal): Promise<ProcRunResult> {
         if (signal?.aborted) throw abortError()
-        const decision = await mediator.shell(splitCommand(command))
+        const decision = await mediator.shell(splitCommand(command), command)
         const allowed = decision.verdict === "allow"
         if (signal?.aborted) throw abortError()
         if (!allowed) {
@@ -200,7 +253,7 @@ export function SandboxProcs(opts: ProcsOpts) {
                 stdio: ["pipe", "pipe", "pipe"],
                 // A blocking shell command is command-owned. Its entire
                 // process group must die when the enclosing capsule run does.
-                detached: process.platform !== "win32",
+                detached: hasProcessGroups(),
             })
 
             if (child.pid === undefined) {
@@ -306,14 +359,16 @@ export function SandboxProcs(opts: ProcsOpts) {
         }
         const child = children.get(procId)
         if (child) {
-            child.kill()
+            // killTree, not child.kill(): with `shell: true` the handle is the
+            // shell, and signalling it alone orphans the command it wraps.
+            killTree(child)
             return
         }
         // No live child yet — spawn is still mid-mediation. Record the intent
         // so mediateAndSpawn() checks it once the await resolves, instead of
         // silently losing a kill() that raced the spawn.
         const entry = entries.get(procId)
-        if (entry?.status === "running") killedBeforeSpawn.add(procId)
+        if (entry?.status === "pending") killedBeforeSpawn.add(procId)
     }
 
     function stdin(procId: string, data: string): void {
@@ -363,10 +418,28 @@ export function SandboxProcs(opts: ProcsOpts) {
 
         /** Kill every managed child — called on capsule shutdown. */
         killAll(): void {
-            for (const child of children.values()) child.kill()
+            for (const child of children.values()) killTree(child)
             for (const child of runChildren.values()) killTree(child)
         },
     }
+}
+
+/**
+ * Whether this OS gives a spawned child its own process GROUP.
+ *
+ * One named fact, read once, rather than three `process.platform` checks that
+ * happen to agree. They encode a single decision — POSIX gives a detached
+ * child its own group, so the whole tree can be signalled with `kill(-pid)`;
+ * Windows has no equivalent, so only the direct child can be killed and its
+ * grandchildren are orphaned.
+ *
+ * Named and exported because it is otherwise UNTESTABLE: the Windows branch
+ * never executes on Linux CI, so a change to it ships unreviewed. With the
+ * fact isolated, `killTree` can be exercised for both shapes on any machine —
+ * which is the only way that branch gets reviewed at all.
+ */
+export function hasProcessGroups(platform: NodeJS.Platform = process.platform): boolean {
+    return platform !== "win32"
 }
 
 function abortError(): Error {
@@ -375,9 +448,19 @@ function abortError(): Error {
     return error
 }
 
-function killTree(child: ReturnType<typeof nodeSpawn>): void {
+export function killTree(
+    child: Pick<ReturnType<typeof nodeSpawn>, "pid" | "kill">,
+    /**
+     * Injected so BOTH shapes are testable on one machine. The Windows branch
+     * is the one that cannot be exercised on CI, and it is also the one whose
+     * failure is invisible: `child.kill()` reaches the direct child only, so a
+     * process that spawned its own children leaves them running.
+     */
+    groups: boolean = hasProcessGroups(),
+    signal: (pid: number, sig: NodeJS.Signals) => void = process.kill,
+): void {
     try {
-        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL")
+        if (groups && child.pid) signal(-child.pid, "SIGKILL")
         else child.kill()
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err)

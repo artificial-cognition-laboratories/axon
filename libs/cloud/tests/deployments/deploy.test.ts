@@ -68,7 +68,14 @@ describe("agents.deploy", () => {
                 onProgress: step => steps.push(step.step),
             })
 
-            expect(steps).toEqual(["publishing", "provisioning", "starting", "ready"])
+            // The whole sequence, in order. Exhaustive on purpose: a step that
+            // silently stops reporting leaves a UI's progress bar stalled on
+            // the one before it, which no per-step assertion would catch.
+            // `registering` comes from the publish deploy() runs first — a
+            // deployment needs a published artifact to provision from. No
+            // `bundling` here, unlike the platform's own deploy test: this
+            // path is handed an already-built bundle.
+            expect(steps).toEqual(["registering", "publishing", "provisioning", "starting", "ready"])
 
             await deployment.delete()
         } finally {

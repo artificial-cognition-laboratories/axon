@@ -1,5 +1,5 @@
 import { readFile, writeFile, appendFile, access, rm, readdir, mkdir, rename, copyFile, stat as fsStat } from "node:fs/promises"
-import { join as pathJoin, sep as pathSep } from "node:path"
+import { join as pathJoin, sep as pathSep, dirname as pathDirname, basename as pathBasename } from "node:path"
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -10,6 +10,20 @@ export type Stat = { size: number; isDir: boolean; isFile: boolean; mtime: numbe
 export type QueryOpts = {
     pattern?: string
     glob?: string
+    /**
+     * DIRECTORY to search under (default: the process cwd).
+     *
+     * A directory, never a file — this is the root of a tree walk, not a
+     * target. Passing a file path is the single most common misuse of this
+     * tool: `cwd` reads as "where to look", a file path is a perfectly
+     * sensible answer to that question, and the underlying glob scan then
+     * fails with a bare `ENOTDIR` that names no parameter and suggests no
+     * fix. Callers hit it repeatedly in one session, corrected by guessing.
+     *
+     * To search inside ONE file, pass its directory here and its name as
+     * `glob` — `{ cwd: "src/app", glob: "index.ts", pattern: "..." }`. To
+     * read a file, use `read()`.
+     */
     cwd?: string
     maxDepth?: number
     limit?: number
@@ -166,13 +180,59 @@ function applyOp(text: string, op: EditOp): { text: string; result: EditOpResult
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve `query({ cwd })` to a real directory.
+ *
+ * `cwd` is the root of a tree walk, but it reads as "where to look" — and a
+ * FILE path is a perfectly sensible answer to that question. Models supply one
+ * routinely, and the glob scan then throws a bare
+ * `ENOTDIR: not a directory, open '<path>'`: no parameter named, no fix
+ * suggested, and nothing to distinguish it from a path that does not exist.
+ * One observed session hit it repeatedly and recovered only by guessing.
+ *
+ * A file path here is UNAMBIGUOUS in intent — "search this file" — so it is
+ * resolved rather than refused: the directory becomes the root and the
+ * filename becomes the glob. The caller gets what they meant, and `matches`
+ * reports the file by name, so nothing about the result is a guess.
+ *
+ * Refusing is still right for a path that is not there at all: that is a
+ * mistake with no correct reading, and it gets a message naming the parameter
+ * and what it wants — the thing `ENOTDIR` never said.
+ */
+async function searchRoot(cwd: string | undefined): Promise<string> {
+    if (cwd === undefined) return process.cwd()
+
+    let stats: Awaited<ReturnType<typeof fsStat>>
+    try {
+        stats = await fsStat(cwd)
+    } catch {
+        throw new Error(
+            `fs.query: cwd "${cwd}" does not exist. cwd is the DIRECTORY to search under — `
+            + `use glob to match filenames within it, and fs.read() to read one file.`,
+        )
+    }
+
+    return stats.isDirectory() ? cwd : pathDirname(cwd)
+}
+
+/** The glob that keeps a file-path `cwd` meaning what the caller intended. */
+function searchGlob(opts: QueryOpts, resolvedRoot: string): string | undefined {
+    if (opts.cwd === undefined || opts.cwd === resolvedRoot) return opts.glob
+    // cwd named a FILE: narrow to it, so the search covers what was asked for
+    // and not its whole directory. An explicit glob still wins — a caller who
+    // passed both said something more specific than we can infer.
+    return opts.glob ?? pathBasename(opts.cwd)
+}
+
 export const fs = {
     /**
      * Search for files by name or content. The primary tool for codebase navigation.
      *
      * @param opts.pattern - Text or regex to search in file contents
      * @param opts.glob - Glob pattern for filename matching (e.g. "**\/*.ts", "*mode*")
-     * @param opts.cwd - Root directory to search from (defaults to cwd)
+     * @param opts.cwd - DIRECTORY to search under (defaults to process cwd).
+     *                   A directory, never a file — to search one file, pass its
+     *                   directory here and its name as `glob`.
      * @param opts.maxDepth - Max directory traversal depth
      * @param opts.limit - Max FILES to return (default 50)
      * @param opts.maxLines - Max total lines across all matches (default 400)
@@ -190,14 +250,14 @@ export const fs = {
      */
     async query(opts: QueryOpts): Promise<QueryResult> {
         const act = activity("file:search", { query: opts.pattern ?? opts.glob ?? "*", ...(opts.cwd ? { scope: opts.cwd } : {}) })
-        const cwd = opts.cwd ?? process.cwd()
+        const cwd = await searchRoot(opts.cwd)
         const limit = opts.limit ?? 50
         const maxLines = opts.maxLines ?? 400
         const context = opts.context ?? 0
         let lineBudget = maxLines
         const ignoreCase = opts.ignoreCase ?? true
 
-        const globPattern = opts.glob ?? "**/*"
+        const globPattern = searchGlob(opts, cwd) ?? "**/*"
         const bunGlob = new Bun.Glob(globPattern)
         const files: string[] = []
 
@@ -297,7 +357,16 @@ export const fs = {
      */
     async read(path: string, opts?: ReadOpts): Promise<string> {
         activity("file:read", { path, ...(opts?.from || opts?.to ? { range: [opts.from ?? 1, opts.to ?? -1] } : {}) }).done()
-        const content = await readFile(path, "utf-8")
+        const content = await readFile(path, "utf-8").catch(async (cause: unknown) => {
+            // `EISDIR: illegal operation on a directory, read` names neither
+            // the argument nor the tool that would have worked. Point at the
+            // one that would: reading and listing are the confusion pair here,
+            // and a caller holding a directory almost always wants list().
+            if ((cause as { code?: string }).code === "EISDIR") {
+                throw new Error(`fs.read: "${path}" is a directory, not a file. Use fs.list() to see its entries, or fs.query() to search inside it.`)
+            }
+            throw cause
+        })
         if (!opts?.from && !opts?.to) return content
         const lines = content.split("\n")
         const from = Math.max(1, opts?.from ?? 1)
@@ -321,7 +390,15 @@ export const fs = {
 
     /** List entries in a directory. For searching across the tree, use query() instead. */
     async list(path: string): Promise<string[]> {
-        return readdir(path)
+        // The mirror of read()-on-a-directory: `ENOTDIR ... scandir` says what
+        // failed and not what to do about it. A caller holding a file wanted
+        // its contents.
+        return readdir(path).catch((cause: unknown) => {
+            if ((cause as { code?: string }).code === "ENOTDIR") {
+                throw new Error(`fs.list: "${path}" is a file, not a directory. Use fs.read() to read it, or fs.list("${pathDirname(path)}") for the directory holding it.`)
+            }
+            throw cause
+        })
     },
 
     /** Write content to a file, creating or overwriting it. */

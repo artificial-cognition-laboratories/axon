@@ -182,7 +182,27 @@ export function Package(opts: PackageOpts) {
     const path = join(opts.root, "package.json")
 
     async function read(): Promise<PackageJson> {
-        return JSON.parse(await readFile(path, "utf-8")) as PackageJson
+        // A missing or unparseable manifest is a legible PROJECT failure, and
+        // this is the single reader — so the translation happens once, here,
+        // rather than at each of the dozen call sites.
+        //
+        // It used to escape raw. `bundle()` runs `prepare()` first, which
+        // reaches this through `dependencies.ensure()`, so a project with no
+        // package.json failed with `ENOENT ... open '/tmp/.../package.json'`
+        // long before Artifacts.identity() — which raises a proper
+        // BUNDLE_INVALID naming the root — ever ran. The careful error existed
+        // and was simply unreachable.
+        let source: string
+        try {
+            source = await readFile(path, "utf-8")
+        } catch (cause) {
+            throw err("BUNDLE_INVALID", { detail: `no package.json at ${opts.root}`, context: { root: opts.root, path }, cause })
+        }
+        try {
+            return JSON.parse(source) as PackageJson
+        } catch (cause) {
+            throw err("BUNDLE_INVALID", { detail: `package.json at ${opts.root} is not valid JSON`, context: { root: opts.root, path }, cause })
+        }
     }
 
     async function write(pkg: PackageJson): Promise<void> {

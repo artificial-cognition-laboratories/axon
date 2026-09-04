@@ -1,4 +1,5 @@
 import { AgentRuntime, type RuntimeForAgent } from "../../src/runtime"
+import { describe, it, expect } from "bun:test"
 
 /**
  * AgentRuntime adapts a live Axon() runtime to the four verbs a supervisor may
@@ -14,7 +15,20 @@ function runtime(over: Partial<RuntimeForAgent["kernel"]> & { update?: RuntimeFo
     return {
         kernel: {
             request: over.request ?? (async () => ({})),
+            ingest: over.ingest ?? (async () => {}),
             interrupt: over.interrupt ?? (() => {}),
+            // `run` is part of the kernel surface the agent side dispatches.
+            // The fixture omitted it, so every test built a runtime shaped
+            // unlike the real one.
+            run: over.run ?? (async () => ({})),
+        },
+        // `server` and `axon` complete RuntimeForAgent. AgentRuntime dispatches
+        // `serve` and `prompts` through them, so a fixture without them is a
+        // runtime the adapter could never actually be handed.
+        server: { get handler() { return () => new Response("ok") } },
+        axon: {
+            prompt: async () => "",
+            prompts: { list: () => [], renderEntry: async () => "" },
         },
         update: over.update ?? (async () => ({})),
         shutdown: over.shutdown ?? (async () => ({})),
@@ -109,7 +123,7 @@ describe("AgentRuntime — the other three verbs", () => {
         let reason: string | null = null
         const agent = AgentRuntime(runtime({ interrupt: r => { reason = r } }))
         agent.interrupt("user")
-        expect(reason).toBe("user")
+        expect(reason as string | null).toBe("user")
     })
 
     it("shuts down naming the supervisor as the cause", async () => {

@@ -49,6 +49,14 @@ describe("Capsule proc.spawn / process.spawn", () => {
             await capsule.boot()
 
             const proc = capsule.process.spawn("sleep 30")
+            // PENDING on return, not running: mediation and the OS spawn are
+            // still ahead. This asserted "running" and passed against a value
+            // nobody had verified — the fiction an agent later read as an
+            // immediate exit.
+            expect(proc.status).toBe("pending")
+
+            const started = await proc.started
+            expect(started.ok).toBe(true)
             expect(proc.status).toBe("running")
 
             proc.kill()

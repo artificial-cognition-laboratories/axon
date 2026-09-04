@@ -26,18 +26,30 @@ export async function* readSse(response: Response, signal?: AbortSignal): AsyncG
             buffer = lines.pop() ?? ""
 
             for (const line of lines) {
-                if (!line.startsWith("data: ")) continue
-                const data = line.slice(6).trim()
-                if (data === "[DONE]") continue
-
-                try {
-                    yield JSON.parse(data) as Record<string, unknown>
-                } catch (error) {
-                    throw new SyntaxError("SSE protocol error: malformed data frame", { cause: error })
-                }
+                const event = parseLine(line)
+                if (event) yield event
             }
+        }
+        // A valid final SSE frame need not have a trailing newline. Leaving it
+        // in `buffer` would make a successful terminal snapshot disappear and
+        // later look like an empty model response.
+        if (buffer) {
+            const event = parseLine(buffer)
+            if (event) yield event
         }
     } finally {
         signal?.removeEventListener("abort", onAbort)
+    }
+}
+
+function parseLine(line: string): Record<string, unknown> | null {
+    if (!line.startsWith("data: ")) return null
+    const data = line.slice(6).trim()
+    if (data === "[DONE]") return null
+
+    try {
+        return JSON.parse(data) as Record<string, unknown>
+    } catch (error) {
+        throw new SyntaxError("SSE protocol error: malformed data frame", { cause: error })
     }
 }

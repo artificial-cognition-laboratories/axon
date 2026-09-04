@@ -133,6 +133,17 @@ export function RemoteAgent(opts: RemoteAgentOpts) {
             return { ok: true }
         },
 
+        async ingest(_entry) {
+            // Joining a wake already in flight needs the scheduler's stimuli
+            // buffer, which lives inside the runtime process. A deployment is
+            // reached over HTTP, where every request is its own conversation
+            // and there is no in-flight wake to join. Refused loudly rather
+            // than silently starting a NEW wake: a caller asking to add to the
+            // current turn would get a second turn instead, which reorders
+            // what the user said.
+            throw new Error("a deployed agent has no mid-wake ingest channel — use request()")
+        },
+
         stream(entry) {
             return stream(promptOf(entry))
         },
@@ -174,13 +185,32 @@ export function RemoteAgent(opts: RemoteAgentOpts) {
          */
         session,
         /**
-         * The pre-handle shapes, kept for callers that predate the contract.
+         * The CONSUMER verbs — `request("hello")`, and an `AxonResult` back.
          *
-         * `request`/`stream` here take `AxonRequestInput`; the handle's take a
-         * stimulus entry. Same endpoints either way.
+         * These deliberately OVERRIDE the `AxonAgentHandle` members of the
+         * same name, and the override is the point of this handle.
+         *
+         * `AxonAgentHandle` is the machine contract every transport
+         * implements: every input is an `AxonStimulusEntry`, because a prompt
+         * IS `cognet:stimulus:text` and a second door into the same brain
+         * would be a second thing to keep in sync. That contract is explicit
+         * that convenience over it "belongs in a helper, never in the
+         * contract" — this is that helper, and `attach()` promises exactly it
+         * ("request/stream mirror the local axon handle").
+         *
+         * Mirroring means BOTH halves: the input a caller may pass (a bare
+         * string or `{ prompt }`, normalised here) and the value they get back
+         * (an `AxonResult` with `text`, not the contract's bare `{ ok }`).
+         * Anything less and code written against a local runtime still breaks
+         * on a deployed one — which is the asymmetry this whole handle exists
+         * to remove.
+         *
+         * The entry-shaped verbs remain reachable as `stimulus` (admission)
+         * and through the `AxonAgentHandle` view of this object, so nothing
+         * that speaks the machine contract loses a way in.
          */
-        requestInput: request,
-        streamInput: stream,
+        request,
+        stream,
     }
 }
 

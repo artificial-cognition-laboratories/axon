@@ -1,0 +1,8 @@
+export { Dictation } from "./dictation"
+export type { DictationOpts, DictationState, DictationT, Dictated } from "./dictation"
+export { Capture } from "./capture"
+export type { CaptureOpts, CaptureT, Recording } from "./capture"
+export { Inject } from "./inject"
+export type { InjectOpts, InjectT } from "./inject"
+export { Keybind } from "./keybind"
+export type { KeybindOpts, KeybindT } from "./keybind"

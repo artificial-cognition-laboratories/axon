@@ -60,10 +60,45 @@ export function CodexBackend(opts: CodexBackendOpts) {
                 } else if (type === "response.output_text.done") {
                     const content = (event.text as string | undefined) ?? ""
                     if (content.trim()) yield { type: "text:final", content }
+                } else if (type === "response.content_part.done" || type === "response.output_item.done") {
+                    // The terminal content/item snapshots are documented
+                    // Responses events. They are a safe fallback when a
+                    // connection omits output_text.done after sending a
+                    // completed item.
+                    const content = outputText(event.type === "response.content_part.done" ? event.part : event.item)
+                    if (content.trim()) yield { type: "text:final", content }
+                } else if (type === "response.completed") {
+                    const response = object(event.response)
+                    const status = response?.status
+                    if (status !== "completed") {
+                        const detail = outputText(response?.error) || `response ended with status ${String(status ?? "unknown")}`
+                        throw failure({
+                            code: "TRANSPORT",
+                            message: `Codex: ${detail}`,
+                            retryable: status !== "cancelled",
+                            provider: "codex",
+                            model: opts.model,
+                        })
+                    }
+                    const content = outputText(response)
+                    if (content.trim()) yield { type: "text:final", content }
                 }
             }
         },
     }
+}
+
+/** Extract visible output from a Responses content item or terminal response. */
+function outputText(value: unknown): string {
+    const record = object(value)
+    if (!record) return ""
+    if (typeof record.text === "string") return record.text
+    const content = Array.isArray(record.content) ? record.content : Array.isArray(record.output) ? record.output : []
+    return content.map(outputText).join("")
+}
+
+function object(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
 async function fetchResponses(

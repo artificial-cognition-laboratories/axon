@@ -1,4 +1,32 @@
-import ts from "typescript"
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~223ms to load — roughly half of `@arcforge/platform`'s
+ * entire import time, which every `axon` invocation paid before a single line
+ * of any command ran. `axon dev` printing nothing for a second was mostly
+ * this: the progress surface could not paint because its own module graph was
+ * still loading a compiler it had no use for.
+ *
+ * Nothing here touches `ts` at module scope — every reference is inside a
+ * function body — so deferring the load costs the first caller ~223ms and
+ * every command that never parses a source file nothing at all.
+ *
+ * `require`, not `await import`: these are SYNCHRONOUS APIs
+ * (`readSettingsSync` is named for it, and is called during Platform()'s own
+ * settings read), so making them async would ripple through every caller for
+ * no gain. Bun resolves this from the same graph either way.
+ *
+ * The type import above is erased at compile time and carries no runtime cost,
+ * which is what keeps every `ts.SourceFile` annotation below unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 
 /**
  * Shared TypeScript AST introspection tools — the one place source files
@@ -7,13 +35,13 @@ import ts from "typescript"
  */
 export const tsast = {
     parse(filePath: string, source: string): ts.SourceFile {
-        return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+        return tsc().createSourceFile(filePath, source, tsc().ScriptTarget.Latest, true, tsc().ScriptKind.TS)
     },
 
     hasExportModifier(node: ts.Node): boolean {
-        if (ts.canHaveModifiers(node)) {
-            const mods = ts.getModifiers(node)
-            return mods?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
+        if (tsc().canHaveModifiers(node)) {
+            const mods = tsc().getModifiers(node)
+            return mods?.some(m => m.kind === tsc().SyntaxKind.ExportKeyword) ?? false
         }
         return false
     },
@@ -55,7 +83,7 @@ export const tsast = {
 
     prop(obj: ts.ObjectLiteralExpression, key: string): ts.Expression | null {
         for (const p of obj.properties) {
-            if (ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && p.name.text === key) {
+            if (tsc().isPropertyAssignment(p) && (tsc().isIdentifier(p.name) || tsc().isStringLiteral(p.name)) && p.name.text === key) {
                 return p.initializer
             }
         }
@@ -64,39 +92,39 @@ export const tsast = {
 
     stringProp(obj: ts.ObjectLiteralExpression, key: string): string | null {
         const init = tsast.prop(obj, key)
-        return init && ts.isStringLiteral(init) ? init.text : null
+        return init && tsc().isStringLiteral(init) ? init.text : null
     },
 
     boolProp(obj: ts.ObjectLiteralExpression, key: string): boolean | null {
         const init = tsast.prop(obj, key)
         if (!init) return null
-        if (init.kind === ts.SyntaxKind.TrueKeyword) return true
-        if (init.kind === ts.SyntaxKind.FalseKeyword) return false
+        if (init.kind === tsc().SyntaxKind.TrueKeyword) return true
+        if (init.kind === tsc().SyntaxKind.FalseKeyword) return false
         return null
     },
 
     objectProp(obj: ts.ObjectLiteralExpression, key: string): ts.ObjectLiteralExpression | null {
         const init = tsast.prop(obj, key)
-        return init && ts.isObjectLiteralExpression(init) ? init : null
+        return init && tsc().isObjectLiteralExpression(init) ? init : null
     },
 
     /** Extract a primitive literal value (string/number/boolean), or undefined. */
     literal(node: ts.Expression): string | number | boolean | undefined {
-        if (ts.isStringLiteral(node)) return node.text
-        if (ts.isNumericLiteral(node)) return Number(node.text)
-        if (node.kind === ts.SyntaxKind.TrueKeyword) return true
-        if (node.kind === ts.SyntaxKind.FalseKeyword) return false
+        if (tsc().isStringLiteral(node)) return node.text
+        if (tsc().isNumericLiteral(node)) return Number(node.text)
+        if (node.kind === tsc().SyntaxKind.TrueKeyword) return true
+        if (node.kind === tsc().SyntaxKind.FalseKeyword) return false
         return undefined
     },
 
     /** Visit every call expression `name(...)` in a source file. */
     visitCalls(src: ts.SourceFile, name: string, visit: (call: ts.CallExpression) => void): void {
         function walk(node: ts.Node) {
-            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name) {
+            if (tsc().isCallExpression(node) && tsc().isIdentifier(node.expression) && node.expression.text === name) {
                 visit(node)
             }
-            ts.forEachChild(node, walk)
+            tsc().forEachChild(node, walk)
         }
-        ts.forEachChild(src, walk)
+        tsc().forEachChild(src, walk)
     },
 }

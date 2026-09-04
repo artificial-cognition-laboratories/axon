@@ -1,7 +1,7 @@
 import { Axon as AxonRuntime } from "@arcforge/core"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
 import { defineCognet } from "@arcforge/cognet"
-import { probe } from "../../../../packages/capsule/platform/confine/probe"
+import { probe } from "@arcforge/link"
 import { writeFileSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"

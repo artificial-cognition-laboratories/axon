@@ -101,7 +101,7 @@ describe("blueprint load: a healthy agent still loads", () => {
 
         const { blueprint } = await Blueprint({ root }).load()
 
-        expect(blueprint.tools.map(t => t.name)).toContain("math")
+        expect(blueprint.tools?.map(t => t.name)).toContain("math")
     }, 60_000)
 
     test("an agent with no tools at all loads cleanly", async () => {
@@ -147,6 +147,6 @@ describe("blueprint load: failure is not cached as success", () => {
         await writeFile(join(root, "src", "tools", "math.ts"), "export function add(a: number) { return a }\n")
         const { blueprint } = await Blueprint({ root }).load()
 
-        expect(blueprint.tools.map(t => t.name)).toContain("math")
+        expect(blueprint.tools?.map(t => t.name)).toContain("math")
     }, 60_000)
 })

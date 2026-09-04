@@ -1,9 +1,9 @@
 {
   "kind": "cognet",
   "name": "@axon/zero",
-  "version": "1.0.44",
+  "version": "1.0.49",
   "public": true,
-  "builtAt": "2026-08-26T21:08:08.823Z",
+  "builtAt": "2026-08-31T19:59:17.988Z",
   "description": "The default Axon cognet — the cognitive loop every agent runs unless it selects another.",
   "abi": "11"
 }

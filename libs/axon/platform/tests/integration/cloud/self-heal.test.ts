@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
+import { stubFetch } from "../../setup/fetch"
 
 /**
  * A stale session heals itself. Only a spent one asks the user for anything.
@@ -154,7 +156,7 @@ describe("a spent token falls back to a full login", () => {
             seed(store, id, email, stored)
             const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
 
-            const offline: typeof fetch = (async () => { throw new TypeError("fetch failed") }) as typeof fetch
+            const offline: typeof fetch = stubFetch(async () => { throw new TypeError("fetch failed") })
             await withFetch(offline, async () => {
                 expect(await platform.cloud.validate()).toBe("unreachable")
             })
@@ -196,7 +198,7 @@ describe("switch() runs the same ladder", () => {
             const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             platform.store.profiles.deactivate()
 
-            const offline: typeof fetch = (async () => { throw new TypeError("fetch failed") }) as typeof fetch
+            const offline: typeof fetch = stubFetch(async () => { throw new TypeError("fetch failed") })
             await withFetch(offline, async () => {
                 // Matched on the CODE, not the message: the code is the
                 // contract the auth page branches on (retry vs device flow),

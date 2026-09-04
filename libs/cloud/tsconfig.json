@@ -7,9 +7,13 @@
         "skipLibCheck": true,
         "allowImportingTsExtensions": true,
         "noEmit": true,
-        "lib": ["ESNext"],
+        "lib": [
+            "ESNext"
+        ],
         "paths": {
-            "@arcforge/types": ["../types/src/index.ts"]
+            "@arcforge/types": [
+                "../types/src/index.ts"
+            ]
         }
     },
     "include": [
@@ -17,6 +21,7 @@
         "tests/**/*.ts"
     ],
     "exclude": [
-        "tests/fixtures/agent-src"
+        "tests/fixtures/agent-src",
+        "tests/fixtures/agent-bundle/src"
     ]
 }

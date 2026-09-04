@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 describe("benchmark local vertical slice", () => {
     it("prepares typed globals, executes a matrix, persists evidence, and replays exactly", async () => {

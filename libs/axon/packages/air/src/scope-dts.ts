@@ -46,6 +46,21 @@ export function scopeToDts(scope: AxonScope): string {
     for (const module of modules) {
         if (module.description) lines.push(indent(jsdocBlock(module.description)))
 
+        /**
+         * Every member is declared DIRECTLY, whatever its origin.
+         *
+         * A module's tools used to be wrapped in `namespace <tool name> { … }`,
+         * mirroring a runtime that placed them under that name. Both sides have
+         * stopped: placement is unconditional now (see core's Tools.globals),
+         * because a tool file exporting `const fs = {…}` is already its own
+         * namespace, and wrapping it again declared `fs.fs.read()` — a path an
+         * editor accepted, a model read off these very types and called, and
+         * the runtime did not have.
+         *
+         * The spelling is no longer a decision this file makes. It emits what
+         * the runtime installs, member for member, which is the only version
+         * that cannot drift from it.
+         */
         for (const member of module.members) {
             if (member.jsdoc) lines.push(indent(jsdocBlock(member.jsdoc)))
             lines.push(indent(member.declaration))

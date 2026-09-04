@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/core",
-    "version": "0.1.0",
+    "version": "2.0.187",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {
@@ -15,14 +15,15 @@
     },
     "dependencies": {
         "@arcforge/air": "workspace:*",
+        "@arcforge/capsule": "workspace:*",
+        "@arcforge/cloud": "workspace:*",
         "@arcforge/cognet": "workspace:*",
         "@arcforge/engines": "workspace:*",
         "@arcforge/err": "workspace:*",
         "@arcforge/kernel": "workspace:*",
+        "@arcforge/link": "workspace:*",
         "@arcforge/session": "workspace:*",
         "@arcforge/types": "workspace:*",
-        "@arcforge/cloud": "workspace:*",
-        "@arcforge/capsule": "workspace:*",
         "@arcforge/vstr": "workspace:*",
         "crossws": "^0.3.5",
         "h3": "^1.13.0",

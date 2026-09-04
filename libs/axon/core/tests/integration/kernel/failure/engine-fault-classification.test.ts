@@ -68,7 +68,7 @@ describe("kernel failure: provider faults become errors the user can act on", ()
         // had run out, with our stack underneath it.
         const result = await failWith(fault("RATE_LIMIT", "Codex: usage limit reached. Check your ChatGPT subscription."))
 
-        expect(result.code).toBe("AX-KERNEL-017")
+        expect(result.code).toBe("AX-PROVIDER-003")
         expect(result.expected).toBe(true)
         // The driver's sentence survives — it is the most specific thing on
         // screen and the only part naming the actual fix.
@@ -80,35 +80,35 @@ describe("kernel failure: provider faults become errors the user can act on", ()
         // different actions: one is waiting, the other is paying.
         const result = await failWith(fault("QUOTA", "OpenRouter: insufficient credits — top up at openrouter.ai"))
 
-        expect(result.code).toBe("AX-KERNEL-018")
+        expect(result.code).toBe("AX-PROVIDER-004")
         expect(result.expected).toBe(true)
     })
 
     it("a rejected credential reads as an auth problem", async () => {
         const result = await failWith(fault("AUTH", "Codex: authentication failed — reconnect via `:provider openai connect`."))
 
-        expect(result.code).toBe("AX-KERNEL-016")
+        expect(result.code).toBe("AX-PROVIDER-002")
         expect(result.expected).toBe(true)
     })
 
     it("an unconnected provider reads as unconnected", async () => {
         const result = await failWith(fault("AUTH_NOT_CONNECTED", "Codex: not connected"))
 
-        expect(result.code).toBe("AX-KERNEL-015")
+        expect(result.code).toBe("AX-PROVIDER-001")
         expect(result.expected).toBe(true)
     })
 
     it("a request the provider refused names that, not a generic failure", async () => {
         const result = await failWith(fault("INVALID_REQUEST", "codex: unknown model"))
 
-        expect(result.code).toBe("AX-KERNEL-019")
+        expect(result.code).toBe("AX-PROVIDER-005")
         expect(result.expected).toBe(true)
     })
 
     it("an unreachable provider reads as a network problem, not an agent problem", async () => {
         const result = await failWith(fault("TRANSPORT", "codex: connection reset"))
 
-        expect(result.code).toBe("AX-KERNEL-020")
+        expect(result.code).toBe("AX-PROVIDER-006")
         expect(result.expected).toBe(true)
     })
 

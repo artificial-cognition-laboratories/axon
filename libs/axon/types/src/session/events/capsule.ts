@@ -150,8 +150,15 @@ export type CapsuleEventMap =
         "process:proc:stdin:error": { procId: string; error: AxonErrorJSON }
 
         // ── Policy ───────────────────────────────────────────────────────────
-        "process:policy:denied": { id: string; module: string; fn: string; args: unknown[]; rule: string }
-        "process:policy:escalation": { id: string; module: string; fn: string; args: unknown[]; rule: string }
+        /**
+         * A call policy refused. DURABLE — a refusal is a fact about the run.
+         *
+         * `commandId` is the `cognet:action:typescript` block this belongs to,
+         * so a surface can hang the denial under the `Run(...)` that provoked
+         * it. Null for a host-initiated call, which belongs to no block.
+         */
+        "process:policy:denied": { id: string; commandId: string | null; module: string; fn: string; args: unknown[]; rule: string }
+        "process:policy:escalation": { id: string; commandId: string | null; module: string; fn: string; args: unknown[]; rule: string }
         /** Host-side: the escalate callback's verdict for a pending escalation. */
         "process:policy:decision": { id: string; allow: boolean; durationMs: number }
 

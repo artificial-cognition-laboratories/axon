@@ -70,6 +70,11 @@ export type AxonProvider = {
 }
 
 /** What every provider factory receives — the user's declaration plus runtime resources. */
+export type LocalRuntime = {
+    catalogue(): Promise<EngineCapability[]>
+    run(model: string, prompt: string): Promise<string>
+}
+
 export type ProviderResources = {
     entry: ProviderEntry
     /** Resolved agent environment. No process.env reads inside a provider. */

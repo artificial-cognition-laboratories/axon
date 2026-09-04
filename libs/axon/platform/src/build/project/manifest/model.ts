@@ -1,6 +1,29 @@
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~190-220ms to load, and it was being pulled into every
+ * `axon` invocation through this module's import chain — before argument
+ * parsing, before any command ran, before a character reached the screen.
+ * `axon dev` showing nothing for a second was largely this.
+ *
+ * Nothing here touches `ts` at module scope; every reference is inside a
+ * function body. So deferring costs the first caller the load and every
+ * command that parses no source file nothing at all.
+ *
+ * `require`, not `await import`: these APIs are synchronous and making them
+ * async would ripple through every caller for no gain. The type import above
+ * is erased at compile time, which keeps every `ts.X` annotation unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import ts from "typescript"
 import { err } from "@arcforge/err"
 import { tsast } from "../../../utils/tsast"
 
@@ -40,7 +63,7 @@ export function Model(opts: ModelOpts) {
         tsast.visitCalls(source, "defineAgent", call => {
             if (found) return
             const argument = call.arguments[0]
-            if (argument && ts.isObjectLiteralExpression(argument)) found = argument
+            if (argument && tsc().isObjectLiteralExpression(argument)) found = argument
         })
 
         return found
@@ -59,9 +82,9 @@ export function Model(opts: ModelOpts) {
             if (!object) return null
 
             for (const property of object.properties) {
-                if (!ts.isPropertyAssignment(property)) continue
+                if (!tsc().isPropertyAssignment(property)) continue
                 if (property.name.getText(source) !== "model") continue
-                if (!ts.isStringLiteral(property.initializer)) continue
+                if (!tsc().isStringLiteral(property.initializer)) continue
                 return property.initializer.text
             }
             return null
@@ -87,10 +110,10 @@ export function Model(opts: ModelOpts) {
             }
 
             for (const property of object.properties) {
-                if (!ts.isPropertyAssignment(property)) continue
+                if (!tsc().isPropertyAssignment(property)) continue
                 if (property.name.getText(source) !== "model") continue
 
-                if (ts.isStringLiteral(property.initializer) && property.initializer.text === model) {
+                if (tsc().isStringLiteral(property.initializer) && property.initializer.text === model) {
                     return { changed: false }
                 }
 

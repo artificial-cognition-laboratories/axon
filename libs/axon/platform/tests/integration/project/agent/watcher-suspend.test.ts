@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import type { ProjectT } from "@arcforge/platform/build/project"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK } from "../../../setup/user"
+import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 
 /**
  * watcher.during() — the fix for reloads landing mid-install.

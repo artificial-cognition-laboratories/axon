@@ -46,6 +46,21 @@ export type CapsuleBlueprint = {
     /** Working directory of the subprocess. */
     cwd: string
 
+    /**
+     * Where bundled tool source is materialized so it can be imported.
+     *
+     * The agent's own frame cache (`.agent/cache/tools`), never the OS temp
+     * directory: the agent process is spawned with an environment built from
+     * nothing, `TMPDIR` is not on the pass-through list, and the host/agent
+     * disagreement that produced stopped agents booting on macOS entirely.
+     * Carried on the config so the loader is handed a path rather than asking
+     * the process for one.
+     *
+     * Optional for programmatic callers that never load a bundled tool; the
+     * loader fails loudly if one arrives without it.
+     */
+    scratch?: string
+
     /** Merged onto the host's inherited environment — can override or narrow, but never starts from a blank slate. */
     env: Record<string, string>
 

@@ -59,8 +59,48 @@ export type RegistryRoute =
     /** BYOK ChatGPT subscription (Codex OAuth) — no per-token price. */
     | { via: "codex"; model: string }
 
-/** One source failing degrades into a visible failure entry, never an empty list. */
+/**
+ * How reachable a catalogue source was on the request that produced this
+ * catalogue.
+ *
+ *   live  — fetched just now
+ *   stale — serving a previous good answer because the refresh failed. The
+ *           MODELS ARE GOOD; only the refresh was not.
+ *   down  — nothing to serve for this source
+ */
+export type SourceState = "live" | "stale" | "down"
+
+/**
+ * One source failing degrades into a visible entry, never an empty list.
+ *
+ * `source` is an open string, matching the backend's own vocabulary: a route's
+ * `via` is DATA there (a new BYOK provider is a table row, not a type edit),
+ * and a closed union here would make adding one a compile error in every
+ * client for something the wire already carries fine.
+ */
 export type ModelCatalog = {
     models: RegistryModel[]
-    failures: Array<{ source: "openrouter" | "codex"; message: string }>
+    /**
+     * Sources with nothing current to offer. A source serving cached data
+     * through a blip is NOT here — it contributed real, working models, and
+     * reporting it as failed is what made a one-second outage read to users
+     * as a dead credential.
+     */
+    failures: Array<{ source: string; message: string }>
+    /**
+     * Per-source health for every source consulted — the separation that
+     * keeps a transient network observation from being cached as though it
+     * were a fact about the catalogue.
+     *
+     * Optional because a client may be talking to a backend that predates it;
+     * absent means "not reported", never "everything is fine".
+     */
+    sources?: Array<{
+        source: string
+        state: SourceState
+        /** Why the most recent fetch failed. Present on `stale` too. */
+        reason?: string
+        /** When the served data was fetched. */
+        at?: number
+    }>
 }

@@ -64,7 +64,7 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
         sessionId: opts.sessionId,
         services: {
             ...opts.services,
-            commit(type, data) {
+            commit(type, data, ctx) {
                 // The agent's own boot diagnosis, on its way to the log. Also
                 // fails the spawn — a caller awaiting a runtime that will
                 // never exist should get the reason, not a timeout.
@@ -75,7 +75,7 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
                         context: { sessionId: opts.sessionId },
                     }))
                 }
-                opts.services.commit(type, data)
+                opts.services.commit(type, data, ctx)
             },
         },
         onError: opts.onError,
@@ -115,6 +115,22 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
         ...resolved.env,
         ...link.env,
         [AGENT_BLUEPRINT_ENV]: blueprintPath,
+        /**
+         * WHO THIS AGENT IS, as the platform knows it.
+         *
+         * A running agent could not name its own session: the id existed on
+         * every record, every event and every socket path, and the one process
+         * it identified had no way to read it. That is fine while nothing
+         * inside needs to say "me" — and stops being fine the moment agent
+         * code shells out to `axon`, because a subagent spawned that way has
+         * no parent to nest under and becomes a root that outlives its
+         * spawner.
+         *
+         * Set here rather than passed through the blueprint: it is a fact
+         * about this INCARNATION, not about the agent's configuration, and a
+         * reload must not carry a stale one.
+         */
+        AXON_SESSION_ID: opts.sessionId,
     }
 
     // Only "auto" and "hardened" build a box. "none" is the explicit opt-out;
@@ -190,7 +206,7 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
          * honest — an `isolation: "none"` agent must not inherit the shell
          * either.
          */
-        env: buildsBox ? { ...process.env, ...wrapperEnv(), ...env } : env,
+        env: buildsBox ? { ...process.env, ...wrapperEnv(), ...env } : { ...floorEnv(), ...env },
         /**
          * The agent runs in ITS OWN root, never the caller's directory.
          *
@@ -425,6 +441,55 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
  * None of this reaches the agent: bwrap sits inside the chain and clears the
  * environment before exec'ing it.
  */
+/**
+ * The runtime floor, for a process no bwrap will build one for.
+ *
+ * `policy.env` already documents this set — "the RUNTIME FLOOR — HOME, PATH,
+ * TZ, LANG and Axon's own plumbing. Not a grant; the box cannot start without
+ * it, and it never appears in `axon policy` as though the user had asked for
+ * it" — and `isFloor()` names the same members. bwrap lays it with `--setenv`.
+ * Nothing laid it on the path where no bwrap runs, so an agent at the DEFAULT
+ * tier started with no PATH at all and every shell command fell back to
+ * /bin/sh's compiled-in guess. `axon: not found` for a binary sitting on the
+ * user's PATH; `git: not found` for the same reason.
+ *
+ * The HOST's values, deliberately. Under bwrap the filesystem has been rebuilt
+ * and the host's PATH would name directories that do not exist inside, so
+ * there it is the bound system dirs. Here nothing has been taken away — the
+ * process can already reach every one of those binaries — and withholding the
+ * map to them is not isolation, it is breakage. What restricts execution is
+ * `shell.allow`, which is a real gate and unaffected by any of this.
+ *
+ * NOT a grant, and never rendered as one: absent from `withheld` for the same
+ * reason it is absent from `axon policy`.
+ */
+/**
+ * The floor an UNCONFINED agent starts from.
+ *
+ * An allowlist, not a filter: the agent gets these host variables and nothing
+ * else, so `isolation: "none"` does not quietly inherit the invoking shell.
+ *
+ * Notably ABSENT is `TMPDIR`, and that is deliberate rather than an oversight
+ * now. Passing it would reconnect the agent to host state this boundary exists
+ * to sever; anything inside the agent needing scratch space derives it from the
+ * agent's own frame instead (see @arcforge/capsule/materialize). It is listed
+ * here in prose because its absence once cost a release: tool loading called
+ * `os.tmpdir()`, which reads TMPDIR, so host and agent resolved different
+ * directories and every agent failed to boot on macOS while Linux — where
+ * TMPDIR is usually unset on both sides — passed by coincidence.
+ *
+ * Exported for its test. Adding a name here widens what an agent can see, so
+ * the list is asserted rather than assumed.
+ */
+export function floorEnv(): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const key of ["PATH", "HOME", "PWD", "SHELL", "TERM", "USER", "LOGNAME", "LANG", "TZ"]) {
+        const value = process.env[key]
+        if (value !== undefined) out[key] = value
+    }
+    return out
+}
+
 function wrapperEnv(): Record<string, string> {
     const out: Record<string, string> = {}
     for (const key of ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "PATH", "HOME", "USER"]) {

@@ -88,6 +88,93 @@ type ParserOpts = {
     grammar: GrammarT
 }
 
+/**
+ * Strips the leading indent a model puts on a `<text>` body, as it streams.
+ *
+ * ── Why the parser and not just the prompt ──────────────────────────────────
+ *
+ * The renderer used to indent agent speech to sit inside its turn, so models
+ * copied it — a transcript is the strongest instruction there is. That is
+ * fixed at the source (see `agentBlock` in render/blocks.ts), but four leading
+ * spaces IS an indented code block in markdown, so a model doing it anyway
+ * turns an entire reply into one unstyled, unwrapped `code_block`. Observed in
+ * production: a 9,439-char answer parsed as a single code block instead of 68
+ * paragraphs, 14 headings and 24 fences. That is too damaging to leave to
+ * prompt discipline, and a model will format its own XML however it likes.
+ *
+ * ── Why it is stateful ──────────────────────────────────────────────────────
+ *
+ * Indentation is a property of a LINE START, and a delta is an arbitrary slice
+ * of the stream — a chunk routinely begins mid-line. So this tracks whether
+ * the next character continues a line or starts one, and only ever strips
+ * immediately after a newline.
+ *
+ * ── Why the width is measured, not assumed ──────────────────────────────────
+ *
+ * Stripping a fixed four columns would corrupt a body indented by two, and a
+ * markdown list ("  - item") is legitimately indented. So the FIRST indented
+ * line sets the width, and every later line has at most that much removed —
+ * relative indentation inside the block (nested lists, fenced code) survives
+ * intact, which is the whole point.
+ */
+/**
+ * The one-shot form of `Dedent`, for content already held whole.
+ *
+ * Same rule, same result — the streaming and committed paths must agree, or
+ * the row on screen and the history the model reads back would differ.
+ */
+function stripIndent(text: string): string {
+    return Dedent().chunk(text)
+}
+
+function Dedent() {
+    /** Columns to strip per line. Null until the first non-empty line sets it. */
+    let width: number | null = null
+    /** Whether the next character begins a line. A body opens on one. */
+    let atLineStart = true
+    /** Leading spaces already skipped on the line being consumed. */
+    let skipped = 0
+    /** Spaces seen so far on the opening line, while width is still unknown. */
+    let measuring = 0
+
+    return {
+        /**
+         * Feed one delta, get it back with the block's indent removed.
+         *
+         * A chunk may split a line's leading whitespace, so both the measure
+         * and the strip carry across the boundary.
+         */
+        chunk(text: string): string {
+            let out = ""
+
+            for (const char of text) {
+                // Still establishing the width from the first non-empty line.
+                if (width === null) {
+                    if (char === " ") { measuring++; continue }
+                    if (char === "\n") { measuring = 0; out += char; continue }
+                    // First real character: its column IS the block's indent.
+                    // The spaces before it were consumed, which is the strip.
+                    width = measuring
+                    out += char
+                    atLineStart = false
+                    continue
+                }
+
+                if (atLineStart && char === " " && skipped < width) {
+                    skipped++
+                    continue
+                }
+
+                out += char
+                if (char === "\n") { atLineStart = true; skipped = 0 }
+                else atLineStart = false
+            }
+
+            return out
+        },
+    }
+}
+
 export function Parser(opts: ParserOpts) {
     const tags = opts.grammar.tags()
     const openTag = new RegExp(`<(${tags.join("|")})(\\s[^>]*)?>`)
@@ -96,6 +183,14 @@ export function Parser(opts: ParserOpts) {
     let state: "idle" | BlockTag = "idle"
     let buffer = ""
     let blockContent = ""
+    /**
+     * Strips the block's own indent from `<text>` as it streams.
+     *
+     * Markdown only — `<script>` is code, where leading whitespace is content
+     * and removing it would corrupt the program. Rebuilt per block, since the
+     * width is measured from each body's first line.
+     */
+    let dedent = Dedent()
 
     function closeBlock(content: string): AirBlockEvent {
         const tag = state as BlockTag
@@ -148,6 +243,12 @@ export function Parser(opts: ParserOpts) {
             }
 
             state = openMatch![1] as BlockTag
+            // Fresh width per block. Each body measures its own first line, so
+            // carrying one over would strip the wrong amount: a shallow block
+            // followed by a deeply indented one left the deltas still indented
+            // while `text:done` was clean — the row on screen and the history
+            // the model reads back disagreeing about the same message.
+            dedent = Dedent()
             blockContent = ""
             // Announced at open, not at close: the consumer must know which
             // serializer applies before the first delta arrives, since
@@ -215,11 +316,13 @@ export function Parser(opts: ParserOpts) {
             buffer = buffer.slice(closeIdx + closeTag.length)
 
             if (STREAMABLE.has(tag) && content.length > 0) {
-                events.push(delta(tag, content))
+                events.push(delta(tag, tag === "text" ? dedent.chunk(content) : content))
             }
             blockContent += content
 
-            events.push(closeBlock(blockContent.trim()))
+            // The committed content must match what streamed, or the timeline
+            // row and the history the model reads back disagree.
+            events.push(closeBlock(tag === "text" ? stripIndent(blockContent).trim() : blockContent.trim()))
             state = "idle"
             blockContent = ""
             return true
@@ -237,7 +340,7 @@ export function Parser(opts: ParserOpts) {
             blockContent += content
 
             if (STREAMABLE.has(tag)) {
-                events.push(delta(tag, content))
+                events.push(delta(tag, tag === "text" ? dedent.chunk(content) : content))
             }
             return true
         }

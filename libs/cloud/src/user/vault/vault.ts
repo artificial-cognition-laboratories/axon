@@ -1,6 +1,6 @@
 import type { HttpClient } from "../../platform/http"
 import { codexOAuth } from "./codex"
-import type { ConnectionStatus, ConnectionToken, OpenaiConnectionToken, VaultSecretMeta } from "./types"
+import type { CodexUsage, ConnectionStatus, ConnectionToken, OpenaiConnectionToken, VaultSecretMeta } from "./types"
 
 /** Skip the cached token when it has less than this long to live. */
 const TOKEN_MARGIN_MS = 30_000
@@ -96,7 +96,86 @@ function OpenaiConnection(opts: VaultOpts) {
             await upload(credential)
         },
 
+        /**
+         * The subscription's current usage — percent spent, and when it resets.
+         *
+         * Read STRAIGHT from chatgpt.com with the narrow vaulted token rather
+         * than proxied through our backend. The token is already minted for
+         * exactly this account and already cached until expiry, the answer is
+         * per-user and changes by the minute, and a proxy would add a hop plus
+         * a cache to a value whose entire worth is being current.
+         *
+         * `null` when the account has no Codex connection. That is an absent
+         * entitlement, not a failure — a user who has never connected Codex is
+         * in a perfectly ordinary state, and a surface asking "what is my
+         * usage" should render nothing rather than an error.
+         *
+         * Upstream failures THROW. A caller that cannot tell "not connected"
+         * from "chatgpt.com is down" would show 0% for an outage, which is the
+         * one wrong answer here: it reads as headroom the user does not have.
+         */
+        async usage(): Promise<CodexUsage | null> {
+            const status = await connection.status()
+            if (!status.connected || status.status !== "active") return null
+
+            const token = await connection.token()
+            const response = await fetch(
+                "https://chatgpt.com/backend-api/codex/usage",
+                {
+                    headers: {
+                        Authorization: `Bearer ${token.accessToken}`,
+                        ...(token.accountId ? { "chatgpt-account-id": token.accountId } : {}),
+                        originator: "codex_cli_rs",
+                    },
+                    signal: AbortSignal.timeout(8_000),
+                },
+            )
+            if (!response.ok) {
+                throw new Error(`CODEX_USAGE_FAILED: ${response.status} reading the account's usage`)
+            }
+
+            return normalizeUsage(await response.json())
+        },
+
         ...connection,
+    }
+}
+
+/**
+ * chatgpt.com's usage payload, reduced to what a surface renders.
+ *
+ * Normalised HERE rather than passed through, so the wire's shape stays this
+ * module's business: `used_percent`, `reset_after_seconds` and the
+ * primary/secondary split are OpenAI's vocabulary, and every consumer learning
+ * it would make a rename upstream a change in the TUI.
+ */
+function normalizeUsage(body: unknown): CodexUsage {
+    const raw = body as {
+        plan_type?: string
+        rate_limit?: {
+            limit_reached?: boolean
+            primary_window?: { used_percent?: number; reset_after_seconds?: number; limit_window_seconds?: number }
+            secondary_window?: { used_percent?: number; reset_after_seconds?: number; limit_window_seconds?: number } | null
+        }
+    }
+
+    const window = (raw: { used_percent?: number; reset_after_seconds?: number; limit_window_seconds?: number } | null | undefined) =>
+        raw
+            ? {
+                usedPercent: raw.used_percent ?? 0,
+                resetAfterSeconds: raw.reset_after_seconds ?? 0,
+                windowSeconds: raw.limit_window_seconds ?? 0,
+            }
+            : null
+
+    const primary = window(raw.rate_limit?.primary_window)
+    if (!primary) throw new Error("CODEX_USAGE_FAILED: no primary window in the usage response")
+
+    return {
+        plan: raw.plan_type ?? "unknown",
+        limitReached: raw.rate_limit?.limit_reached === true,
+        primary,
+        secondary: window(raw.rate_limit?.secondary_window),
     }
 }
 

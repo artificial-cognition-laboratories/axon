@@ -48,13 +48,21 @@ export function Agent(opts: AgentOpts) {
 
     return {
         async build(): Promise<BundleResult> {
+            const loaded = await Config(root)
+
             // Before anything is compiled or staged. A config that reaches
             // outside the project cannot be published, and finding that out
             // after a bundle exists costs a build nobody wanted — finding it
             // out in a container costs a provisioned deployment.
-            await assertConfigContained(root, join(root, "axon.config.ts"))
-
-            const loaded = await Config(root)
+            //
+            // Runs after Config() only so the DECLARED source modules are
+            // known: those legitimately live outside the root and are staged in
+            // with their imports rebased, so they are the one escape that is
+            // not one. Still before any compile or stage, which is what the
+            // "fail cheaply" reasoning above actually requires.
+            await assertConfigContained(root, join(root, "axon.config.ts"), (
+                await flatten(loaded.modules, loaded.modulePaths)
+            ).flatMap(entry => (entry.kind === "source" ? [entry.configPath] : [])))
             const config = loaded.value as PublishableConfig
             const pkg = await artifacts.identity()
 

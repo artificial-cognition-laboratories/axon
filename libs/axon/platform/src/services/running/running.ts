@@ -53,6 +53,20 @@ function read(path: string): AxonInstance | null {
 type RunningOpts = {
     /** Where THIS process registers itself. Readers still see every root. */
     root?: string
+    /**
+     * Read ONLY `root`, rather than every well-known store.
+     *
+     * The default is deliberately wide: an observer must see an agent booted by
+     * the installed binary and one booted from a source checkout alike, or it
+     * reports an idle machine while work is running. That is right in
+     * production and wrong under test, where sweeping the real `~/.axon` means
+     * a developer with an agent open fails an assertion about an empty store —
+     * and, worse, a test can DELETE a real record (`remove` sweeps every root).
+     *
+     * The daemon's Registry already carries this exact flag; naming it the same
+     * way here keeps one idea with one spelling.
+     */
+    isolated?: boolean
     /** Coalesce a burst of fs events (several agents booting at once) into one callback. */
     debounceMs?: number
     /** How often to re-check without an fs event — catches a crashed pid, which touches no file. */
@@ -79,6 +93,8 @@ type RunningOpts = {
  */
 export function Running(opts: RunningOpts = {}) {
     const writeRoot = opts.root ?? ROOTS[0]!
+    /** Every directory this instance reads and prunes. See `isolated`. */
+    const roots = opts.isolated === true ? [writeRoot] : [...new Set([...ROOTS, writeRoot])]
     const debounceMs = opts.debounceMs ?? 100
     const pollMs = opts.pollMs ?? 5000
 
@@ -96,7 +112,7 @@ export function Running(opts: RunningOpts = {}) {
         // stale record in one root must never shadow the live one in another.
         const live = new Map<string, AxonInstance>()
 
-        for (const root of ROOTS) {
+        for (const root of roots) {
             if (!existsSync(root)) continue
 
             for (const name of readdirSync(root)) {
@@ -124,7 +140,7 @@ export function Running(opts: RunningOpts = {}) {
 
     return {
         /** Every root read by list()/watch(). Exposed for diagnostics, not for callers to walk. */
-        roots: ROOTS,
+        roots: roots,
 
         /** Register this process. Called once, immediately after the runtime is up. */
         start(instance: AxonInstance): void {
@@ -141,7 +157,7 @@ export function Running(opts: RunningOpts = {}) {
 
         /** Deregister. Called first thing on shutdown — a reader must never see "alive" for a session mid-teardown. */
         stop(sessionId: string): void {
-            for (const root of ROOTS) rmSync(fileOf(root, sessionId), { force: true })
+            for (const root of roots) rmSync(fileOf(root, sessionId), { force: true })
         },
 
         /** Every currently-live instance, pid-checked fresh. Dead records are GC'd as a side effect. */
@@ -165,7 +181,7 @@ export function Running(opts: RunningOpts = {}) {
          */
         watch(listener: (instances: AxonInstance[]) => void): () => void {
             if (!watchers.length) {
-                for (const root of ROOTS) {
+                for (const root of roots) {
                     mkdirSync(root, { recursive: true }) // fs.watch throws on a missing directory
                     watchers.push(watch(root, () => notify()))
                 }

@@ -74,9 +74,27 @@ export function Residency(opts: ResidencyOpts = {}) {
             return found
         },
 
-        /** Bytes held across every live holder. */
+        /**
+         * Bytes held, counting each WEIGHT once however many agents hold it.
+         *
+         * Not a sum over holds. The models domain exists so that one resident
+         * copy serves every agent that asked for it, so two agents sharing a
+         * 6GB weight produce two holds against 6GB of real memory — and adding
+         * them reports 12GB against a machine using 6.
+         *
+         * That is not cosmetic. `admit()` falls back to this figure whenever
+         * the GPU cannot be probed, which is every machine `Hardware` cannot
+         * read, and an inflated total refuses loads that would have fit.
+         */
         held(): number {
-            return this.live().reduce((total, hold) => total + hold.bytes, 0)
+            const seen = new Set<string>()
+            let total = 0
+            for (const hold of this.live()) {
+                if (seen.has(hold.model)) continue
+                seen.add(hold.model)
+                total += hold.bytes
+            }
+            return total
         },
 
         /**

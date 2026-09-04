@@ -1,5 +1,5 @@
 import type { StateT } from "./state"
-import type { ComponentRegistry, ComponentType, EntityId } from "./types"
+import type { ComponentRegistry, ComponentType, EntityId, ComponentData } from "./types"
 import type { EcsEmit } from "./ecs"
 
 type ComponentOpts = {
@@ -41,11 +41,11 @@ export function Component(opts: ComponentOpts) {
         }: {
             entity: EntityId
             type: K
-            data: ComponentRegistry[K]
+            data: ComponentData<K>
         }) {
             let store = state.components.get(type)
             if (!store) {
-                store = new Map<EntityId, ComponentRegistry[K]>()
+                store = new Map<EntityId, ComponentData<K>>()
                 state.components.set(type, store)
             }
 
@@ -79,7 +79,7 @@ export function Component(opts: ComponentOpts) {
         }: {
             entity: EntityId
             type: K
-        }): ComponentRegistry[K] | undefined {
+        }): ComponentData<K> | undefined {
             return state.components.get(type)?.get(entity)
         },
 

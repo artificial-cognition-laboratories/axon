@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK_PUBLISHED } from "../../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 function disposableName(): string {
     return `@${TEST_USER.username}/test-agent-${crypto.randomUUID().slice(0, 8)}`
@@ -66,7 +67,13 @@ describe("agent project: deploy()", () => {
             const result = await project.deploy({ onProgress: step => steps.push(step.step) })
 
             try {
-                expect(steps).toEqual(["publishing", "provisioning", "starting", "ready"])
+                // The whole sequence, in order. Exhaustive on purpose: a step
+                // that silently stops reporting leaves a UI's progress bar
+                // stalled on the one before it, which no per-step assertion
+                // would catch. `bundling` and `registering` come from the
+                // publish deploy() now runs first — a deployment needs a
+                // published artifact to provision from.
+                expect(steps).toEqual(["bundling", "registering", "publishing", "provisioning", "starting", "ready"])
             } finally {
                 await result.deployment.delete()
             }

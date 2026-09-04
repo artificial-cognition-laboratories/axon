@@ -1,4 +1,27 @@
-import ts from "typescript"
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~190-220ms to load, and it was being pulled into every
+ * `axon` invocation through this module's import chain — before argument
+ * parsing, before any command ran, before a character reached the screen.
+ * `axon dev` showing nothing for a second was largely this.
+ *
+ * Nothing here touches `ts` at module scope; every reference is inside a
+ * function body. So deferring costs the first caller the load and every
+ * command that parses no source file nothing at all.
+ *
+ * `require`, not `await import`: these APIs are synchronous and making them
+ * async would ripple through every caller for no gain. The type import above
+ * is erased at compile time, which keeps every `ts.X` annotation unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 import { err } from "@arcforge/err"
 import type { BenchMeasurementDefinition, BenchMeasurementReducer, BenchMeasurementValueDefinition } from "@arcforge/types"
 
@@ -20,9 +43,9 @@ import type { BenchMeasurementDefinition, BenchMeasurementReducer, BenchMeasurem
 const COMPILER_OPTIONS: ts.CompilerOptions = {
     allowJs: false,
     noEmit: true,
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    target: tsc().ScriptTarget.ESNext,
+    module: tsc().ModuleKind.ESNext,
+    moduleResolution: tsc().ModuleResolutionKind.Bundler,
     skipLibCheck: true,
     strict: true,
 }
@@ -36,7 +59,7 @@ const DEFAULT_AGGREGATE: Record<BenchMeasurementValueDefinition["kind"], BenchMe
 }
 
 export function extractBenchSchema(configPath: string): BenchMeasurementDefinition[] {
-    const program = ts.createProgram([configPath], COMPILER_OPTIONS)
+    const program = tsc().createProgram([configPath], COMPILER_OPTIONS)
     const source = program.getSourceFile(configPath)
     if (!source) throw err("BENCH_SCHEMA_UNREADABLE", { detail: configPath, context: { configPath } })
 
@@ -64,13 +87,13 @@ function findDefineBenchCall(source: ts.SourceFile): ts.CallExpression | null {
     let found: ts.CallExpression | null = null
     const visit = (node: ts.Node): void => {
         if (found) return
-        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "defineBench") {
+        if (tsc().isCallExpression(node) && tsc().isIdentifier(node.expression) && node.expression.text === "defineBench") {
             found = node
             return
         }
-        ts.forEachChild(node, visit)
+        tsc().forEachChild(node, visit)
     }
-    ts.forEachChild(source, visit)
+    tsc().forEachChild(source, visit)
     return found
 }
 
@@ -86,9 +109,9 @@ function toMeasurement(
         : checker.getDeclaredTypeOfSymbol(property)
 
     const value = toValueDefinition(type, checker, id, configPath)
-    const description = ts.displayPartsToString(property.getDocumentationComment(checker)).trim()
+    const description = tsc().displayPartsToString(property.getDocumentationComment(checker)).trim()
     const tags = Object.fromEntries(
-        property.getJsDocTags(checker).map(tag => [tag.name, ts.displayPartsToString(tag.text).trim()]),
+        property.getJsDocTags(checker).map(tag => [tag.name, tsc().displayPartsToString(tag.text).trim()]),
     )
 
     return {
@@ -110,8 +133,8 @@ function toValueDefinition(
     id: string,
     configPath: string,
 ): BenchMeasurementValueDefinition {
-    if (type.flags & ts.TypeFlags.BooleanLike) return { kind: "boolean" }
-    if (type.flags & ts.TypeFlags.NumberLike) return { kind: "number" }
+    if (type.flags & tsc().TypeFlags.BooleanLike) return { kind: "boolean" }
+    if (type.flags & tsc().TypeFlags.NumberLike) return { kind: "number" }
 
     // A union of string literals is a category with a closed value set — the
     // natural way to write "one of these", and the reason the schema is a type.
@@ -120,10 +143,10 @@ function toValueDefinition(
         if (literals.length === type.types.length && literals.length > 0) {
             return { kind: "category", values: literals.map(member => (member as ts.StringLiteralType).value) }
         }
-        if (type.types.every(member => member.flags & ts.TypeFlags.BooleanLike)) return { kind: "boolean" }
+        if (type.types.every(member => member.flags & tsc().TypeFlags.BooleanLike)) return { kind: "boolean" }
     }
 
-    if (type.flags & ts.TypeFlags.StringLike) return { kind: "text" }
+    if (type.flags & tsc().TypeFlags.StringLike) return { kind: "text" }
 
     throw err("BENCH_SCHEMA_UNSUPPORTED_TYPE", {
         detail: `measurement ${JSON.stringify(id)} is ${checker.typeToString(type)} — measurements are boolean, number, a union of string literals, or string`,

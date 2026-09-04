@@ -1,5 +1,6 @@
 import type { AxonEntry, AxonEntryEvent } from "@arcforge/types"
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Render with the history as ONE `<timeline>` document.
@@ -70,7 +71,7 @@ describe("Air render: timeline", () => {
     })
 
     it("renders cognet:output:text as an agent text turn", () => {
-        const content = render([entry("cognet:output:text", { content: "hi there" })])
+        const content = render([entry("cognet:output:text", { channel: "reply", content: "hi there" })])
         expect(content).toContain("<agent>")
         expect(content).toContain("<text")
         expect(content).toContain("hi there")
@@ -197,7 +198,7 @@ describe("Air render: timeline turn grouping", () => {
         const run = "wake-1"
         const timeline = render([
             entry("cognet:stimulus:text", { channel: "user", content: "hi" } as never),
-            entry("cognet:output:text", { content: "Let me read that file." } as never, run),
+            entry("cognet:output:text", { channel: "reply", content: "Let me read that file." } as never, run),
             entry("cognet:action:typescript", { id: "x1", content: 'await fs.read("a.md")' } as never, run),
         ])
 
@@ -219,8 +220,8 @@ describe("Air render: timeline turn grouping", () => {
 
     it("separates turns from different wakes", () => {
         const timeline = render([
-            entry("cognet:output:text", { content: "first" } as never, "wake-1"),
-            entry("cognet:output:text", { content: "second" } as never, "wake-2"),
+            entry("cognet:output:text", { channel: "reply", content: "first" } as never, "wake-1"),
+            entry("cognet:output:text", { channel: "reply", content: "second" } as never, "wake-2"),
         ])
 
         expect(skeleton(timeline)).toEqual([
@@ -234,8 +235,8 @@ describe("Air render: timeline turn grouping", () => {
         // neighbour's turn — that would claim the model said things together
         // that it may not have.
         const timeline = render([
-            entry("cognet:output:text", { content: "first" } as never),
-            entry("cognet:output:text", { content: "second" } as never),
+            entry("cognet:output:text", { channel: "reply", content: "first" } as never),
+            entry("cognet:output:text", { channel: "reply", content: "second" } as never),
         ])
 
         expect(skeleton(timeline)).toEqual([
@@ -362,7 +363,7 @@ describe("Air render: every block declares its lang", () => {
     it("labels a user turn, an agent turn, a script and its stdout", () => {
         const content = render([
             entry("cognet:stimulus:text", { channel: "user", content: "hello" }),
-            entry("cognet:output:text", { content: "hi" }),
+            entry("cognet:output:text", { channel: "reply", content: "hi" }),
             entry("cognet:action:typescript", { id: "x", content: "1+1" }),
             entry("cognet:action:result", { for: "x", ok: true, content: "2" }),
         ])

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Agents, isRegistryRef } from "@arcforge/platform/build/bench/agents"
 import { toAxes } from "@arcforge/platform/build/bench/axes"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The agent axis takes a path you wrote or a registry ref you trust. Both must

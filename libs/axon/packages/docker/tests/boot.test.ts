@@ -16,7 +16,10 @@ import { Hydrate } from "../hydrate"
  * can't stand in: a bootable agent needs its compiled cognet, so the honest
  * fixture is a prepared agent on disk.
  */
-const AGENT = join(import.meta.dir, "../../../../../agents/barry.mk3")
+// Under `registry/` — agents moved there and this path did not follow, so it
+// resolved to a directory outside the repo and every test here failed with
+// "no source ... cannot boot an agent with no code".
+const AGENT = join(import.meta.dir, "../../../../../registry/agents/barry.mk3")
 
 describe("Hydrate", () => {
     it("is a no-op when source is already present (staging path)", async () => {

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
+import { stubFetch } from "../../setup/fetch"
 
 /**
  * cloud.validate() — is the stored credential actually usable?
@@ -54,19 +56,19 @@ async function withStore(body: (dir: string) => Promise<void>): Promise<void> {
 }
 
 const accepts = (id: string, email: string): typeof fetch =>
-    (async () => new Response(JSON.stringify({
+    stubFetch(async () => new Response(JSON.stringify({
         user: { id, email, username: email, createdAt: new Date().toISOString() },
-    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch
+    }), { status: 200, headers: { "content-type": "application/json" } }))
 
 const refuses: typeof fetch =
-    (async () => new Response(JSON.stringify({ statusCode: 401, statusMessage: "Unauthorized" }), { status: 401 })) as typeof fetch
+    stubFetch(async () => new Response(JSON.stringify({ statusCode: 401, statusMessage: "Unauthorized" }), { status: 401 }))
 
-const offline: typeof fetch = (async () => { throw new TypeError("fetch failed") }) as typeof fetch
+const offline: typeof fetch = stubFetch(async () => { throw new TypeError("fetch failed") })
 
 /** A stored session that is not stale — expiry well in the future. */
 const liveAuth = { accessToken: "axon_stored_token", expiresAt: Date.now() + 3600_000 }
 
-describe.each(DISTRIBUTIONS)("cloud.validate (%s build)", distribution => {
+describe.each([...DISTRIBUTIONS])("cloud.validate (%s build)", distribution => {
     it("confirms a credential the backend accepts", async () => {
         const { id, email } = disposable()
         await withStore(async store => {
@@ -151,7 +153,7 @@ describe("a real fault is never disguised as an outage", () => {
             const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
-            const boom: typeof fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch
+            const boom: typeof fetch = stubFetch(async () => new Response("boom", { status: 500 }))
             await withFetch(boom, async () => {
                 await expect(platform.cloud.validate()).rejects.toThrow()
             })
@@ -165,9 +167,9 @@ describe("a real fault is never disguised as an outage", () => {
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
             const garbage: typeof fetch =
-                (async () => new Response(JSON.stringify({ user: "not-an-object" }), {
+                stubFetch(async () => new Response(JSON.stringify({ user: "not-an-object" }), {
                     status: 200, headers: { "content-type": "application/json" },
-                })) as typeof fetch
+                }))
 
             await withFetch(garbage, async () => {
                 await expect(platform.cloud.validate()).rejects.toThrow()

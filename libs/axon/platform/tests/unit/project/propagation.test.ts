@@ -1,4 +1,5 @@
 import { isPropagationLag, withPropagationRetry, PROPAGATION_ATTEMPTS, propagationBudgetMs } from "../../../src/build/project/propagation"
+import { describe, it, test, expect } from "bun:test"
 
 /**
  * npm propagation lag.

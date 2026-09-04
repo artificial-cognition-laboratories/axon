@@ -80,12 +80,34 @@ export function escapingImports(source: string, configPath: string, root: string
     return found
 }
 
-/** Throw if the project's config imports anything from outside `root`. */
-export async function assertConfigContained(root: string, configPath: string): Promise<void> {
+/**
+ * Throw if the project's config imports anything from outside `root`.
+ *
+ * `staged` names the config paths of DECLARED SOURCE MODULES — the one kind of
+ * outside-the-root import that is legitimate. A source module lives outside the
+ * agent tree by definition, and the bundler copies it into `modules/<name>/`
+ * and rebases every import that reaches it (see stageSourceModules). So its
+ * specifier escapes the root as written and does not escape the BUNDLE, which
+ * is what this guard is actually about.
+ *
+ * Without the exemption the two features were mutually exclusive: this runs
+ * before staging, could not tell a staged module from a genuine escape, and
+ * rejected every agent that used one.
+ */
+export async function assertConfigContained(root: string, configPath: string, staged: readonly string[] = []): Promise<void> {
     const source = await readFile(configPath, "utf-8").catch(() => null)
     if (source === null) return
 
+    // Compared as RESOLVED paths, never as written specifiers: the same module
+    // is `../mod/module.config` from one config and `../../mod/module.config`
+    // from another, and only the resolved form is the same string in both.
+    // Extension-insensitive on both sides: a config path is absolute and
+    // carries `.ts`, while the specifier that names it is extensionless
+    // (`../mod/module.config`), which is how TypeScript is written.
+    const bare = (path: string): string => path.replace(/\.[cm]?tsx?$/, "")
+    const exempt = new Set(staged.map(path => bare(resolve(path))))
     const escaping = escapingImports(source, configPath, root)
+        .filter(entry => !exempt.has(bare(resolve(dirname(configPath), entry.specifier))))
     if (escaping.length === 0) return
 
     const where = escaping

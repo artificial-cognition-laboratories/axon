@@ -1,4 +1,5 @@
 import { err } from "@arcforge/err"
+import type { EngineType } from "@arcforge/types"
 import type { ModelRuntime } from "./types"
 
 /**
@@ -12,17 +13,51 @@ import type { ModelRuntime } from "./types"
 export type LoadedWeight = {
     /** Bytes this actually cost, measured after loading rather than promised before. */
     bytes: number
+
     /**
-     * Run one inference against it.
+     * How this weight is CALLED — the handle shape, not the task.
      *
-     * `unknown` in, `unknown` out: an ASR call takes audio and returns a
-     * transcript, an embedder takes text and returns a vector, and the kernel
-     * already refuses to interpret either — see Modality, which exists to
-     * MATCH a model to a role rather than to describe a payload. An adapter
-     * that typed this would be inventing a taxonomy the contract deliberately
-     * does not have.
+     * The same axis `EngineType` already defines for cognets, reused rather
+     * than paralleled: "each member is a distinct handle shape on the kernel
+     * ABI, so adding one adds a verb". A weight loaded here and an engine a
+     * cognet resolves are the same kind of thing seen from two sides, and
+     * giving the daemon its own vocabulary for it would mean translating
+     * between two closed sets that describe one fact.
+     */
+    engine: EngineType
+
+    /**
+     * Text in, text out. Present when `engine` is "generate".
+     *
+     * Typed, where `run` is not, and the distinction is the point. The kernel
+     * refuses to interpret what a depth map MEANS; it has never refused to
+     * know that a prompt is a string. Conflating those two refusals is what
+     * left `run` uncallable by anyone who did not already know the model's
+     * graph — a chat model and a caller with a question could not meet.
+     */
+    generate?(input: { prompt: string; maxTokens?: number; temperature?: number }): Promise<string>
+
+    /**
+     * One shot in, one shot out. Present when `engine` is "transform".
+     *
+     * `unknown` on both sides ON PURPOSE, and for the reason the original
+     * comment gave: a transcript, a vector and a bounding box share no shape,
+     * and inventing a union for them would be this package deciding what a
+     * model's output means. The MODALITY on the record says which it is; the
+     * caller that asked for an embedder knows it is holding a vector.
+     */
+    transform?(input: unknown): Promise<unknown>
+
+    /**
+     * The raw runtime call, for a caller that knows exactly what it holds.
+     *
+     * Kept as the escape hatch rather than removed: a caller with real tensors
+     * and a graph it understands should not have to route around the typed
+     * verbs, and the ONNX adapter's session is genuinely useful that way.
+     * Everything ordinary goes through `generate` or `transform`.
      */
     run(input: unknown): Promise<unknown>
+
     /** Release it. Idempotent — unloading twice is not an error. */
     unload(): Promise<void>
 }

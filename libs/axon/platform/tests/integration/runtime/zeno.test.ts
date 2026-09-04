@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Zeno — the default agent, guaranteed to exist.

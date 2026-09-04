@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/session",
-    "version": "2.0.165",
+    "version": "2.0.187",
     "description": "The Axon session — the durable event log every layer of the stack reads and writes through.",
     "type": "module",
     "private": false,

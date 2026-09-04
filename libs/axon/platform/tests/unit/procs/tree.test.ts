@@ -1,4 +1,5 @@
 import { procTree, appendOutput, type ProcLogEvent } from "../../../src/procs/tree"
+import { describe, it, expect } from "bun:test"
 
 /**
  * procTree folds a session log into the process tree every surface renders.

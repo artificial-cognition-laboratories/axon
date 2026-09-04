@@ -1,0 +1,21 @@
+{
+  "name": "@axon/oma",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "dependencies": {
+    "@arcforge/types": "2.0.187",
+    "@arcforge/engines": "2.0.187",
+    "h3": "^1.13.0",
+    "@arcforge/cognet": "2.0.187",
+    "@arcforge/air": "2.0.187",
+    "@axon/zero": "^1.0.49",
+    "@axon/fs": "^0.1.9",
+    "@axon/subagent": "^0.1.5"
+  },
+  "axon": {
+    "trackedFrom": {
+      "@axon/zero": "http://127.0.0.1:3099"
+    }
+  }
+}

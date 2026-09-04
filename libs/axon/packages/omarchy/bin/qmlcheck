@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+#
+# qmlcheck — compile every QML file, and fail on any that will not load.
+#
+# -- Why this exists ---------------------------------------------------------
+#
+# QML's worst failures take a whole TYPE out. `function escape(...)` is an
+# "Illegal method name"; the file then does not exist as far as the engine is
+# concerned, `Service.qml` reports "Type Voice unavailable", and because every
+# surface in this plugin hangs off the service, the whole plugin renders
+# nothing -- bar widget, browser and overlay at once. The visible symptom is a
+# blank product; the cause is one word in an unrelated file.
+#
+# `qmllint --bare` does NOT catch this class. `qmlcachegen` does, because it
+# actually compiles -- it is the same front end the engine runs, so anything it
+# rejects is something the engine would reject at load.
+#
+# Import errors are ignored on purpose: these files import `qs.Commons` and
+# Quickshell modules that only resolve inside the shell, so unresolved imports
+# are the normal state here and are not what this is looking for.
+#
+# Run it before reloading the plugin. About a second for the whole tree.
+set -eu
+cd "$(dirname "$0")/.."
+
+CACHEGEN=/usr/lib/qt6/qmlcachegen
+[ -x "$CACHEGEN" ] || { echo "qmlcachegen not found at $CACHEGEN"; exit 127; }
+
+failed=0
+for file in $(find views components src -name '*.qml' | sort); do
+    out=$("$CACHEGEN" -o /dev/null "$file" 2>&1 || true)
+    # "Permission denied" is /dev/null refusing the write after a SUCCESSFUL
+    # compile, which is exactly the outcome we want.
+    case "$out" in
+        *"Permission denied"*) continue ;;
+        "") continue ;;
+    esac
+    echo "$file"
+    echo "  $out"
+    failed=1
+done
+
+if [ "$failed" -eq 0 ]; then
+    echo "qml: all files compile"
+else
+    echo "qml: FAILURES above -- these will not load, and a failed type takes its dependents with it"
+    exit 1
+fi

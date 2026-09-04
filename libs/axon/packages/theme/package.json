@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/theme",
-    "version": "0.1.0",
+    "version": "2.0.187",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {

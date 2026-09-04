@@ -39,7 +39,7 @@ export type AxonOptions = {
  * export default defineAgent({
  *     providers: [Axon()],
  *     // or let Axon pick from a curated, agent-capable model list:
- *     // engine: Axon({ model: "auto", optimize: { cost: 1 } }),
+ *     // providers: [Axon({ model: "auto", optimize: { cost: 1 } })],
  * })
  * ```
  *

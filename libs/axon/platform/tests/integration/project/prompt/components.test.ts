@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Prompts } from "../../../../src/build/blueprint/scan/prompts"
 import { scanPromptPackage } from "../../../../src/build/blueprint/scan/promptPackages"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Components are inlined into a prompt at render time. They are never

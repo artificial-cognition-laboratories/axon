@@ -41,3 +41,14 @@ export { AgentRuntime, type RuntimeForAgent } from "./runtime"
 export { readLinkEnv, writeLinkEnv, AGENT_LINK_ENV, AGENT_BLUEPRINT_ENV, type AgentEntryEnv } from "./entry"
 export { prepare, socketRoot, socketPaths, type SpawnedAgent } from "./spawn"
 export { spawnConfined, agentEntrypoint, agentEntrypoints, type ConfinedAgent } from "./confined"
+/**
+ * Whether this machine can actually box an agent.
+ *
+ * Exported because consumers legitimately need to ASK before asserting: a
+ * confinement test that runs where bwrap is unavailable fails for a reason
+ * that has nothing to do with the code under test, so it skips instead. Core's
+ * suite reached past this index into `packages/capsule/platform/confine/probe`
+ * — a path that stopped existing when confinement moved into this package,
+ * and 73 of its tests could not load as a result.
+ */
+export { probe, CONFINE_USER, type ProbeStatus } from "./confine/probe"

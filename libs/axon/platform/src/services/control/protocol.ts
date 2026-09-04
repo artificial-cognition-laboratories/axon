@@ -129,7 +129,12 @@ export type CapsuleRunOutcome = {
     ok: boolean
     value?: unknown
     stdout: string[]
-    error?: { kind: "timeout" | "interrupt" | "exception"; message: string }
+    /**
+     * `policy` means the run was REFUSED, not that it broke — an editor
+     * surfacing this should say so rather than reporting a failure, for the
+     * same reason the TUI does not paint a denial red.
+     */
+    error?: { kind: "timeout" | "policy" | "interrupt" | "exception"; message: string }
 }
 
 /** Called BY the editor extension, implemented BY the tui. */

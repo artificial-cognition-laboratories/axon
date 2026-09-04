@@ -15,7 +15,22 @@ export interface ComponentRegistry {
 }
 
 export type EntityId = string
-export type ComponentType = keyof ComponentRegistry
+/**
+ * A component's type name.
+ *
+ * Falls back to `string` when nothing has augmented the registry, for the same
+ * reason `AxonPromptName` does: `keyof` an empty interface is `never`, which
+ * makes every parameter typed by it accept NO argument. The whole component
+ * API — add, get, has, remove — was uncallable for any consumer that had not
+ * augmented `ComponentRegistry` first, including every test in this package.
+ *
+ * A kernel that DOES augment gets the narrow union and its typo-checking back;
+ * one that has not gets a usable API instead of an unusable one.
+ */
+export type ComponentType = keyof ComponentRegistry extends never ? string : keyof ComponentRegistry
+
+/** The data one component type carries — `unknown` when the registry is unaugmented. */
+export type ComponentData<K extends ComponentType> = K extends keyof ComponentRegistry ? ComponentRegistry[K] : unknown
 export type ComponentStore<T = any> = Map<EntityId, T>
 
 /** Fired synchronously after every component write of a watched type. */

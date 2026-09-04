@@ -1,13 +1,50 @@
 import type { AxonEntry, AxonEntryEvent } from "@arcforge/types"
+import type { PreflightTurn } from "../../src"
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
+
+/**
+ * A preflight, supplied by the TEST.
+ *
+ * The renderer no longer owns one — a preflight is content a caller composes,
+ * not part of the grammar (see AirRenderInput["preflight"]). So these tests
+ * pass their own, which is also what keeps them testing the MECHANISM rather
+ * than whichever exchange a cognet happens to ship today: zero can rewrite
+ * ZERO_PREFLIGHT freely without touching a line here.
+ *
+ * Shaped like a real one, because the properties under test are structural —
+ * one script per message, results before conclusions, nothing after an
+ * interrupt.
+ */
+const PREFLIGHT: readonly PreflightTurn[] = [
+    { kind: "user", content: "run a quick systems check before we start" },
+    { kind: "text", content: "Running a preflight now." },
+    { kind: "script", id: "p1", code: `({ runtime: "ok" })` },
+    { kind: "stdout", for: "p1", lang: "json", content: `{"runtime":"ok"}` },
+    {
+        kind: "script",
+        id: "p2",
+        code: [
+            `// Independent checks, so they go together in ONE block.`,
+            `const [a, b] = await Promise.all([Promise.resolve(1), Promise.resolve(2)])`,
+            `({ a, b })`,
+        ].join("\n"),
+    },
+    { kind: "stdout", for: "p2", lang: "json", content: `{"a":1,"b":2}` },
+    { kind: "script", id: "p3", code: `await new Promise(r => setTimeout(r, 60_000))` },
+    { kind: "interrupt", from: "terminal" },
+]
 
 let seq = 1
 function entry<K extends keyof AxonEntryEvent>(type: K, data: AxonEntryEvent[K]): AxonEntry {
-    return { id: `e${seq}`, type, time: { ms: seq, seq: seq++ }, data } as AxonEntry
+    // A real `context`, not a widened cast: AxonEntry requires one, and the
+    // renderer groups turns by `runId` — so an entry without it exercises a
+    // shape the renderer never actually receives.
+    return { id: `e${seq}`, type, time: { ms: seq, seq: seq++ }, context: { agentId: "a", sessionId: "s" }, data } as AxonEntry
 }
 
 const rendered = (history: AxonEntry[] = [entry("cognet:stimulus:text", { channel: "user", content: "do the thing" })]) =>
-    Air().render({ history })
+    Air().render({ history, preflight: PREFLIGHT })
 
 /**
  * The preflight exchange — a demonstration, not a description.
@@ -107,7 +144,6 @@ describe("Air render: the preflight exchange", () => {
             // Nothing to separate: a marker announcing the start of something
             // that started at the top of the document is noise.
             const messages = Air().render({
-                preflight: false,
                 history: [entry("cognet:stimulus:text", { channel: "user", content: "hi" })],
             })
             expect(messages.some(m => m.content.includes(`type="session:start"`))).toBe(false)
@@ -184,12 +220,55 @@ describe("Air render: the demonstrated interrupt", () => {
         expect(all()).toContain(`<interrupt from="terminal" reason="user"/>`)
     })
 
-    it("shows the agent stopping rather than retrying", () => {
+    it("shows NOTHING from the agent after the interrupt", () => {
+        // The agent cannot speak after being interrupted, so the demonstration
+        // must not show it doing so.
+        //
+        // On abort the wake commits the interrupt and closes its channel (see
+        // Wake.execute), and the cognet returns without another inference — in
+        // every real session the next thing is the user speaking again. This
+        // used to end with the agent saying "Stopped. Nothing was left
+        // half-written…", which is a sequence the runtime CANNOT produce,
+        // demonstrated at exactly the point where the wrong behaviour
+        // (resuming the work it was told to stop) is most tempting.
         const text = all()
-        expect(text).toContain("Stopped.")
-        // The turn ends there — an interrupt is a settled outcome, not an error
-        // to work around.
-        expect(text.indexOf("Stopped.")).toBeLessThan(text.lastIndexOf("<done"))
+        const interrupt = text.indexOf("<interrupt")
+
+        expect(interrupt).toBeGreaterThan(-1)
+        expect(text.slice(interrupt)).not.toContain("<text from=\"agent\"")
+        expect(text.slice(interrupt)).not.toContain("<script from=\"agent\"")
+    })
+
+    it("hands straight back to the user after it", () => {
+        // What actually follows an interrupt: the session boundary, then the
+        // real conversation. The agent's next turn is a response to the USER,
+        // not to its own interruption.
+        //
+        // The interrupt ends up INSIDE the session's opening message: it is a
+        // user-role turn sitting against another user-role turn, so the
+        // boundary seam folds the two (see render/index.ts). That is the
+        // correct shape and worth asserting positively — the marker separating
+        // them is what keeps the fold honest about where one ends.
+        // Conversation turns only — the CONTRACT names `<interrupt/>` too, in
+        // the prose that explains what the tag means, and matching that would
+        // find a system block instead of the demonstration.
+        const messages = rendered().filter(m => m.role !== "system")
+        const idx = messages.findIndex(m => m.content.includes("<interrupt"))
+
+        expect(idx).toBeGreaterThan(-1)
+        expect(messages[idx]!.role).toBe("user")
+
+        // The marker stays at the HEAD of the message. Consumers identify the
+        // session's opening turn with `startsWith(SESSION_START)` — the mock
+        // engine's extractUserText and its step counter both do — so the
+        // folded turn goes behind it, never in front.
+        const content = messages[idx]!.content
+        expect(content).toStartWith("<system type=\"session:start\"/>")
+        expect(content.indexOf("session:start")).toBeLessThan(content.indexOf("<interrupt"))
+        expect(content.indexOf("<interrupt")).toBeLessThan(content.indexOf("do the thing"))
+
+        // Nothing the agent said follows it, anywhere.
+        expect(messages.slice(idx).some(m => m.role === "assistant")).toBe(false)
     })
 
     it("puts the interrupt after work that succeeded", () => {

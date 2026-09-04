@@ -1,8 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { createHash } from "node:crypto"
 import { capsuleFault } from "./fault"
+import { materializeTool } from "./materialize"
 import type { CapsuleCommand } from "../../types"
 import type { ExecutionT } from "./execution"
 import type { MediatorT } from "./mediator"
@@ -15,29 +12,19 @@ type ScopeOpts = {
     wire: SandboxWireT
     /** Correlates each fn span to the command that made the call. */
     execution: ExecutionT
+    /**
+     * Where bundled tool source is written so it can be imported — the
+     * agent's own frame cache, never the OS temp directory. Passed in rather
+     * than derived here: this leaf knows how to load a tool, not where the
+     * agent lives. See ./materialize for why the distinction matters.
+     */
+    scratch: string
 }
 
 /** A tool module's shape once loaded: name + the functions it exports. */
 type LoadedTool = {
     namespace: string
     values: Record<string, unknown>
-}
-
-/**
- * Writes bundled tool source to a real file and returns its path for
- * import() — a data: URI module specifier hits an OS-level max-length
- * ceiling well below what a real tool file (e.g. the full fs module) needs,
- * throwing NameTooLong. A real file has no such limit. Content-hashed
- * filename: repeated loads of the same source (reload, multiple sandboxes)
- * reuse the same file instead of leaking a new one per call.
- */
-async function materializeSource(source: string): Promise<string> {
-    const dir = join(tmpdir(), "axon-capsule-tools")
-    await mkdir(dir, { recursive: true })
-    const hash = createHash("sha256").update(source).digest("hex")
-    const file = join(dir, `${hash}.ts`)
-    await writeFile(file, source)
-    return file
 }
 
 /**
@@ -128,7 +115,7 @@ export function Scope(opts: ScopeOpts) {
              * capsule still shares state — which is the contract "state
              * persists across run() calls" depends on.
              */
-            const specifier = "path" in tool ? tool.path : await materializeSource(tool.source)
+            const specifier = "path" in tool ? tool.path : await materializeTool(opts.scratch, tool.source)
             const mod = await import(`${specifier}?capsule=${instanceId}`)
 
             const fallback = mod.default as { exports?: Record<string, unknown> } | undefined

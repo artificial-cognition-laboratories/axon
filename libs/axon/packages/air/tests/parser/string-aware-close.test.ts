@@ -1,4 +1,5 @@
 import { Air } from "../../src"
+import { describe, it, expect } from "bun:test"
 
 describe("Air parser: string-aware close-tag scanning", () => {
     it("does not close early on a closing tag written as a double-quoted string literal", () => {

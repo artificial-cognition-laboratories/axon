@@ -17,7 +17,7 @@ export type ReportableError = {
     severity: string
     source: string
     /** True when the user caused this and can fix it — see the filter below. */
-    expected?: true
+    expected?: boolean
     context?: Record<string, unknown>
     frames?: Array<{ functionName: string | null; fileName: string | null; lineNumber: number | null }>
     stack?: string

@@ -1,6 +1,6 @@
 {
   "name": "@arcforge/platform",
-  "version": "2.0.165",
+  "version": "2.0.187",
   "description": "The Axon developer platform — headless project discovery, blueprint scanning, typegen, agent lifecycle, registry, benches and tests. Shared by the CLI/TUI and the Fleet extension.",
   "type": "module",
   "private": false,

@@ -845,3 +845,274 @@ third-party extensions are common; a published extension is untrusted code in th
 terminal process.
 **References:**
 - src/build/extensions/load.ts — `withBudget`, `LOAD_BUDGET_MS`
+
+## [x] Declared `paths` were invisible until someone remembered to prime the cache
+**Severity:** high
+**Description:**
+`settingsCache` started as `{}`, so every synchronous read of `extraRoots()`
+before a `refreshSettings()` call answered "no watched roots" with total
+confidence — unread and empty were the same observable state. This shipped the
+same bug three times: the CLI dispatched with a cold cache, then the TUI
+booted with one, and both were patched by adding a priming call at that entry
+point. The third slipped through because priming gates only what the caller
+remembered to put behind it: the TUI primes before the initial agent boot, but
+the `^` session palette reads `agents.sessions()` on a path that never waited,
+so it listed "no past sessions" for an agent with 563 on disk. Fixed
+structurally instead of with a fourth call site — the cache now fills itself on
+first read via `readSettingsSync` (one AST read, no evaluation, no lock, same
+mechanism `readPolicy` already relied on for exactly this reason), and `null`
+now distinguishes unread from empty.
+**References:**
+- libs/axon/platform/src/platform.ts — the lazy `settings()` reader
+- libs/axon/platform/src/build/extensions/edit.ts — readSettingsSync
+- libs/axon/platform/tests/unit/settings-lazy.test.ts — the behavioural guard
+
+## [ ] Structural (grep-based) tests guard behaviour they cannot see
+**Severity:** medium
+**Description:**
+`apps/tui/tests/unit/cli/priming.test.ts` asserted that the string
+`refreshSettings()` appears in two source files, as the guard against watched
+roots going invisible. It stayed green while the bug shipped a third time,
+because a grep proves a call exists and cannot prove which reads it gates. The
+file itself named this limitation ("the kind of omission a behavioural test
+catches only if it happens to construct the whole entry point") and chose the
+grep anyway. It has been rewritten to point at the behavioural test that now
+carries the weight, but the pattern is worth auditing for elsewhere: a
+structural assertion about a dynamic property is a test that reports safety it
+cannot verify.
+**References:**
+- apps/tui/tests/unit/cli/priming.test.ts
+
+## [x] `^` filtered sessions by folder name against a manifest identity
+**Severity:** high
+**Description:**
+The session palette compared a folder name derived from `home` against
+`record.agent`, which holds the agent's IDENTITY (package.json's name). For a
+scoped agent those never matched, so `^` listed "no past sessions" for an agent
+with 216 of them on disk — silently, because an empty list is exactly what a
+genuinely new agent looks like. Agents with no readable manifest fall back to
+their directory name and kept matching, which made the breakage look
+intermittent rather than total. This was the SECOND wrong spelling of the same
+comparison: it originally compared `displayName` to a directory name, and the
+"fix" derived the folder from `home` just as records switched to identity. Now
+both sides read the same field — `displayName` is `project.name`, `record.agent`
+is `agent.name` — so there is nothing to keep in step. package.json's name is
+the one true name for an agent.
+**References:**
+- apps/tui/app/composables/palette/definitions/session.ts — the filter
+- libs/axon/platform/src/build/runtime/sessions/record.ts — SessionRecord.agent, documented
+- libs/axon/platform/tests/unit/sessions-identity.test.ts — what the record holds
+- apps/tui/tests/unit/palette/session-identity.test.ts — what the palette compares
+
+## [x] Two call sites opened a session log two different ways, one of them wrong
+**Severity:** medium
+**Description:**
+Clicking the session id in the header called `open()` from the `open` package —
+the OS default handler, which opens a `.jsonl` in whatever is registered for
+that extension (a notepad), never the editor the user is working in. Meanwhile
+`:session open` routed through the attached-editor channel and refused outright
+without one, so a user not running Fleet could not open a log at all. Both now
+call `useControl().openFile`, one verb with one ladder: attached editor (routed
+by the agent's directory), then `$EDITOR`/`$VISUAL`, then refuse. There is
+deliberately no OS-handler rung — opening the wrong application is worse than
+reporting nothing happened, because it looks like it worked. The `open` package
+remains for URLs, which is what it is for.
+**References:**
+- apps/tui/app/composables/services/useControl.ts — openFile
+- apps/tui/app/components/axon-header.vue — the session-id click
+- apps/tui/tests/unit/editor-open.test.ts
+
+## [x] A profile policy edit did not re-bound running agents
+**Severity:** critical
+**Description:**
+`profile.config.ts` carries a machine-wide policy CEILING, resolved when an
+agent's blueprint is scanned. Saving it reloaded the config and refreshed the
+settings cache but told no running agent, so the ceiling was only ever re-read
+on a rescan that nothing triggered. A user who tightened their policy
+mid-session saw every surface render the policy they had just written while the
+capsule went on enforcing the one from boot — `shell.allow` commented out, the
+TUI reloaded, and the agent kept spawning processes. This is the worst shape a
+policy bug can take: the system READS as enforced while granting everything,
+which is strictly worse than having no ceiling at all, and it is the exact
+failure the ceiling suite's own header warns about arriving through a door
+nobody was watching. Fixed by `useAgents().reloadAll()` — every running
+instance, not just the focused one, since the ceiling bounds them all — awaited
+from `useExtensions.reload()` so the terminal cannot accept another message
+before the re-bound lands.
+**References:**
+- apps/tui/app/composables/useAgents.ts — reloadAll
+- apps/tui/app/composables/extensions/useExtensions.ts — reload
+- apps/tui/tests/unit/policy-reload.test.ts
+- libs/axon/core/tests/integration/kernel/reload/policy.test.ts
+- libs/axon/platform/tests/unit/project/profile-policy-reload.test.ts
+
+## [ ] Three-layer guarantees are tested one layer at a time
+**Severity:** medium
+**Description:**
+The policy-ceiling bug needed three things to hold — the ceiling is re-read
+from disk, a reload re-applies it to the capsule, and a config save triggers
+that reload — and two of the three were well covered while the third had no
+test at all. Both existing suites passed throughout, because each was correct
+about its own layer: a correct re-read handed to nobody, and a correct re-apply
+of a value nothing refreshed. The same shape produced the settings-priming bug
+(the read was right, nothing called it) and the spawn-lifetime bug (the process
+was fine, the reporting was not). Worth a deliberate pass over the other
+multi-layer invariants — escalation delivery, credential refresh, deployment
+promotion — asking not "is each layer tested" but "is the SEAM between them".
+**References:**
+- libs/axon/core/tests/integration/kernel/policy/ceiling.test.ts — layer 2, always passed
+- libs/axon/platform/tests/unit/project/profile-policy.test.ts — layer 1, always passed
+
+
+## [x] `engine:` warned instead of refusing, so mock fixtures made real billed calls
+**Severity:** critical
+**Description:**
+`engine:` was removed from the config surface but kept loading with a warning,
+on the reasoning that such an agent already booted on the profile pool so
+refusing would break working agents over an ignored field. That had the cost
+backwards: "boots on the profile pool" means the agent runs on a DIFFERENT,
+BILLED provider than its config names. Fourteen test fixtures across axond and
+platform declared `engine: Mock()` — asking explicitly for offline inference —
+and every one silently resolved against the user's real OpenRouter credentials,
+which `withAgent()` seeds deliberately so inference works over the link. They
+spent real money on every suite run until the account drained, and the only
+signal was a warning nobody reads in a test process. The `engine?: never` type
+guard could not catch it because these configs are written as strings to disk at
+runtime, never typechecked. RESOLVED: the load now throws CONFIG_ENGINE_DEPRECATED
+(severity fatal), every fixture uses `providers: [Mock()], model: "mock:mock"`,
+and the docs that taught the old form are updated.
+**References:**
+- libs/axon/platform/src/build/blueprint/blueprint.ts — the warn-and-continue, now a throw
+- libs/axon/packages/err/src/map.ts — CONFIG_ENGINE_DEPRECATED, degraded → fatal
+- libs/axon/platform/tests/unit/config-engine-deprecated.test.ts — rewritten to assert refusal
+- libs/axon/packages/axond/tests/integration/agents/*.test.ts — 11 fixtures
+- libs/axon/platform/tests/integration/{modules,blueprint}/*.test.ts — 3 fixtures
+
+## [x] Integration fixtures can reach real providers, with nothing preventing it
+**Severity:** high
+**Description:**
+The `engine:` incident was one instance of a general hole: `withAgent()` seeds a
+profile carrying real credentials so inference resolves over the link, and any
+fixture whose declared inference fails to bind falls through to that pool rather
+than failing. A test that means to be offline has no way to assert it, and the
+failure is silent and billed. The clean version is a test-mode guard that refuses
+any non-mock provider resolution when a fixture asked for a mock — or, more
+simply, an env flag the test preload sets that makes real provider construction
+throw, so reaching the network in a unit/integration run is a hard error rather
+than an invoice. RESOLVED: `AXON_NO_NETWORK_INFERENCE` is set by both test
+preloads and enforced in `buildProvider()` — the seam every boot path converges
+on — as an ALLOWLIST of mock/ollama, so a BYOK route added to DIRECT_PROVIDERS
+later is refused offline by default rather than by someone remembering. Verified
+by reintroducing the original bug (a fixture declaring no working provider): it
+now fails loudly naming the fix, where before it billed silently.
+
+Turning the guard on found FIFTY-FOUR more billed tests than the `engine:`
+fixtures accounted for, from two further causes. A scaffolded agent is
+`defineAgent({})` — it declares no inference at all, deliberately, because that
+is what `axon init` writes — so it resolves entirely against the PROFILE pool,
+whose default (`providerPool`'s DEFAULT_PROVIDERS) is the metered `axon` route.
+No per-fixture edit could reach those. And several suites spawn through a bare
+`supervised()` with nobody logged in, where `profileProviders()` returns
+undefined and the pool defaults to metered again. Fixed by seeding
+`profile.config.ts` with `providers: [Mock()]` from `supervised()` itself, and
+by moving spawn-then-wake suites onto `authenticated()`. Final state: 158 pass,
+0 fail, all offline.
+**References:**
+- libs/axon/packages/engines/src/providers/providers.ts — buildProvider(), OFFLINE_PROVIDERS
+- libs/axon/packages/engines/src/providers/pool.ts — DEFAULT_PROVIDERS, the metered default
+- libs/axon/packages/axond/tests/setup/preload.ts — sets the flag
+- libs/axon/platform/tests/setup/preload.ts — sets the flag
+- libs/axon/packages/axond/tests/setup/supervised.ts — seeds the mock profile
+
+## [ ] Six axond suites hand-roll the same profile login
+**Severity:** medium
+**Description:**
+`authenticated()` in tests/setup/supervised.ts exists to build a platform with
+TEST_USER logged in, and six integration files each carry their own copy of that
+block instead — eight call sites of the same four lines. That duplication is why
+the billing hole stayed invisible: there was no single place where "a seeded
+profile means metered inference" could be noticed, and each copy had to be found
+and fixed separately when it was. Several are now pointed at the shared helper;
+the remaining local `login()` / `seed` blocks should collapse into it, leaving
+`supervised()` for the one case that genuinely wants no active profile (spawn's
+NOT_AUTHENTICATED test, which is commented as such).
+**References:**
+- libs/axon/packages/axond/tests/integration/agents/sessions.test.ts — local login()
+- libs/axon/packages/axond/tests/integration/agents/tools.test.ts
+- libs/axon/packages/axond/tests/integration/agents/tools-adversarial.test.ts
+- libs/axon/packages/axond/tests/integration/agents/lifecycle.test.ts
+- libs/axon/packages/axond/tests/integration/agents/reload.test.ts — withAgent()
+- libs/axon/packages/axond/tests/setup/supervised.ts — authenticated(), the one that should be used
+
+## [ ] Zeno cannot be updated on disk once a user has customised it
+**Severity:** medium
+**Description:**
+Zeno is cloned from `@axon/zeno` on first run and then owned by the user —
+editable, and never written to again. That is deliberate (the base-workspace
+design it replaced regenerated configs and needed an ownership hash to detect
+and refuse user edits), but it means an improvement to zeno reaches only NEW
+installs. Everyone who already has it keeps whatever version they cloned,
+forever, including any dead config it carried. The `engine:` field is the first
+case where that mattered enough to need a mechanical migration; it will not be
+the last. The clean version is probably a narrow, declarative migration channel
+— a list of field-level transforms the platform applies to any agent on
+prepare, of which the `engine:` removal is entry one — rather than either
+overwriting user projects or asking them to hand-edit. Worth designing before
+the second migration is needed, not during it.
+**References:**
+- libs/axon/platform/src/build/runtime/zeno.ts — ensure(), clone-once-then-owned
+- libs/axon/platform/src/build/project/manifest/engine-migrate.ts — the first transform
+
+## [x] `find` shelled out for workspace resolution — absent on Windows, failed silently
+**Severity:** high
+**Description:**
+`tree.ts` resolved framework packages with `Bun.spawnSync(["find", …])` at two
+call sites and read `.stdout` without checking whether the binary ran. `find`
+does not exist on Windows, and spawnSync reports a missing binary as EMPTY
+STDOUT — which is exactly what a successful search with no matches looks like.
+Both sites looped over nothing and returned null, so "this machine has no find"
+was indistinguishable from "this workspace has no framework packages": a
+developer on a Mac or Windows box linked against the published copy while
+believing they were testing their own checkout. Gated behind AXON_WORKSPACE, so
+source-checkout development only — which is precisely who it misleads.
+RESOLVED: replaced with an in-process directory walk (`manifestsUnder`), which
+has no binary to be absent and skips an unreadable directory explicitly.
+**References:**
+- libs/axon/platform/src/build/project/tree.ts — manifestsUnder()
+- libs/axon/platform/tests/unit/ambient-workers.test.ts — guards the regression
+
+## [x] `Running()` had no test isolation, and its prune swept the real store
+**Severity:** high
+**Description:**
+`Running()` reads four well-known store roots baked into a module-level
+constant from `homedir()`. That width is correct in production — an observer
+must see agents booted by the installed binary and from a source checkout
+alike — but it left the service untestable in two directions: a test asserting
+"nothing is running" flaked whenever the developer had an agent open, and
+`stop()` prunes EVERY root, so a test cleaning up after itself could delete a
+live record belonging to a real process. Neither was reachable, because the
+roots were frozen at import. RESOLVED: an `isolated` flag narrowing reads AND
+prunes to the injected root — the same flag, spelled the same way, that the
+daemon's Registry already carried.
+**References:**
+- libs/axon/platform/src/services/running/running.ts — isolated
+- libs/axon/platform/tests/unit/running-isolation.test.ts
+
+## [ ] OS-specific branches remain largely untestable
+**Severity:** medium
+**Description:**
+15 `process.platform` reads across the repo; before this pass ZERO tests
+exercised a non-Linux branch. Those paths cannot execute on Linux CI at all, so
+they ship unreviewed however thorough the rest of the suite is — and both
+failures that prompted this audit (macOS tool loading, Windows install) were in
+that class. The pattern that fixes it is naming the OS fact and injecting it:
+`hasProcessGroups()` in capsule/procs.ts is now one named seam replacing three
+scattered checks, and `killTree` takes it as a parameter so both shapes are
+asserted from one box. The remaining sites should follow: `services/mic/capture.ts`
+(3 branches, voice silently unavailable), `services/update/installer.ts` (win32
+recovery — a failed self-update with no way back), and the duplicated darwin
+probe in `resources/hardware.ts` / `axond/machine/hardware.ts`.
+**References:**
+- libs/axon/packages/capsule/src/process/procs.ts — hasProcessGroups(), the pattern
+- libs/axon/packages/capsule/tests/platform-branches.test.ts — both shapes, one machine
+- libs/axon/platform/tests/setup/hostile.ts — the harness for env-sensitive paths

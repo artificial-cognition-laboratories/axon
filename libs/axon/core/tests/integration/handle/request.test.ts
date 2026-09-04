@@ -51,11 +51,20 @@ describe("axon.request", () => {
         await runtime.shutdown()
     })
 
-    it("refuses to boot when nothing can supply the cognet's engines", async () => {
-        // An agent with no inference is caught at boot now, not at the first
+    it("boots with no declared providers — axon and mock are implicit", async () => {
+        // An unfillable role is still caught at boot rather than at the first
         // request: the cognet declares what it needs, so the mismatch is
         // visible before a conversation has started.
-        await expect(Axon({ blueprint: { config: { providers: [] } } }))
-            .rejects.toMatchObject({ code: "AX-ENGINE-003" })
+        //
+        // `providers: []` is no longer that case. `axon` and `mock` come with
+        // running Axon and are not things a user declares (see providerPool),
+        // so an empty array is a pool of two — and a role mock can serve is
+        // filled. See the note in kernel/inference/providers.test.ts for the
+        // trade this makes.
+        const runtime = await Axon({ blueprint: { config: { providers: [] } } })
+
+        expect(runtime.kernel.engines?.has("main")).toBe(true)
+
+        await runtime.shutdown()
     })
 })

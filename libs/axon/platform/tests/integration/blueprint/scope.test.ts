@@ -1,6 +1,7 @@
 import type { AxonTool } from "@arcforge/types"
 import { isLoadable, scopeToDts, toScope } from "@arcforge/core"
 import { renderScope } from "@arcforge/air"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The model's <scope> and the editor's ambient declarations must never
@@ -69,13 +70,25 @@ describe("scope: one membership decision, two spellings", () => {
         expect(renderScope(scope).split("type Shared").length - 1).toBe(1)
     })
 
-    it("a flat tool declares globals; a namespaced tool declares a namespace", () => {
-        const flat = scopeToDts(toScope(blueprint([tool({ name: "f", entryPath: "/f.ts" })])))
-        expect(flat).toContain("function f(): void")
-        expect(flat).not.toContain("namespace")
+    it("declares a tool the same way whatever its origin", () => {
+        // Placement used to follow ORIGIN — an agent's own tools flat, a
+        // MODULE's under the module's name — and both renderers spelled that
+        // wrap. It disagreed with the runtime in practice: a registry module
+        // exporting one object named after its own file declared
+        // `subagents.subagents.request()`, which an editor accepted, a model
+        // read off these types and called, and the runtime did not have.
+        //
+        // It was also wrong on its own terms. Conditional placement makes a
+        // call site depend on provenance, so moving a tool into a module
+        // silently rewrites every caller — not the author's choice to make.
+        // A tool exporting an object is already its own namespace; a name two
+        // tools both claim is reported (Tools.onClash), not worked around.
+        const own = scopeToDts(toScope(blueprint([tool({ name: "f", entryPath: "/f.ts", origin: "src" })])))
+        const installed = scopeToDts(toScope(blueprint([tool({ name: "f", entryPath: "/f.ts", origin: "module" })])))
 
-        const namespaced = scopeToDts(toScope(blueprint([tool({ name: "n", entryPath: "/n.ts" })])))
-        expect(namespaced).toContain("namespace n {")
+        expect(own).toContain("function f(): void")
+        // Byte-identical: origin is no longer an input to the spelling.
+        expect(installed).toBe(own)
     })
 
     it("an empty scope renders nothing rather than an empty block", () => {

@@ -37,6 +37,30 @@ and `AxonEntry[]` — what they already hold — never AIR's internal render
 vocabulary. The timeline item shapes are private to `render/`, next to the
 parser they must agree with.
 
+**The preflight is the CALLER's, not the protocol's.** A protocol says what a
+well-formed reply looks like and is identical for everyone using it. A
+preflight is CONTENT written in that grammar — the trajectory this particular
+agent should start on — so it arrives through `render({ preflight })` and a
+cognet owns it (`registry/cognets/zero/src/preflight.ts`). It used to sit on
+`Protocol`, which put "what should the model see first" inside the definition
+of the grammar and made it unreachable from the only layer that should decide.
+
+Why it exists at all: the contract DESCRIBES the grammar, the preflight
+DEMONSTRATES it, and a model continues a conversation far more readily than it
+follows a description. A demonstrated trajectory also outlives a stated rule —
+a rule decays as it slides out of attention, while a pattern the model has held
+for tens of thousands of tokens no longer needs the turns that started it.
+Failure modes are worth showing for the same reason: a model that has seen an
+interrupt handled correctly does not have to derive the right response at the
+moment one arrives.
+
+Two constraints the renderer enforces rather than trusting content to respect:
+a preflight only renders when a real conversation follows it (otherwise it
+would BE the conversation), and a preflight ending on a user-role turn folds
+into the session's opening turn behind the `session:start` marker — the session
+always opens with a user turn, and providers variously reject or silently merge
+two in a row.
+
 **A protocol is one named grammar, resolved as a unit.** `protocol/` owns the
 meta prose, the mode list, the contract rules, and the examples together,
 because they cannot be chosen independently — a protocol's prose describes

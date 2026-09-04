@@ -14,7 +14,8 @@ conditions fire. Everything behaves as in production, just without a model call.
 import { Mock } from "@arcforge/engines/mock"
 
 export default defineAgent({
-    engine: Mock(),
+    providers: [Mock()],
+    model: "mock:mock",
 })
 ```
 

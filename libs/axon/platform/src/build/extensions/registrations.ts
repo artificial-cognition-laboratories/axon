@@ -1,4 +1,27 @@
-import ts from "typescript"
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~190-220ms to load, and it was being pulled into every
+ * `axon` invocation through this module's import chain — before argument
+ * parsing, before any command ran, before a character reached the screen.
+ * `axon dev` showing nothing for a second was largely this.
+ *
+ * Nothing here touches `ts` at module scope; every reference is inside a
+ * function body. So deferring costs the first caller the load and every
+ * command that parses no source file nothing at all.
+ *
+ * `require`, not `await import`: these APIs are synchronous and making them
+ * async would ripple through every caller for no gain. The type import above
+ * is erased at compile time, which keeps every `ts.X` annotation unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 import { join } from "node:path"
 import { readFileSync, readdirSync } from "node:fs"
 import { fsx } from "../../utils/fs"
@@ -23,7 +46,7 @@ import { tsast } from "../../utils/tsast"
  * case, so a computed name still typechecks — it simply does not complete.
  *
  * A parse, not a program: only the shape of the call site matters, so there is
- * no need for `ts.createProgram` and its type checker. That keeps this fast
+ * no need for `tsc().createProgram` and its type checker. That keeps this fast
  * enough to run on every config reload rather than only on prepare.
  */
 
@@ -68,12 +91,12 @@ const CALLS: Record<string, keyof Registrations> = {
  * `commands.run()` addresses it.
  */
 function nameOf(arg: ts.Expression): string | null {
-    if (ts.isStringLiteralLike(arg)) return arg.text
+    if (tsc().isStringLiteralLike(arg)) return arg.text
 
-    if (ts.isArrayLiteralExpression(arg)) {
+    if (tsc().isArrayLiteralExpression(arg)) {
         const parts: string[] = []
         for (const element of arg.elements) {
-            if (!ts.isStringLiteralLike(element)) return null
+            if (!tsc().isStringLiteralLike(element)) return null
             parts.push(element.text)
         }
         return parts.length > 0 ? parts.join(" ") : null
@@ -99,7 +122,7 @@ export function readRegistrations(filePath: string): Registrations {
     const file = tsast.parse(filePath, source)
 
     const visit = (node: ts.Node): void => {
-        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        if (tsc().isCallExpression(node) && tsc().isPropertyAccessExpression(node.expression)) {
             const target = `${node.expression.expression.getText(file)}.${node.expression.name.getText(file)}`
             const bucket = CALLS[target]
             const first = node.arguments[0]
@@ -119,7 +142,7 @@ export function readRegistrations(filePath: string): Registrations {
                 }
             }
         }
-        ts.forEachChild(node, visit)
+        tsc().forEachChild(node, visit)
     }
 
     visit(file)
@@ -129,7 +152,7 @@ export function readRegistrations(filePath: string): Registrations {
 /** Walk up to the statement a call belongs to — where its JSDoc lives. */
 function findStatement(node: ts.Node): ts.Node | undefined {
     let current: ts.Node | undefined = node
-    while (current && !ts.isSourceFile(current.parent)) current = current.parent
+    while (current && !tsc().isSourceFile(current.parent)) current = current.parent
     return current
 }
 

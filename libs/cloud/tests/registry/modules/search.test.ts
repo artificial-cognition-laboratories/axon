@@ -65,6 +65,14 @@ describe("registry.modules.search", () => {
         const anonymous = anonymousCloud()
         const results = await anonymous.registry.artifacts.of("module").search({ query: name })
 
-        expect(results).toEqual([])
+        // THIS module is absent — not "the result set is empty". Search matches
+        // loosely, and the staging database accumulates public `test-module-*`
+        // fixtures from every previous run, so a query naming one of them
+        // returns those siblings. They are all `private: false`; asserting an
+        // empty list made an unrelated fixture's existence look like a
+        // visibility leak, which is the one thing this test must not get wrong
+        // in either direction.
+        expect(results.map(item => item.name)).not.toContain(name)
+        expect(results.every(item => item.private === false)).toBe(true)
     })
 })

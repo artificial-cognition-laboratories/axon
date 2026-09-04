@@ -60,9 +60,28 @@ describe("inference: the profile → cognet wire", () => {
         await runtime.shutdown()
     })
 
-    it("an agent with no inference at all refuses to boot", async () => {
-        await expect(Axon({ blueprint: { config: { providers: [] } } }))
-            .rejects.toMatchObject({ code: "AX-ENGINE-003" })
+    it("an empty providers array still boots — mock is implicit", async () => {
+        /**
+         * This used to assert the opposite, and the change is deliberate.
+         *
+         * `providers: []` meant "no inference at all" and refused to boot.
+         * That was right while the alternative was silently restoring a
+         * provider the user had deleted — but `axon` and `mock` are not things
+         * a user declares any more (see providerPool's IMPLICIT_PROVIDERS).
+         * They come with running Axon, so an empty array says "I have added
+         * nothing", not "take away what I never added".
+         *
+         * THE TRADE, stated because it is a real loss: `[]` was the cheapest
+         * way to reach ENGINE_REQUIREMENTS_UNMET, and it no longer reaches it.
+         * That error is still thrown — by a ROLE nothing can fill, which is
+         * what it was always about — but it is now harder to provoke on
+         * purpose. The test below covers the property that actually matters.
+         */
+        const runtime = await Axon({ blueprint: { config: { providers: [] } } })
+
+        expect(runtime.kernel.engines?.has("main")).toBe(true)
+
+        await runtime.shutdown()
     })
 
     it("a served request goes through the bound role", async () => {

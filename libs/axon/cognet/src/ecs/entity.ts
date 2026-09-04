@@ -1,6 +1,6 @@
 import type { ComponentT } from "./component"
 import type { StateT } from "./state"
-import type { ComponentRegistry, ComponentType, EntityId } from "./types"
+import type { ComponentRegistry, ComponentType, EntityId, ComponentData } from "./types"
 import type { EcsEmit } from "./ecs"
 
 type EntityOpts = {
@@ -23,8 +23,8 @@ export function Entity(opts: EntityOpts) {
         }: {
             entity: EntityId
             components?:
-                | { type: K; data: ComponentRegistry[K] }
-                | { type: K; data: ComponentRegistry[K] }[]
+                | { type: K; data: ComponentData<K> }
+                | { type: K; data: ComponentData<K> }[]
         }) {
             state.entities.add(entity)
             void emit("cognet:entity:add", { ...state.stamp(), entity })

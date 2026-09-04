@@ -59,7 +59,7 @@ describe("kernel failure: engine retries", () => {
             await runtime.kernel.request({ content: "hello" })
             throw new Error("expected request to fail")
         } catch (error) {
-            expect(error).toMatchObject({ code: "AX-KERNEL-015", title: "Provider Not Connected" })
+            expect(error).toMatchObject({ code: "AX-PROVIDER-001", title: "Provider Not Connected" })
             // The driver's own sentence still reaches the user — it is the part
             // that names the provider and the exact command to run.
             expect((error as Error).message).toContain(":provider codex connect")

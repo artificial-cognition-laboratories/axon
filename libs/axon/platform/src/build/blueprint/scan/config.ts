@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { defineModule, definePrompt } from "@arcforge/types"
 import { defineCognet } from "@arcforge/cognet"
 import type { AxonConfig, ModuleEntry } from "@arcforge/types"
-import { Axon, Ollama, Codex, OpenRouter, HuggingFace, Mock } from "@arcforge/engines"
+import { Axon, Local, Ollama, Codex, OpenRouter, HuggingFace, Mock } from "@arcforge/engines"
 import { err } from "@arcforge/err"
 import { fsx } from "../../../utils/fs"
 import { resolveModulePaths, type ResolvedModulePath } from "./moduleImports"
@@ -121,6 +121,7 @@ function installAuthoringGlobals(): void {
     // the AUTHORITATIVE binding for the duration of an evaluation is applied
     // by withProviderGlobals() below rather than trusted from module load.
     g.Axon ??= Axon
+    g.Local ??= Local
     g.Ollama ??= Ollama
     g.Codex ??= Codex
     g.OpenRouter ??= OpenRouter
@@ -149,7 +150,7 @@ function installAuthoringGlobals(): void {
  */
 export async function withProviderGlobals<T>(body: () => Promise<T>): Promise<T> {
     const g = globalThis as Record<string, unknown>
-    const factories = { Axon, Ollama, Codex, OpenRouter, HuggingFace, Mock }
+    const factories = { Axon, Local, Ollama, Codex, OpenRouter, HuggingFace, Mock }
     const previous = Object.fromEntries(Object.keys(factories).map(name => [name, g[name]]))
     Object.assign(g, factories)
     try {

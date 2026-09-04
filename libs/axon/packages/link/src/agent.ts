@@ -27,6 +27,8 @@ export type AgentServices = {
     serve(port: number): Promise<{ port: number }>
     /** Deliver a stimulus to the scheduler. Returns whether the brain admitted it. */
     stimulus(entry: AxonStimulusEntry): Promise<{ admitted: boolean }>
+    /** Add a message to the wake already running — no reservation, no verdict. */
+    ingest(entry: AxonStimulusEntry): Promise<void>
     /** Hot reload. */
     update(blueprint: AxonBlueprint): Promise<void>
     /** Abort the active wake. */
@@ -49,6 +51,7 @@ export function agentHandlers(services: AgentServices) {
             async call(verb: string, arg: unknown): Promise<unknown> {
                 switch (verb) {
                     case VERB.stimulus: return services.stimulus(arg as AxonStimulusEntry)
+                    case VERB.ingest: return services.ingest(arg as AxonStimulusEntry)
                     case VERB.update: return services.update(arg as AxonBlueprint)
                     case VERB.shutdown: return services.shutdown()
                     case VERB.request: return services.request(arg as AxonStimulusEntry)
@@ -125,8 +128,8 @@ export function supervisorProxy(channels: LinkChannels): AgentToSupervisor {
         infer(call, signal) {
             return channels.data.stream<AxonEngineRawEvent>(VERB.infer, call, signal)
         },
-        commit(type, data) {
-            channels.data.send(VERB.commit, { type, data })
+        commit(type, data, ctx) {
+            channels.data.send(VERB.commit, { type, data, ...(ctx ? { ctx } : {}) })
         },
         escalate(call) {
             return channels.control.call<{ allow: boolean }>(VERB.escalate, call)

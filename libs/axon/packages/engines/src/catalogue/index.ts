@@ -1,4 +1,4 @@
-export type { AxonProvider, ProviderResources } from "./provider"
+export type { AxonProvider, LocalRuntime, ProviderResources } from "./provider"
 export { gather } from "./gather"
 export type { Catalogue, CatalogueFailure } from "./gather"
 export { Engines } from "./engines"

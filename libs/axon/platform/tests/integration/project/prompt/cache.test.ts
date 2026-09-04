@@ -6,6 +6,7 @@ import type { AxonBlueprint } from "@arcforge/types"
 import { Prompt } from "../../../../../core/src/runtime/source/render"
 import { Prompts } from "../../../../src/services/prompts"
 import { scanPromptPackage } from "../../../../src/build/blueprint/scan/promptPackages"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Prompts are CACHED, not installed.
@@ -78,17 +79,31 @@ describe("published prompts render from the cache, not the agent", () => {
         }
     })
 
-    it("renders in the agent's scope — the agent's env, not the host's", async () => {
+    it("renders in the agent's scope — a cached prompt reads the agent's env", async () => {
+        // `process` is NOT shimmed from the blueprint. A template renders in
+        // the agent's real process, and the agent's declared `.env` reaches it
+        // because the capsule OVERLAYS those keys onto `process.env` at boot
+        // (see capsule/src/inproc/capsule.ts) — not because Prompt() projects
+        // them. This used to assert the shim, which was removed when prompt
+        // rendering moved in-process alongside the cognet and the tools.
+        //
+        // So the overlay is what is staged here. The point being covered is
+        // that a CACHED prompt — one rendered from ~/.axon/cache rather than
+        // from the agent's own tree — renders in that same scope.
         const { root, cacheRoot } = await stageCache({
             "pack.vue": "<template><p>{{ process.env.AGENT_NAME }}</p></template>\n",
         })
 
+        const prior = process.env.AGENT_NAME
+        process.env.AGENT_NAME = "barry"
         try {
             const entry = await Prompts({ cache: cacheStub(NAME, cacheRoot) }).entry(NAME)
             const blueprint = { prompts: [], env: { AGENT_NAME: "barry" } } as unknown as AxonBlueprint
 
             expect(await Prompt({ blueprint }).renderEntry(entry)).toContain("barry")
         } finally {
+            if (prior === undefined) delete process.env.AGENT_NAME
+            else process.env.AGENT_NAME = prior
             await rm(root, { recursive: true, force: true })
         }
     })

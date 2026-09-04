@@ -101,7 +101,10 @@ export function renderConversation(
             // The channel is the return address and has to survive: without it
             // the mind cannot answer on the line the message arrived on.
             const channel = escAttr(item.channel ?? "terminal")
-            push("user", `<text from="user" id="${prefix}u${++userCount}" channel="${channel}" lang="${escAttr(item.lang)}">\n${indent(esc(item.content.trim()), 4)}\n</text>`)
+            // Flush-left for the same reason as agent speech: the user's
+            // markdown is markdown too, and an indented example is one the
+            // model mirrors back in its own replies.
+            push("user", `<text from="user" id="${prefix}u${++userCount}" channel="${channel}" lang="${escAttr(item.lang)}">\n${esc(item.content.trim())}\n</text>`)
             continue
         }
 
@@ -177,7 +180,19 @@ export function renderConversation(
             // reply whose entire content was "I am finished".
             if (entry.type === "done") return `<done from="agent"/>`
             if (entry.type === "message") {
-                return `<text from="agent" lang="${escAttr(entry.lang)}">\n${indent(esc(entry.content.trim()), 4)}\n</text>`
+                // FLUSH-LEFT, unlike every other block here.
+                //
+                // Four leading spaces IS an indented code block in markdown,
+                // and this transcript is what the model imitates — so an
+                // indented example taught it to indent its own replies. A
+                // one-line answer survives that; a long one does not. Observed:
+                // a 9,439-char reply reached the user as a single `code_block`
+                // instead of 68 paragraphs, 14 headings and 24 fences, rendered
+                // as raw source and clipped.
+                //
+                // `<script>` and `<stdout>` below keep their indent: code is
+                // not markdown, so leading whitespace costs nothing there.
+                return `<text from="agent" lang="${escAttr(entry.lang)}">\n${esc(entry.content.trim())}\n</text>`
             }
             if (entry.type === "execute") {
                 return `<script from="agent" id="${shortExecId(entry.id)}" lang="${escAttr(entry.lang)}">\n${indent(escCode(normalizeCode(entry.code.trim())), 4)}\n</script>`
@@ -223,7 +238,7 @@ function stampRejected(raw: string): string {
     // still has to be visible — that is the OUTPUT_EMPTY case — so it is
     // framed as the text it effectively was.
     if (stamped === raw) {
-        return `<text from="agent" status="rejected" lang="md">\n${indent(esc(raw), 4)}\n</text>`
+        return `<text from="agent" status="rejected" lang="md">\n${esc(raw)}\n</text>`
     }
     return stamped
 }

@@ -10,11 +10,8 @@ one file Axon explicitly reads at boot.
 
 ```ts
 import { defineAgent } from "@axon/sdk"
-import { Axon } from "@arcforge/engines"
 
 export default defineAgent({
-    engine: Axon(),
-
     policy: {
         fs: {
             read:  ["./**"],
@@ -35,24 +32,42 @@ export default defineAgent({
 ```
 
 
-## `engine`
+## `model` and `providers`
+
+Most agents declare neither. Inference resolves against the user's own profile
+providers, which is what they configured once for their machine — an agent that
+names nothing runs on whatever they already have.
 
 ```ts
-import { defineAgent } from "@axon/sdk"
-import { Axon, Cerebras, Codex, Ollama, OpenRouter } from "@arcforge/engines"
-
 export default defineAgent({
-    engine: Axon(),                                      // Axon Cloud (default)
-    // engine: Codex(),                                  // ChatGPT subscription via OAuth
-    // engine: Cerebras({ model: "gpt-oss-120b" }),      // Cerebras Inference
-    // engine: Ollama({ model: "qwen2.5:7b" }),          // local inference
-    // engine: OpenRouter({ model: "openai/gpt-4o" }),   // BYOK, 100+ models
+    model: "axon:openai/gpt-5.6-luna",   // a PREFERENCE for the primary role
 })
 ```
 
-Engine functions come from `@arcforge/engines`. The connected provider in the TUI (`*` to
-switch) overrides this when running locally — the config value is the default for headless
-and deployed runs. See [Powering your agent](/docs/v2/getting-started/installation#powering-your-agent)
+`model` is `"<route>:<id>"` and is a preference, never a constraint: if nothing
+in the pool can serve it, the resolver picks what can rather than failing.
+
+```ts
+import { Ollama } from "@arcforge/engines"
+
+export default defineAgent({
+    providers: [Ollama({ url: "http://box.local:11434" })],
+})
+```
+
+`providers` ADDS a source the user would not otherwise have. It can never
+displace or remove one of theirs — the machine belongs to the person running
+it, and an installed agent quietly rerouting their inference is exactly what
+this split prevents.
+
+> **`engine:` was removed.** It named one model for the whole agent, could not
+> survive a cognet declaring several roles, and put the choice in the wrong
+> place. A config still carrying it is refused at load; `axon prepare` rewrites
+> it to `model:` automatically the next time the agent runs.
+
+Provider functions come from `@arcforge/engines`. The model picked in the TUI
+(`*` to switch) edits this agent's own `model:` — a model is a property of an
+agent, not something you run instead of one. See [Powering your agent](/docs/v2/getting-started/installation#powering-your-agent)
 for the provider options.
 
 ## `policy`

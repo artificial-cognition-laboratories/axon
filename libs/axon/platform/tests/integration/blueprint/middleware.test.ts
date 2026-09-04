@@ -2,6 +2,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Middleware } from "@arcforge/platform/build/blueprint/scan/middleware"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The middleware scanner — `server/middleware/` discovery.

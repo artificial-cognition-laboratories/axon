@@ -230,7 +230,23 @@ export type AxonRunResult = {
      * to distinguish "no scope" from "scope unavailable".
      */
     scope: CapsuleScope
-    error?: { kind: "timeout" | "interrupt" | "exception"; message: string }
+    error?: { kind: "timeout" | "policy" | "interrupt" | "exception"; message: string }
+    /**
+     * Calls policy refused during this block. Empty for almost every run.
+     *
+     * A block with denials is NOT ok, even when its code ran to completion —
+     * which is the whole reason this is on the result rather than only on the
+     * bus. A refused `process.spawn()` returns a handle rather than throwing,
+     * so nothing propagated: the block finished, `ok` was true, and the record
+     * said a denied call had succeeded. Every surface reading that record
+     * agreed, so a user saw a normal tool call and no indication their policy
+     * had blocked anything.
+     *
+     * The block's `value` is KEPT alongside them. A script that made ten calls
+     * and had one refused still did nine real things, and discarding that
+     * output would trade one silent failure for another.
+     */
+    denials?: { fn: string; module: string; rule: string }[]
 }
 
 /**

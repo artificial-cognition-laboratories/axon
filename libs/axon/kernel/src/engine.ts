@@ -811,6 +811,8 @@ export function Engine(opts: EngineOpts) {
              * below for why that is safe, and what it fixes.
              */
             let streamedOut = 0
+            /** `<text>` blocks OPENED — see the text:open case for why this is not `texts`. */
+            let opened = 0
 
             /**
              * Blocks produced by this attempt, in order.
@@ -868,7 +870,7 @@ export function Engine(opts: EngineOpts) {
                 // whole attempt may be discarded — stop streaming and let the
                 // post-loop checks decide. Anything already sent has crossed;
                 // that is what `spoke` reports to those checks.
-                if (texts > 1 || scripts > 0) return []
+                if (opened > 1 || texts > 1 || scripts > 0) return []
 
                 const ready: AxonEngineEvent[] = []
                 while (streamedOut < events.length) {
@@ -886,35 +888,88 @@ export function Engine(opts: EngineOpts) {
                 switch (block.type) {
                     case "text:open":
                         lang = block.lang
+                        // Counted at OPEN, not at close.
+                        //
+                        // `drain()` has to stop the instant a surplus block
+                        // becomes possible, and `texts` only reaches 2 when the
+                        // second block CLOSES — by which point its deltas have
+                        // already streamed. A chunk of the block we are about
+                        // to refuse would reach the user, which is exactly the
+                        // leak this whole gate exists to prevent.
+                        opened++
                         break
 
                     case "text:delta":
-                        // A chunk with no VISIBLE content is not something the
-                        // agent said.
-                        //
-                        // Guarded on `.trim()`, not on truthiness: a model that
-                        // opens `<text>` and closes it after a newline emits a
-                        // delta of `"\n"`, which is truthy, and that reached
-                        // the UI as a bullet with nothing beside it. `text:done`
-                        // already dropped the empty tail; this is the same rule
-                        // one step earlier, and whitespace is the case that
-                        // actually happens in a run.
-                        if (pending?.trim()) {
+                        /**
+                         * A whitespace-only delta is CARRIED, never dropped.
+                         *
+                         * The guard here was `pending?.trim()`, which discarded
+                         * the pending chunk outright when it held nothing but
+                         * whitespace — and the next line overwrote `pending`,
+                         * so those characters were gone. A provider that split
+                         * a stream as `"…projectRoot:string"`, `"\n"`,
+                         * `"  cron:string"` therefore committed
+                         * `projectRoot:string  cron:string`: the newline
+                         * deleted, the indentation of everything after it
+                         * wrong, and a fenced block progressively less
+                         * readable the longer the reply ran.
+                         *
+                         * That is not cosmetic. Markdown is whitespace-
+                         * significant — a lost newline merges a list item into
+                         * the prose above it and collapses a code fence's
+                         * indentation — and the damage compounds, because every
+                         * later line inherits the drift. It renders as "the
+                         * model produced malformed output" when the engine's
+                         * own recorded text is perfectly formed.
+                         *
+                         * What the old guard was RIGHT about: an
+                         * `engine:text` carrying only whitespace paints a
+                         * bullet with nothing beside it. So the test moves from
+                         * "is this chunk worth keeping" to "is this chunk worth
+                         * EMITTING YET" — whitespace accumulates into the next
+                         * chunk instead of being thrown away, and reaches the
+                         * UI attached to the text it belongs to.
+                         */
+                        if (pending !== null && pending.trim()) {
                             group ??= crypto.randomUUID()
                             spoke = true
                             events.push({ type: "engine:text", content: pending, lang, chunk: { of: group } })
+                            pending = block.content
+                            break
                         }
-                        pending = block.content
+
+                        // Nothing emittable yet — keep what we have and let the
+                        // next delta carry it.
+                        pending = (pending ?? "") + block.content
                         break
 
                     case "text:done": {
                         if (block.incomplete) { truncated = "text"; break }
                         const last = pending ?? block.content
                         pending = null
-                        // Same rule as the delta path: a block whose whole
-                        // content is whitespace is a message the agent did not
-                        // write, and forwarding it produces an empty bubble.
-                        if (!last.trim()) break
+
+                        /**
+                         * An empty block is dropped; an OPEN GROUP is always
+                         * closed.
+                         *
+                         * These are two different questions and the old
+                         * `if (!last.trim()) break` answered both with one
+                         * test. A reply whose tail was whitespace — which is
+                         * most of them, since models end on a newline — lost
+                         * those characters AND never emitted `final: true`,
+                         * so the group stayed open in the consumer's fold
+                         * forever (`openGroups` in the timeline's incremental
+                         * fold keys on exactly that flag).
+                         *
+                         * So: if a group is open, the closing event goes out
+                         * carrying whatever the tail actually was, whitespace
+                         * included. Only a block that was NEVER opened and has
+                         * nothing visible is dropped — that is the empty
+                         * bubble the original guard existed to prevent, and it
+                         * is the only case where dropping loses nothing.
+                         */
+                        if (!group && !last.trim()) break
+
                         spoke = true
                         texts++
                         events.push(group
@@ -990,16 +1045,63 @@ export function Engine(opts: EngineOpts) {
             // The assertion states that invariant where it matters rather than
             // trusting the reader to re-derive it, and fails loudly if a future
             // change to `drain()` breaks it.
-            if (violations.length > 0 || texts > 1 || scripts > 1 || (!spoke && !acted)) {
-                if (streamedOut > 0) {
-                    // Not an EngineFailure: no provider did anything wrong.
-                    // This is an internal invariant of this loop, and it must
-                    // be unmissable rather than degrade into a duplicated reply.
-                    throw new Error(
-                        `AXON_INTERNAL: retry reached after ${streamedOut} block(s) already streamed to the caller — `
-                        + "drain() emitted something a retry path can still discard",
-                    )
-                }
+            // ── When a retry would discard what the user has already read ──
+            //
+            // A retry rewrites the attempt and asks again. That is only honest
+            // while the caller has been shown NOTHING — re-answering after a
+            // block reached the session leaves the discarded text on screen
+            // with its replacement underneath.
+            //
+            // This case is REACHABLE, and used to throw AXON_INTERNAL:
+            //
+            //     <text>...</text><text>second</text><done/>
+            //
+            // The first block closes, `texts` is 1, no retry path can fire, so
+            // drain() streams it — correct at that instant. The second block
+            // then makes `texts` 2, which IS a retry path, and by then the
+            // first block has crossed. The old assertion read that as a broken
+            // invariant and killed the wake; it was really the one shape where
+            // retrying and honesty genuinely conflict.
+            //
+            // Resolved in favour of what the user already has: keep the reply,
+            // drop the surplus blocks, and correct the model through the same
+            // fault channel a retry would have used. It learns the rule either
+            // way — the only difference is that it is not asked to say again
+            // what the user has already read.
+            //
+            // `streamedOut > 0` is the whole switch, and nothing else changes:
+            // a violation with nothing on screen (two scripts, an empty reply)
+            // still retries exactly as before, which is strictly better there
+            // because the user sees one clean answer instead of a partial one
+            // plus a correction.
+            const crossed = streamedOut > 0
+            if (crossed && (violations.length > 0 || texts > 1 || scripts > 1)) {
+                lastFault = violations.length > 0
+                    ? describeViolations(violations, violatingScript)
+                    : describeTooManyBlocks(texts, scripts)
+
+                // `rejected` carries the whole reply, so the surplus block is
+                // in the durable record rather than silently gone. Dropping
+                // content the model meant to send without a trace is how a
+                // graceful degradation becomes an invisible one.
+                await opts.fault({
+                    code: violations.length > 0 ? "OUTPUT_CONTRACT" : "OUTPUT_TOO_MANY_BLOCKS",
+                    message: lastFault,
+                    rejected: step.value?.text,
+                    attempt: attempt + 1,
+                })
+
+                // NOTHING further is yielded. `drain()` stopped the moment the
+                // surplus appeared, so everything from `streamedOut` on is
+                // exactly the part being dropped — yielding it would deliver
+                // the blocks this branch exists to refuse, and a dropped
+                // `<script>` would actually RUN.
+                //
+                // `acted` is reported as false for the same reason: no script
+                // crossed, so the loop's stop condition must not be told one
+                // did. `spoke` stays true — the text really was shown.
+                yield { type: "engine:done", response: step.value, spoke, acted: false, yielded }
+                return
             }
 
             if (violations.length === 0 && (texts > 1 || scripts > 1)) {
@@ -1049,7 +1151,18 @@ export function Engine(opts: EngineOpts) {
             // the difference between a diagnostic and a contradiction. The
             // model sent a `<script>`; telling it that it sent no script —
             // while quoting the script — leaves it nothing to correct.
-            if (violations.length === 0 && !spoke && !acted && truncated) {
+            // NOT gated on `!spoke`. A truncated block is malformed whether or
+            // not anything reached the screen, and text streams as it arrives —
+            // so `spoke` is already true by the time the missing `</text>` is
+            // known. Gating on it meant a truncated TEXT was always accepted
+            // (only a truncated script, which streams nothing, was ever
+            // caught), and any `<done/>` swallowed inside the unclosed block
+            // ended the turn: a long answer stopping mid-sentence, with the tag
+            // sitting in the prose.
+            //
+            // `!acted` stays: a reply that ran a script has committed a real
+            // side effect, and re-requesting it would run that script twice.
+            if (violations.length === 0 && !acted && truncated) {
                 lastFault = describeTruncatedBlock(truncated, step.value?.text)
                 lastFailure = "empty"
                 await opts.fault({ code: "OUTPUT_TRUNCATED", message: lastFault, rejected: step.value?.text, attempt: attempt + 1 })

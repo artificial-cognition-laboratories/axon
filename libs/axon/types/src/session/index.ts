@@ -1,5 +1,6 @@
 export type {
     AxonEvent,
+    AxonCommitContext,
     AxonEventContext,
     AxonEventUnion,
     AxonIngestedEvent,

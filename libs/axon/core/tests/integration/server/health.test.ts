@@ -106,7 +106,10 @@ describe("Agent health: identity", () => {
         const body = await response.json() as Record<string, unknown>
 
         expect("engine" in body).toBe(true)
-        expect(body.engine).toMatchObject({ provider: "mock", model: "mock" })
+        // `mock:default`, not `mock:mock`. Mock is a PROVIDER, and it was
+        // modelled as though it were a single model — which is why the pin
+        // read the same word twice. Its catalogue names its models now.
+        expect(body.engine).toMatchObject({ provider: "mock", model: "default" })
 
         await runtime.shutdown()
     })

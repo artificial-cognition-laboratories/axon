@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Prompt } from "../../../../../core/src/runtime/source/render"
 import type { AxonBlueprint } from "@arcforge/types"
 import { scanPromptPackage } from "../../../../src/build/blueprint/scan/promptPackages"
+import { describe, it, expect } from "bun:test"
 
 /**
  * Rendering an installed prompt through the runtime's own path.

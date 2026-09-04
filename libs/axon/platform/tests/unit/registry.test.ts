@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Registry } from "@arcforge/platform/services/registry"
+import { describe, it, expect, afterEach } from "bun:test"
 
 async function archive(root: string): Promise<ArrayBuffer> {
     const source = join(root, "source")
@@ -24,10 +25,10 @@ describe("registry source retrieval", () => {
         const root = await mkdtemp(join(tmpdir(), "axon-clone-"))
         try {
             const body = await archive(root)
-            globalThis.fetch = async () => new Response(body) as Response
+            globalThis.fetch = (async () => new Response(body)) as unknown as typeof fetch
             const registry = Registry({
                 cloud: { registry: { resolve: async () => ({ artifactId: "id", kind: "module" as const, name: "@axon/arxiv", version: "4.2.0", downloadUrl: "https://example.test/arxiv" }) } },
-                prepare: async root => { await writeFile(join(root, ".prepared"), "yes") },
+                prepare: async (root: string) => { await writeFile(join(root, ".prepared"), "yes") },
             } as any)
 
             const result = await registry.clone("@axon/arxiv", root)
@@ -44,10 +45,10 @@ describe("registry source retrieval", () => {
         const root = await mkdtemp(join(tmpdir(), "axon-fork-"))
         try {
             const body = await archive(root)
-            globalThis.fetch = async () => new Response(body) as Response
+            globalThis.fetch = (async () => new Response(body)) as unknown as typeof fetch
             const registry = Registry({
                 cloud: { registry: { resolve: async () => ({ artifactId: "id", kind: "module" as const, name: "@axon/arxiv", version: "4.2.0", downloadUrl: "https://example.test/arxiv" }) } },
-                prepare: async root => { await writeFile(join(root, ".prepared"), "yes") },
+                prepare: async (root: string) => { await writeFile(join(root, ".prepared"), "yes") },
             } as any)
 
             const result = await registry.fork("@axon/arxiv", root, { as: "@cody/arxiv-tools" })

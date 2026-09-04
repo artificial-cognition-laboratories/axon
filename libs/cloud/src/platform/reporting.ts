@@ -35,6 +35,51 @@ export function Reporting(opts: ReportingOpts) {
     const enabled = opts.enabled ?? true
     const endpoint = `${opts.baseUrl}/api/reports`
 
+    const pending = new Set<Promise<void>>()
+    const RETRY_DELAYS_MS = [0, 100, 500] as const
+
+    function bounded(report: ErrorReport): ErrorReport {
+        return {
+            ...report,
+            message: report.message.slice(0, 2_000),
+            ...(report.stack !== undefined ? { stack: report.stack.slice(0, 16_000) } : {}),
+            ...(report.cause !== undefined ? { cause: report.cause.slice(0, 2_000) } : {}),
+            ...(report.frames !== undefined ? { frames: report.frames.slice(0, 30) } : {}),
+        }
+    }
+
+    async function deliver(payload: ErrorReport): Promise<void> {
+        for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+            const delay = RETRY_DELAYS_MS[attempt] ?? 0
+            if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(5_000),
+                })
+                if (response.ok) return
+                // Validation, auth/rate limiting and every other 4xx are final.
+                if (response.status < 500) return
+            } catch {
+                // Transport and timeout failures use the same bounded budget.
+            }
+        }
+    }
+
+    function dispatch(payload: ErrorReport): void {
+        const task = deliver(payload)
+        pending.add(task)
+        void task.finally(() => pending.delete(task)).catch(() => {})
+    }
+
+    /** Wait only for reports already in flight. No new work is admitted here. */
+    async function flush(): Promise<void> {
+        await Promise.allSettled([...pending])
+    }
+
     /**
      * Same failure, same process, sent once.
      *
@@ -64,21 +109,14 @@ export function Reporting(opts: ReportingOpts) {
         const key = `${report.source}|${report.code ?? "-"}|${report.message}`
         if (!firstSend(key)) return
 
-        const payload: ErrorReport = {
+        const payload: ErrorReport = bounded({
             ...report,
             ...(opts.release !== undefined ? { release: opts.release } : {}),
             ...(opts.platform !== undefined ? { platform: opts.platform } : {}),
             ...(report.context !== undefined ? { context: scrubContext(report.context) } : {}),
-        }
+        })
 
-        // No await, no retry, no error surface — see the module doc.
-        void fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            // A report must never outlive the thing it is reporting on.
-            signal: AbortSignal.timeout(5000),
-        }).catch(() => {})
+        dispatch(payload)
     }
 
     /**
@@ -126,6 +164,7 @@ export function Reporting(opts: ReportingOpts) {
     return {
         send: send,
         httpFailure: httpFailure,
+        flush: flush,
     }
 }
 

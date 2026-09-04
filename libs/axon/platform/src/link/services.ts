@@ -1,7 +1,7 @@
 import { err } from "@arcforge/err"
 import { AxonSession } from "@arcforge/session"
 import { AxonBus } from "@arcforge/core"
-import type { AxonBlueprint, AxonEngineRawEvent, InferCall } from "@arcforge/types"
+import type { AxonBlueprint, AxonEngineRawEvent, EngineCapability, InferCall } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 import { Inference } from "@arcforge/core"
 
@@ -26,6 +26,8 @@ type ServicesOpts = {
     cloud: AxonCloudClient
     /** Where the log lives. Opened here, on the supervisor's side. */
     sessionId: string
+    /** The daemon-owned local inference bridge for this machine. */
+    local?: { catalogue(): Promise<EngineCapability[]>; run(model: string, prompt: string): Promise<string> }
 }
 
 export async function SupervisorSideServices(opts: ServicesOpts) {
@@ -53,7 +55,12 @@ export async function SupervisorSideServices(opts: ServicesOpts) {
      * providers over the network and building a driver from a credential,
      * which is exactly the work the boundary exists to keep out of the box.
      */
-    const engines = await Inference({ blueprint: opts.blueprint, cloud: opts.cloud, session })
+    const engines = await Inference({
+        blueprint: opts.blueprint,
+        cloud: opts.cloud,
+        session,
+        ...(opts.local ? { local: opts.local } : {}),
+    })
 
     return {
         session,

@@ -13,3 +13,8 @@
  * agent boundary moves out to the whole process.
  */
 export { procTree, appendOutput, type ProcNode, type ProcLogEvent } from "./tree"
+// The forest those trees hang in: agents, their subagents, and each one's
+// procs as a single structure. Shared because a subagent spawn produces a row
+// on two layers at once (a proc on the parent's log, an instance on the
+// daemon) and rejoining them is the same problem for every surface.
+export { forest, childrenOf, flatten, type ForestAgent, type ForestNode, type Indented } from "./forest"

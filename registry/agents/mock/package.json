@@ -5,12 +5,12 @@
   "private": false,
   "type": "module",
   "dependencies": {
-    "@arcforge/types": "2.0.153",
-    "@arcforge/engines": "2.0.153",
+    "@arcforge/types": "2.0.169",
+    "@arcforge/engines": "2.0.169",
     "h3": "^1.13.0",
-    "@arcforge/cognet": "2.0.153",
-    "@arcforge/air": "2.0.153",
-    "@axon/zero": "^1.0.34"
+    "@arcforge/cognet": "2.0.169",
+    "@arcforge/air": "2.0.169",
+    "@axon/zero": "^1.0.44"
   },
   "axon": {
     "trackedFrom": {

@@ -1,4 +1,27 @@
-import ts from "typescript"
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~190-220ms to load, and it was being pulled into every
+ * `axon` invocation through this module's import chain — before argument
+ * parsing, before any command ran, before a character reached the screen.
+ * `axon dev` showing nothing for a second was largely this.
+ *
+ * Nothing here touches `ts` at module scope; every reference is inside a
+ * function body. So deferring costs the first caller the load and every
+ * command that parses no source file nothing at all.
+ *
+ * `require`, not `await import`: these APIs are synchronous and making them
+ * async would ripple through every caller for no gain. The type import above
+ * is erased at compile time, which keeps every `ts.X` annotation unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 import { err } from "@arcforge/err"
 
 /**
@@ -105,7 +128,7 @@ function inlineable(text: string): string {
  * what makes a re-exported package type render as its actual shape.
  */
 function targetSymbol(symbol: ts.Symbol, checker: ts.TypeChecker): ts.Symbol {
-    if ((symbol.flags & ts.SymbolFlags.Alias) === 0) return symbol
+    if ((symbol.flags & tsc().SymbolFlags.Alias) === 0) return symbol
     try {
         const aliased = checker.getAliasedSymbol(symbol)
         return aliased.getDeclarations()?.length ? aliased : symbol
@@ -124,10 +147,10 @@ function declarationNode(symbol: ts.Symbol): ts.Declaration | undefined {
     const declarations = symbol.getDeclarations() ?? []
     for (const declaration of declarations) {
         if (
-            ts.isInterfaceDeclaration(declaration)
-            || ts.isTypeAliasDeclaration(declaration)
-            || ts.isClassDeclaration(declaration)
-            || ts.isEnumDeclaration(declaration)
+            tsc().isInterfaceDeclaration(declaration)
+            || tsc().isTypeAliasDeclaration(declaration)
+            || tsc().isClassDeclaration(declaration)
+            || tsc().isEnumDeclaration(declaration)
         ) {
             return declaration
         }
@@ -155,34 +178,34 @@ function referencedSymbols(node: ts.Node, checker: ts.TypeChecker): ts.Symbol[] 
         // cases below never see it. This is the form an author uses to say "this
         // package type is part of what I expose", and honouring it is the whole
         // point of accepting the re-export.
-        if (ts.isExportSpecifier(current)) {
+        if (tsc().isExportSpecifier(current)) {
             const symbol = checker.getSymbolAtLocation(current.name)
             if (symbol) found.push(symbol)
             return
         }
         // The NAME of the declaration itself is not a reference to anything.
-        if (ts.isTypeReferenceNode(current)) {
-            const name = ts.isQualifiedName(current.typeName) ? current.typeName.right : current.typeName
+        if (tsc().isTypeReferenceNode(current)) {
+            const name = tsc().isQualifiedName(current.typeName) ? current.typeName.right : current.typeName
             const symbol = checker.getSymbolAtLocation(name)
             if (symbol) found.push(symbol)
-        } else if (ts.isExpressionWithTypeArguments(current) && ts.isIdentifier(current.expression)) {
+        } else if (tsc().isExpressionWithTypeArguments(current) && tsc().isIdentifier(current.expression)) {
             // `interface A extends B` / `class A implements B` — B is a real
             // reference the model needs, and it is not a TypeReferenceNode.
             const symbol = checker.getSymbolAtLocation(current.expression)
             if (symbol) found.push(symbol)
-        } else if (ts.isTypeQueryNode(current)) {
+        } else if (tsc().isTypeQueryNode(current)) {
             // `typeof x` — the thing being queried is referenced.
-            const name = ts.isQualifiedName(current.exprName) ? current.exprName.right : current.exprName
+            const name = tsc().isQualifiedName(current.exprName) ? current.exprName.right : current.exprName
             const symbol = checker.getSymbolAtLocation(name)
             if (symbol) found.push(symbol)
         }
-        ts.forEachChild(current, visit)
+        tsc().forEachChild(current, visit)
     }
 
     // Skip the declaration's own name so `type Node = ...` does not resolve
     // itself as a reference on the first step.
-    ts.forEachChild(node, child => {
-        if ((ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) && child === node.name) return
+    tsc().forEachChild(node, child => {
+        if ((tsc().isInterfaceDeclaration(node) || tsc().isTypeAliasDeclaration(node) || tsc().isClassDeclaration(node) || tsc().isEnumDeclaration(node)) && child === node.name) return
         visit(child)
     })
 
@@ -246,7 +269,7 @@ export function resolveSignatureTypes(nodes: ts.Node[], opts: ResolveOpts): Reso
     for (const node of nodes) {
         // An export specifier is itself the reference; everything else is a
         // container whose type positions are walked.
-        if (ts.isExportSpecifier(node)) {
+        if (tsc().isExportSpecifier(node)) {
             const symbol = opts.checker.getSymbolAtLocation(node.name)
             if (symbol) collect(symbol, opts, seen, out)
             continue
@@ -342,19 +365,19 @@ export function rewriteImportPaths(declaration: string, resolved: ResolvedType[]
  * the signature carrying it, so it is resolvable without being inlined.
  */
 function typeNamesIn(declaration: string): string[] {
-    const src = ts.createSourceFile("d.d.ts", `declare ${declaration};`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const src = tsc().createSourceFile("d.d.ts", `declare ${declaration};`, tsc().ScriptTarget.Latest, true, tsc().ScriptKind.TS)
     const names: string[] = []
     const bound = new Set<string>()
 
     function visit(node: ts.Node): void {
-        if (ts.isTypeParameterDeclaration(node)) bound.add(node.name.getText(src))
-        if (ts.isTypeReferenceNode(node)) {
+        if (tsc().isTypeParameterDeclaration(node)) bound.add(node.name.getText(src))
+        if (tsc().isTypeReferenceNode(node)) {
             // Only the LEFTMOST name of a qualified reference is a lookup;
             // `A.B` resolves B within A, so B is not independently declared.
-            const root = ts.isQualifiedName(node.typeName) ? leftmost(node.typeName) : node.typeName
+            const root = tsc().isQualifiedName(node.typeName) ? leftmost(node.typeName) : node.typeName
             names.push(root.getText(src))
         }
-        ts.forEachChild(node, visit)
+        tsc().forEachChild(node, visit)
     }
     visit(src)
 
@@ -363,7 +386,7 @@ function typeNamesIn(declaration: string): string[] {
 
 function leftmost(name: ts.QualifiedName): ts.Identifier {
     let current: ts.EntityName = name
-    while (ts.isQualifiedName(current)) current = current.left
+    while (tsc().isQualifiedName(current)) current = current.left
     return current
 }
 

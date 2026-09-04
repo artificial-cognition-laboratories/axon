@@ -2,6 +2,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Routes, parseRouteFile } from "@arcforge/platform/build/blueprint/scan/routes"
+import { describe, it, expect } from "bun:test"
 
 describe("parseRouteFile", () => {
     it("a bare filename with no method suffix is ANY", () => {

@@ -23,5 +23,6 @@ import { MockCommands } from "./src/mock/engine"
 export default defineAgent({
     // A provider like any other — MockCommands() returns a ProviderEntry, so
     // every role resolves against it and nothing reaches a network.
+    model: "mock:mock",
     providers: [MockCommands()],
 })

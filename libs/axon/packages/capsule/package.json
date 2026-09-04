@@ -1,12 +1,13 @@
 {
     "name": "@arcforge/capsule",
-    "version": "0.1.0",
+    "version": "2.0.187",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {
         ".": "./src/index.ts",
         "./legacy": "./src/index.ts",
-        "./userspace": "./src/host/userspace.ts"
+        "./userspace": "./src/host/userspace.ts",
+        "./materialize": "./src/process/materialize.ts"
     },
     "files": [
         "src",

@@ -112,15 +112,24 @@ export function Blueprint(opts: BlueprintOpts) {
             // Authored truth — a broken config is no agent. Throws.
             const config = await Config(root)
 
-            // `engine:` is deprecated and READ BY NOTHING. Warn rather than
-            // throw for the window: an agent carrying it already boots on the
-            // profile pool, so failing now would break working agents to tell
-            // them about a field that was being ignored anyway. The warning is
-            // the only signal an author gets that their declared model is not
-            // the one running.
+            // `engine:` is READ BY NOTHING, and now REFUSED.
+            //
+            // It warned for a deprecation window on the reasoning that an
+            // agent carrying it already booted on the profile pool, so
+            // failing would break working agents over a field that was being
+            // ignored anyway. That reasoning had the cost backwards. An agent
+            // whose config names a mock engine and silently resolves against
+            // the profile pool does not degrade — it runs on a DIFFERENT,
+            // billed provider while claiming otherwise, and a warning nobody
+            // reads is not a signal. Nine test fixtures declared `engine:
+            // Mock()` and spent real credits on every run for exactly as long
+            // as this was a warning.
+            //
+            // Fatal is the honest severity: the config asks for inference
+            // this runtime will not provide, and refusing at load is the only
+            // point where the author still knows why.
             if ("engine" in config.value && config.value.engine !== undefined) {
-                const cause = err("CONFIG_ENGINE_DEPRECATED", { context: { root } })
-                warnings.push({ domain: "config", error: cause.message, cause })
+                throw err("CONFIG_ENGINE_DEPRECATED", { context: { root } })
             }
 
             // Before the scan, never after: Cognet.read() below reads exactly

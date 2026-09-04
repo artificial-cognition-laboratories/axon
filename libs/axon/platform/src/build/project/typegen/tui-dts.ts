@@ -83,6 +83,8 @@ ${TUI_CONTRACT}
      * ProviderEntry itself is spelled out in tui.ts.
      */
     function Axon(options?: ProviderOptions): ProviderEntry
+    function Local(options?: ProviderOptions): ProviderEntry
+    function Local(options?: ProviderOptions): ProviderEntry
     function Codex(options?: ProviderOptions): ProviderEntry
     function OpenRouter(options?: ProviderOptions): ProviderEntry
     function Ollama(options?: ProviderOptions): ProviderEntry

@@ -15,6 +15,7 @@
  */
 
 import type { AxonEntry, AxonScope } from "@arcforge/types"
+import type { PreflightTurn } from "./render/preflight"
 
 // ── Messages ─────────────────────────────────────────────────────────────────
 
@@ -60,14 +61,44 @@ export type AirTextLang = "md" | "json"
 
 export type AirRenderInput = {
     /**
-     * Suppress the protocol's opening demonstration exchange.
+     * An exchange the agent already had, rendered as real turns ahead of the
+     * conversation.
      *
-     * Off by default: the preflight is part of what makes a reply well-formed
-     * (see `Protocol.preflight`), so omitting it silently would change model
-     * behaviour. Set by callers that want ONLY the conversation they supplied
-     * — a test asserting its own turns, a tool rendering a transcript.
+     * The contract DESCRIBES the grammar; this DEMONSTRATES it. Models were
+     * opening every run with four or five `<script>` blocks at once — before
+     * any history existed to shape them — because a fenced example inside a
+     * system block is a description of a format, and what a model actually
+     * continues is a conversation. On turn one there was no conversation to
+     * continue, so it fell back on generic agent priors.
+     *
+     * ── Why the CALLER supplies it ──────────────────────────────────────────
+     *
+     * It used to live on the protocol, which put "what should the model see
+     * first" inside the definition of the grammar. Those are different
+     * decisions with different owners: a protocol says what a well-formed
+     * reply looks like and is the same for everyone using it, while a
+     * preflight is CONTENT written in that grammar — the trajectory this
+     * particular agent should start on. A cognet may want a different opening
+     * for a different job, and the same seam is what a user-selected
+     * personality would eventually arrive through.
+     *
+     * The wider point: a demonstrated trajectory outlives a stated rule. A
+     * rule sits in the system block and decays as it slides out of attention;
+     * a continued conversation keeps being continued, and once a model has
+     * held a pattern for tens of thousands of tokens it no longer needs the
+     * turns that started it.
+     *
+     * Deliberately UNMARKED — no attribute saying these are examples. Few-shot
+     * works because the turns are indistinguishable from real ones; labelling
+     * them as fake invites the model to discount them, and every attribute we
+     * invent is one more thing it may copy into its own output (which is
+     * exactly how `<agent>` and `from="agent"` ended up in replies).
+     *
+     * Omitted means none. There is no separate suppression flag: a caller that
+     * wants only the conversation it supplied — a test asserting its own
+     * turns, a tool rendering a transcript — passes nothing.
      */
-    preflight?: false
+    preflight?: readonly PreflightTurn[]
 
     /** Base context — the agent's identity contract. Rendered as <system>. */
     base?: string

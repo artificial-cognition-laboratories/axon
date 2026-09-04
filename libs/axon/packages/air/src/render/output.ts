@@ -90,7 +90,16 @@ export function formatCapsuleOutput(content: string): string {
             if ("op" in obj) opRecords.push(obj)
             else if ("procId" in obj && "command" in obj) {
                 const tail = obj.tail ? `\n${obj.tail}` : ""
-                return `spawned  ${obj.command}  procId=${obj.procId}  pid=${obj.pid ?? "?"}  status=${obj.status ?? "running"}${tail}`
+                // NO `?? "running"`. A handle serialised before its spawn
+                // settled reports status "pending" and no pid, and inventing
+                // "running" for it is how a refused spawn and a launching one
+                // became indistinguishable on the way to the model.
+                const status = typeof obj.status === "string" ? obj.status : "pending"
+                const pid = typeof obj.pid === "number" ? `  pid=${obj.pid}` : ""
+                const hint = status === "pending"
+                    ? "  (await handle.started to confirm it launched)"
+                    : ""
+                return `spawned  ${obj.command}  procId=${obj.procId}${pid}  status=${status}${hint}${tail}`
             } else break
         } catch {
             break

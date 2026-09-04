@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK_PUBLISHED } from "../../../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 function disposableName(prefix: string): string {
     return `@${TEST_USER.username}/test-${prefix}-${crypto.randomUUID().slice(0, 8)}`
@@ -59,8 +60,16 @@ describe("installer: track latest", () => {
 
             const tracked = await agent.modules.install([module_.name], { declare: false, track: "latest" })
 
-            expect(tracked[0]?.status).toBe("installed")
-            expect(tracked[0]?.version).toBe("0.2.0")
+            // Narrowed rather than read through `?.`: InstallResult is a
+            // union and `version` exists only on the installed variants, so
+            // reading it off the union is a claim the type cannot back. The
+            // assertion below is what makes it true — stating it that way
+            // means a future variant without a version fails here rather than
+            // silently comparing against undefined.
+            const result = tracked[0]
+            expect(result?.status).toBe("installed")
+            if (result?.status !== "installed") throw new Error(`expected an install, got ${JSON.stringify(result)}`)
+            expect(result.version).toBe("0.2.0")
             expect(await declaredRange(agent.root, module_.name)).toBe("^0.2.0")
         } finally {
             await rm(storeDir, { recursive: true, force: true })

@@ -54,12 +54,24 @@ describe("kernel failure: engine errors", () => {
         await runtime.shutdown()
     })
 
-    it("an agent with no inference refuses to boot, rather than failing at the first call", async () => {
+    it("boots on the implicit pool rather than failing at the first call", async () => {
         // A cognet declaring an engine role that nothing can fill is a
         // misconfiguration the runtime can see BEFORE the brain loads — so it
         // fails there, naming the unfilled role, instead of booting an agent
         // that will reach for a model mid-wake and die holding a conversation.
-        await expect(Axon({ blueprint: { config: { providers: [] } } }))
-            .rejects.toMatchObject({ code: "AX-ENGINE-003" })
+        // ENGINE_REQUIREMENTS_UNMET is still what that failure is.
+        //
+        // What changed is the TRIGGER. `providers: []` used to reach it, and
+        // does not any more: `axon` and `mock` are implicit (see
+        // providerPool), so an empty array is a pool of two rather than a pool
+        // of none. A role mock can serve is therefore filled, and the agent
+        // boots — which is the better outcome for the case that actually
+        // occurs, a user who cleared their providers and wants a usable
+        // terminal rather than a crash.
+        const runtime = await Axon({ blueprint: { config: { providers: [] } } })
+
+        expect(runtime.kernel.engines?.has("main")).toBe(true)
+
+        await runtime.shutdown()
     })
 })

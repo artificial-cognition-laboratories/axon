@@ -1,5 +1,34 @@
-import ts from "typescript"
+import type ts from "typescript"
+
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` costs ~223ms to load — roughly half of `@arcforge/platform`'s
+ * entire import time, which every `axon` invocation paid before a single line
+ * of any command ran. `axon dev` printing nothing for a second was mostly
+ * this: the progress surface could not paint because its own module graph was
+ * still loading a compiler it had no use for.
+ *
+ * Nothing here touches `ts` at module scope — every reference is inside a
+ * function body — so deferring the load costs the first caller ~223ms and
+ * every command that never parses a source file nothing at all.
+ *
+ * `require`, not `await import`: these are SYNCHRONOUS APIs
+ * (`readSettingsSync` is named for it, and is called during Platform()'s own
+ * settings read), so making them async would ripple through every caller for
+ * no gain. Bun resolves this from the same graph either way.
+ *
+ * The type import above is erased at compile time and carries no runtime cost,
+ * which is what keeps every `ts.SourceFile` annotation below unchanged.
+ */
+let _ts: typeof ts | undefined
+function tsc(): typeof ts {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+    return (_ts ??= require("typescript") as typeof ts)
+}
+
 import { readFile, writeFile } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { err } from "@arcforge/err"
 import { fsx } from "../../utils/fs"
@@ -59,21 +88,21 @@ function locate(path: string, text: string, field = "extensions"): Located | nul
     const visit = (node: ts.Node): void => {
         if (found) return
         if (
-            ts.isCallExpression(node)
-            && ts.isIdentifier(node.expression)
+            tsc().isCallExpression(node)
+            && tsc().isIdentifier(node.expression)
             && node.expression.text === "defineProfile"
             && node.arguments.length > 0
         ) {
             const arg = node.arguments[0]
-            if (arg && ts.isObjectLiteralExpression(arg)) {
+            if (arg && tsc().isObjectLiteralExpression(arg)) {
                 const value = tsast.prop(arg, field)
-                if (value && ts.isArrayLiteralExpression(value)) {
+                if (value && tsc().isArrayLiteralExpression(value)) {
                     found = value
                     return
                 }
             }
         }
-        ts.forEachChild(node, visit)
+        tsc().forEachChild(node, visit)
     }
     visit(source)
 
@@ -95,7 +124,7 @@ function locateObject(path: string, text: string): { object: ts.ObjectLiteralExp
     tsast.visitCalls(source, "defineProfile", call => {
         if (found) return
         const arg = call.arguments[0]
-        if (arg && ts.isObjectLiteralExpression(arg)) found = arg
+        if (arg && tsc().isObjectLiteralExpression(arg)) found = arg
     })
 
     return found ? { object: found, source } : null
@@ -103,10 +132,10 @@ function locateObject(path: string, text: string): { object: ts.ObjectLiteralExp
 
 /** The `source` string of one entry — a bare string, or the `source:` of an object form. */
 function sourceOf(element: ts.Expression): string | null {
-    if (ts.isStringLiteralLike(element)) return element.text
-    if (ts.isObjectLiteralExpression(element)) {
+    if (tsc().isStringLiteralLike(element)) return element.text
+    if (tsc().isObjectLiteralExpression(element)) {
         const value = tsast.prop(element, "source")
-        return value && ts.isStringLiteralLike(value) ? value.text : null
+        return value && tsc().isStringLiteralLike(value) ? value.text : null
     }
     return null
 }
@@ -270,7 +299,7 @@ function indentOf(text: string, offset: number): number {
  * result that does not parse is never written.
  */
 function verified(next: string, path: string): string {
-    const parsed = ts.createSourceFile(path, next, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const parsed = tsc().createSourceFile(path, next, tsc().ScriptTarget.Latest, true, tsc().ScriptKind.TS)
     // `parseDiagnostics` is not on the public type but is populated by the
     // parser; an empty list is the only acceptable outcome here.
     const diagnostics = (parsed as unknown as { parseDiagnostics?: readonly unknown[] }).parseDiagnostics ?? []
@@ -300,18 +329,18 @@ function locateConfig(path: string, text: string): { object: ts.ObjectLiteralExp
     const visit = (node: ts.Node): void => {
         if (found) return
         if (
-            ts.isCallExpression(node)
-            && ts.isIdentifier(node.expression)
+            tsc().isCallExpression(node)
+            && tsc().isIdentifier(node.expression)
             && node.expression.text === "defineProfile"
             && node.arguments.length > 0
         ) {
             const arg = node.arguments[0]
-            if (arg && ts.isObjectLiteralExpression(arg)) {
+            if (arg && tsc().isObjectLiteralExpression(arg)) {
                 found = arg
                 return
             }
         }
-        ts.forEachChild(node, visit)
+        tsc().forEachChild(node, visit)
     }
     visit(source)
 
@@ -323,12 +352,42 @@ export async function readSettings(profileRoot: string): Promise<Record<string, 
     const path = configPath(profileRoot)
     if (!fsx.exists(path)) return {}
 
-    const text = await readFile(path, "utf-8")
+    return settingsOf(path, await readFile(path, "utf-8"))
+}
+
+/**
+ * The same read, synchronously.
+ *
+ * Exists because `extraRoots()` is synchronous and so is every caller of it —
+ * an agent scan, a session listing, a name resolution. Those cannot await, so
+ * before this the only way `paths` reached them was a cache someone had
+ * remembered to fill by calling `refreshSettings()` first.
+ *
+ * The TUI fills that cache inside `extensions.load()`, which is deliberately
+ * NOT awaited before the first frame (a cold install must not hold up the
+ * terminal). So there was a window — seconds, longer on a cold start — where
+ * every watched root was invisible: `^` reported "no past sessions" for an
+ * agent with 563 of them on disk, silently, because an empty list is exactly
+ * what a genuinely new agent looks like.
+ *
+ * This is an AST read of one file — no import, no evaluation, no lock — which
+ * is the same reason `readPolicy` is safe to call on every agent load. The
+ * cost is a file read and a parse, and it happens once per cache fill.
+ */
+export function readSettingsSync(profileRoot: string): Record<string, unknown> {
+    const path = configPath(profileRoot)
+    if (!fsx.exists(path)) return {}
+
+    return settingsOf(path, readFileSync(path, "utf-8"))
+}
+
+/** The shared parse — one implementation, so the two readers cannot disagree. */
+function settingsOf(path: string, text: string): Record<string, unknown> {
     const located = locateConfig(path, text)
     if (!located) return {}
 
     const value = tsast.prop(located.object, "settings")
-    if (!value || !ts.isObjectLiteralExpression(value)) return {}
+    if (!value || !tsc().isObjectLiteralExpression(value)) return {}
     return literalOf(value) as Record<string, unknown>
 }
 
@@ -359,7 +418,7 @@ export async function readPolicy(profileRoot: string): Promise<Record<string, un
     if (!located) return {}
 
     const value = tsast.prop(located.object, "policy")
-    if (!value || !ts.isObjectLiteralExpression(value)) return {}
+    if (!value || !tsc().isObjectLiteralExpression(value)) return {}
     return literalOf(value) as Record<string, unknown>
 }
 
@@ -419,13 +478,13 @@ export async function setSetting(profileRoot: string, key: string, value: unknow
     const current = await readSettings(profileRoot)
     if (JSON.stringify(current[key]) === JSON.stringify(value)) return { changed: false }
 
-    if (settings && ts.isObjectLiteralExpression(settings)) {
+    if (settings && tsc().isObjectLiteralExpression(settings)) {
         const existing = settings.properties.find(
-            prop => ts.isPropertyAssignment(prop) && nameOf(prop.name) === key,
+            prop => tsc().isPropertyAssignment(prop) && nameOf(prop.name) === key,
         )
         const inner = indentOf(text, settings.getStart(located.source)) + 4
 
-        if (existing && ts.isPropertyAssignment(existing)) {
+        if (existing && tsc().isPropertyAssignment(existing)) {
             // Replace just the value, so the key keeps its place in the block.
             const next = text.slice(0, existing.initializer.getStart(located.source))
                 + render(value, inner)
@@ -485,8 +544,8 @@ export async function setSetting(profileRoot: string, key: string, value: unknow
 
 /** A property key as written — identifier or string literal. */
 function nameOf(name: ts.PropertyName): string | null {
-    if (ts.isIdentifier(name)) return name.text
-    if (ts.isStringLiteralLike(name)) return name.text
+    if (tsc().isIdentifier(name)) return name.text
+    if (tsc().isStringLiteralLike(name)) return name.text
     return null
 }
 
@@ -496,15 +555,15 @@ function nameOf(name: ts.PropertyName): string | null {
  * be worse than reporting the key as unset.
  */
 function literalOf(node: ts.Expression): unknown {
-    if (ts.isStringLiteralLike(node)) return node.text
-    if (ts.isNumericLiteral(node)) return Number(node.text)
-    if (node.kind === ts.SyntaxKind.TrueKeyword) return true
-    if (node.kind === ts.SyntaxKind.FalseKeyword) return false
-    if (ts.isArrayLiteralExpression(node)) return node.elements.map(literalOf)
-    if (ts.isObjectLiteralExpression(node)) {
+    if (tsc().isStringLiteralLike(node)) return node.text
+    if (tsc().isNumericLiteral(node)) return Number(node.text)
+    if (node.kind === tsc().SyntaxKind.TrueKeyword) return true
+    if (node.kind === tsc().SyntaxKind.FalseKeyword) return false
+    if (tsc().isArrayLiteralExpression(node)) return node.elements.map(literalOf)
+    if (tsc().isObjectLiteralExpression(node)) {
         const out: Record<string, unknown> = {}
         for (const prop of node.properties) {
-            if (!ts.isPropertyAssignment(prop)) continue
+            if (!tsc().isPropertyAssignment(prop)) continue
             const key = nameOf(prop.name)
             if (key !== null) out[key] = literalOf(prop.initializer)
         }
@@ -554,13 +613,13 @@ function render(value: unknown, indent: number): string {
  * touching it would be worse than ignoring it.
  */
 function factoryOf(element: ts.Expression): string | null {
-    if (!ts.isCallExpression(element)) return null
-    return ts.isIdentifier(element.expression) ? element.expression.text : null
+    if (!tsc().isCallExpression(element)) return null
+    return tsc().isIdentifier(element.expression) ? element.expression.text : null
 }
 
 /** Whether a `providers:` element was written with options — `Ollama({ url })` rather than `Ollama()`. */
 function hasOptions(element: ts.Expression): boolean {
-    return ts.isCallExpression(element) && element.arguments.length > 0
+    return tsc().isCallExpression(element) && element.arguments.length > 0
 }
 
 /** The provider factories a profile declares, in order. */

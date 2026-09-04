@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { serve, connect, type LinkChannels, type SocketPaths } from "../../../src/socket"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 
 /**
  * The transport over REAL unix sockets.
@@ -48,7 +49,7 @@ describe("link transport — over real unix sockets", () => {
 
     it("round-trips a call across a real socket", async () => {
         const { client } = await link({ call: async (verb, arg) => `${verb}/${arg}` })
-        expect(await client.control.call("ping", "1")).toBe("ping/1")
+        expect(await client.control.call<string>("ping", "1")).toBe("ping/1")
     })
 
     it("carries a payload far larger than one socket write", async () => {
@@ -56,7 +57,7 @@ describe("link transport — over real unix sockets", () => {
         // split this across many reads.
         const big = "x".repeat(4 * 1024 * 1024)
         const { client } = await link({ call: async (_v, arg) => (arg as string).length })
-        expect(await client.data.call("size", big)).toBe(big.length)
+        expect(await client.data.call<number>("size", big)).toBe(big.length)
     })
 
     it("keeps many rapid sends in order", async () => {
@@ -118,7 +119,7 @@ describe("link transport — over real unix sockets", () => {
         // A dead peer must be an error. The capsule's equivalent path swallowed
         // the failure and left the caller waiting on its own signal.
         const { client } = await link({ call: () => new Promise(() => {}) })
-        const pending = client.control.call("never", null)
+        const pending = client.control.call<string>("never", null)
         server!.close()
         await expect(pending).rejects.toThrow()
     })

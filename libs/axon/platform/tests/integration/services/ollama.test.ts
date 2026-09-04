@@ -1,4 +1,5 @@
 import { Ollama } from "@arcforge/platform/services/ollama"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The programmatic Ollama interface, against the real daemon.

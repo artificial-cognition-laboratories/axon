@@ -30,7 +30,7 @@ import { Mock } from "@arcforge/engines/mock"
 describe("discord module", () => {
     it("registers the discord tool namespace", async () => {
         const runtime = await Axon({
-            blueprint: { config: { engine: Mock() } },
+            blueprint: { config: { providers: [Mock()] } },
         })
 
         expect(runtime.axon.tools.discord).toBeDefined()
@@ -47,7 +47,7 @@ via `runtime.axon.tools.*` — no agent loop involved, just the function.
 
 ```ts
 it("queue returns empty state when nothing is playing", async () => {
-    const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+    const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
     const state = await runtime.axon.tools.discord.queue(guildId)
     expect(state).toEqual({ current: null, upcoming: [] })
@@ -67,7 +67,7 @@ template regressions — broken variable interpolation, missing sections, stale 
 
 ```ts
 it("renders the discord prompt with required props", async () => {
-    const runtime = await Axon({ blueprint: { config: { engine: Mock() } } })
+    const runtime = await Axon({ blueprint: { config: { providers: [Mock()] } } })
 
     const prompt = await runtime.axon.prompt("discord", {
         content: "hello",

@@ -1,10 +1,14 @@
 import { request as httpRequest } from "node:http"
-import { err } from "@arcforge/err"
+import { err, errorMap, type AxonErrorCode } from "@arcforge/err"
 import { daemonPaths, Lifecycle } from "./control/index"
 import type { AgentRecord, AgentsState } from "./agents/index"
 import type { ModelRecord, ModelsState } from "./models/index"
+import type { Download } from "./models/downloads"
+import type { Actor, Job, JobsState } from "./jobs/index"
 import type { Admission, MachineState } from "./machine/index"
 import type { DaemonPaths, DaemonStarted, DaemonStatus } from "../types/index"
+import type { AgentSchedule, CreateSchedule, ScheduleState, UpdateSchedule, ScheduleResult } from "./schedule/schedule"
+import type { DictationState, Dictated } from "./dictation/dictation"
 
 export type AxonDaemonOpts = {
     /** Override where the socket lives. Tests point this at a scratch dir. */
@@ -98,6 +102,13 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
         machine: {
             /** Everything the machine reports: identity, capacity, usage, holds, history. */
             state: () => call(["machine", "state"]) as Promise<MachineState>,
+            /**
+             * Say that this client is drawing the readings, for the next `ms`.
+             *
+             * Renewed every tick by a watcher. See Machine.watching on why a
+             * lease and not the in-process ref-count.
+             */
+            watching: (ms: number) => call(["machine", "watching"], ms) as Promise<boolean>,
             /** Would `bytes` fit right now? Refuses with the holders named. */
             admit: (bytes: number) => call(["machine", "admit"], bytes) as Promise<Admission>,
         },
@@ -106,19 +117,76 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             list: () => call(["agents", "list"]) as Promise<AgentRecord[]>,
             /** Everything the domain reports: the agents, and the roots scanned. */
             state: () => call(["agents", "state"]) as Promise<AgentsState>,
+            /** Every agent project on this machine, running or not. */
+            installed: () => call(["agents", "installed"]) as Promise<unknown[]>,
             /** Stop one agent. False when nothing by that id was running. */
             stop: (sessionId: string) => call(["agents", "stop"], sessionId) as Promise<boolean>,
         },
+        jobs: {
+            /** Every job on this machine, newest first, plus where they live. */
+            state: () => call(["jobs", "state"]) as Promise<JobsState>,
+            /** Only what still wants something to happen. */
+            open: () => call(["jobs", "open"]) as Promise<Job[]>,
+            /** One job by ref or full id. Null when nothing matches. */
+            at: (ref: string) => call(["jobs", "at"], ref) as Promise<Job | null>,
+            /** Delegate work. `by` is the actor — see Actor on what makes a human mark real. */
+            create: (input: { content: string; by: Actor; title?: string; agent?: string | null; cwd?: string | null }) =>
+                call(["jobs", "create"], input) as Promise<Job>,
+            /** Add a turn. A person's turn on a blocked job unblocks it. */
+            say: (input: { ref: string; text: string; by: Actor }) => call(["jobs", "say"], input) as Promise<Job>,
+            /** Mark it dealt with. Refused for an agent actor. */
+            acknowledge: (input: { ref: string; by: Actor }) => call(["jobs", "acknowledge"], input) as Promise<Job>,
+            /** Stop it. Refused for an agent actor. */
+            cancel: (input: { ref: string; by: Actor }) => call(["jobs", "cancel"], input) as Promise<Job>,
+            /** Run it again on the same thread. Refused for an agent actor. */
+            retry: (input: { ref: string; by: Actor }) => call(["jobs", "retry"], input) as Promise<Job>,
+        },
+        /** Who is signed in on this machine. */
+        identity: {
+            read: () => call(["identity", "read"]) as Promise<{ signedIn: boolean; email: string | null }>,
+        },
+
+        /** The daemon's named preferences — switches, and choices with more than two values. */
+        preferences: {
+            /** Every preference currently set. */
+            all: () => call(["preferences", "all"]) as Promise<Record<string, unknown>>,
+            /** Declare one. Strings as well as switches — see Preferences.text(). */
+            set: (input: { key: string; value: boolean | string }) =>
+                call(["preferences", "set"], input) as Promise<boolean | string>,
+        },
+
         models: {
             /** Everything the domain reports: what is cached, what is resident, where the cache lives. */
             state: () => call(["models", "state"]) as Promise<ModelsState>,
             /** Re-read what is on disk. */
             refresh: () => call(["models", "refresh"]) as Promise<ModelRecord[]>,
+            /** Local generation models this daemon can serve right now. */
+            local: () => call(["models", "local"]) as Promise<import("@arcforge/types").EngineCapability[]>,
             /** Load a weight into memory and take a hold on it. */
             load: (input: { path: string; model: string; agent: string; role: string }) =>
                 call(["models", "load"], input) as Promise<ModelRecord>,
+            /** Load a cached weight because a person asked. See models.pin. */
+            pin: (model: string) => call(["models", "pin"], model) as Promise<ModelRecord>,
             /** Unload it and release the hold. False when it was not loaded. */
             unload: (model: string) => call(["models", "unload"], model) as Promise<boolean>,
+            /**
+             * Run one inference against a weight that is already resident.
+             *
+             * `unknown` in and out, exactly as the adapter contract has it: a
+             * transcript, a vector and a completion are different shapes, and
+             * a client that typed this would be inventing a taxonomy the
+             * daemon deliberately does not have.
+             */
+            run: (input: { model: string; input: unknown }) =>
+                call(["models", "run"], input) as Promise<unknown>,
+            /**
+             * Delete a cached weight from disk.
+             *
+             * Has to reach the DAEMON rather than acting locally: removal
+             * unloads first, and the holds live in the daemon's memory. A
+             * local delete frees bytes a daemon process still has mapped.
+             */
+            remove: (model: string) => call(["models", "remove"], model) as Promise<boolean>,
             /**
              * Download a weight to this machine.
              *
@@ -133,13 +201,69 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
                 call(["models", "at"], specifier) as Promise<
                     ModelRecord & { weights: string[]; readme: string | null }
                 >,
+            /**
+             * Begin a fetch and return its id, without waiting for it.
+             *
+             * The verb a SURFACE wants. `fetch` blocks until the bytes land,
+             * which is right for `prepare` and wrong for a person clicking a
+             * button — and, over this client, it puts the transfer inside the
+             * daemon rather than inside whichever short-lived process asked,
+             * so closing the panel no longer kills it.
+             */
+            download: (specifier: string, file?: string) =>
+                call(["models", "download"], { specifier: specifier, file: file }) as Promise<{ id: string }>,
+            /** Every transfer the daemon is running, newest first. */
+            downloads: () => call(["models", "downloads"]) as Promise<Download[]>,
+            /** Stop reporting a transfer. */
+            cancelDownload: (id: string) => call(["models", "cancelDownload"], id) as Promise<boolean>,
+            /** Forget a finished transfer. */
+            dismissDownload: (id: string) => call(["models", "dismissDownload"], id) as Promise<boolean>,
+
             /** Search what can be downloaded. Cache-first — see Catalog. */
-            search: (query: string) => call(["models", "search"], query) as Promise<ModelRecord[]>,
+            search: (query: string | Record<string, unknown>) =>
+                call(["models", "search"], query) as Promise<ModelRecord[]>,
+            /** The next page of a search. Same input shape as `search`. */
+            more: (input: string | Record<string, unknown>) =>
+                call(["models", "more"], input) as Promise<ModelRecord[]>,
+            /** Whether another page exists for that search. */
+            hasMore: (input: string | Record<string, unknown>) =>
+                call(["models", "hasMore"], input) as Promise<boolean>,
             /** Search, bypassing the cache. */
             searchFresh: (query: string) => call(["models", "searchFresh"], query) as Promise<ModelRecord[]>,
         },
         schedule: {
-            list: () => call(["schedule", "state"]),
+            state: () => call(["schedule", "state"]) as Promise<ScheduleState>,
+            list: (agent?: string) => call(["schedule", "list"], agent) as Promise<AgentSchedule[]>,
+            create: (input: CreateSchedule) => call(["schedule", "create"], input) as Promise<AgentSchedule>,
+            update: (id: string, patch: UpdateSchedule) => call(["schedule", "update"], { id, patch }) as Promise<AgentSchedule>,
+            remove: (id: string) => call(["schedule", "remove"], id) as Promise<boolean>,
+            pause: (id: string) => call(["schedule", "pause"], id) as Promise<AgentSchedule>,
+            resume: (id: string) => call(["schedule", "resume"], id) as Promise<AgentSchedule>,
+            runNow: (id: string) => call(["schedule", "runNow"], id) as Promise<ScheduleResult>,
+        },
+
+        /**
+         * Speak, and the words are typed where the cursor is.
+         *
+         * Every verb reaches the DAEMON rather than acting locally, because
+         * the microphone stays open across two independent keypresses: the
+         * process that starts a recording has exited long before the one that
+         * stops it runs.
+         */
+        dictation: {
+            state: () => call(["dictation", "state"]) as Promise<DictationState>,
+            /** Open the microphone. Refuses if anything needed is missing. */
+            start: () => call(["dictation", "start"]) as Promise<DictationState>,
+            /** Close it, transcribe, and type the result. */
+            stop: () => call(["dictation", "stop"]) as Promise<Dictated>,
+            /** Start or stop — what one keybind runs in toggle mode. */
+            toggle: () => call(["dictation", "toggle"]) as Promise<{ recording: boolean; dictated: Dictated | null }>,
+            /** Throw away the current recording without transcribing it. */
+            cancel: () => call(["dictation", "cancel"]) as Promise<void>,
+            /** Register the stored chord with the compositor. Idempotent. */
+            bind: () => call(["dictation", "bind"]) as Promise<{ chord: string; mode: string; bound: boolean }>,
+            /** Remove it. */
+            unbind: () => call(["dictation", "unbind"]) as Promise<void>,
         },
     }
 }
@@ -169,15 +293,54 @@ function Caller(opts: { paths: DaemonPaths }) {
             })
         }
 
-        const body = JSON.parse(response.body) as { ok: boolean; value?: unknown; error?: string }
-        if (!body.ok) {
-            throw err("DAEMON_NOT_WIRED", {
-                detail: `${path.join(".")} — ${body.error ?? "unknown error"}`,
-                context: { verb: path.join(".") },
-            })
+        const body = JSON.parse(response.body) as {
+            ok: boolean
+            value?: unknown
+            error?: string
+            fault?: { code?: string; message?: string; context?: unknown }
         }
+        if (!body.ok) throw rebuild(path, body)
         return body.value
     }
+}
+
+/**
+ * Turn a failed response back into the error the domain threw.
+ *
+ * The daemon sends the whole AxonError, so the code survives the wire and a
+ * caller sees what a local caller would. `errorMap` is keyed by NAME and the
+ * error carries its CODE, so this looks the name back up — one linear scan
+ * over a static map, paid only on failure.
+ *
+ * DAEMON_NOT_WIRED remains the fallback, and now means what it says: the
+ * daemon answered with something that carries no code, which is either a
+ * thrown non-Error or a daemon older than this client.
+ */
+function rebuild(
+    path: readonly string[],
+    body: { error?: string; fault?: { code?: string; message?: string; context?: unknown } },
+): Error {
+    const verb = path.join(".")
+    const code = body.fault?.code
+    if (code) {
+        const name = (Object.keys(errorMap) as AxonErrorCode[])
+            .find(key => errorMap[key].code === code)
+        if (name) {
+            return err(name, {
+                detail: body.fault?.message ?? body.error ?? verb,
+                context: {
+                    ...(body.fault?.context && typeof body.fault.context === "object"
+                        ? body.fault.context as Record<string, unknown>
+                        : {}),
+                    verb: verb,
+                },
+            })
+        }
+    }
+    return err("DAEMON_NOT_WIRED", {
+        detail: `${verb} — ${body.error ?? "unknown error"}`,
+        context: { verb: verb },
+    })
 }
 
 /**

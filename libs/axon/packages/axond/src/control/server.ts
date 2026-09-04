@@ -1,5 +1,6 @@
-import { existsSync, rmSync } from "node:fs"
-import { err } from "@arcforge/err"
+import { existsSync, mkdirSync, rmSync } from "node:fs"
+import { dirname } from "node:path"
+import { err, isAxonError } from "@arcforge/err"
 import type { DaemonPaths } from "../../types/index"
 
 type ServerOpts = {
@@ -55,6 +56,18 @@ export function Server(opts: ServerOpts) {
                 throw err("DAEMON_ALREADY_RUNNING", { detail: `already listening on ${opts.paths.socket}` })
             }
 
+            /**
+             * The socket's directory, before binding into it.
+             *
+             * `Lifecycle` also creates this, but it does so when it CLAIMS the
+             * pidfile — which `serve()` does after the socket binds, so that a
+             * live pid always implies a listening socket. On a machine with no
+             * `~/.axon` yet, that ordering meant the very first `daemon up`
+             * died with `ENOENT: listen`: the first user action on a fresh
+             * install was the one that could not work.
+             */
+            mkdirSync(dirname(opts.paths.socket), { recursive: true })
+
             if (existsSync(opts.paths.socket)) rmSync(opts.paths.socket, { force: true })
 
             try {
@@ -70,11 +83,32 @@ export function Server(opts: ServerOpts) {
                             const value = await opts.dispatch(body.path as string[], body.arg)
                             return Response.json({ ok: true, value: value })
                         } catch (cause) {
-                            // Reported, never swallowed: a client that got a
-                            // 200 with no value could not tell a verb that
-                            // returned nothing from one that threw.
+                            /*
+                             * Reported, never swallowed: a client that got a
+                             * 200 with no value could not tell a verb that
+                             * returned nothing from one that threw.
+                             *
+                             * The whole error crosses, not just its message.
+                             * Sending `cause.message` alone discarded the CODE,
+                             * so every failure — a job refused because a person
+                             * has to take it, a weight that is not cached, a
+                             * model that will not fit — reached the client as
+                             * one generic error. Dispatch's contract is that a
+                             * caller "sees exactly the code a local caller
+                             * would, and the wire adds nothing to it"; a
+                             * flattened message is the wire adding a lie.
+                             *
+                             * `error` stays a string for anything that is not
+                             * an AxonError, because a thrown non-Error has no
+                             * code to preserve.
+                             */
+                            const fault = isAxonError(cause) ? cause.toJSON() : null
                             return Response.json(
-                                { ok: false, error: cause instanceof Error ? cause.message : String(cause) },
+                                {
+                                    ok: false,
+                                    error: fault ? fault.message : (cause instanceof Error ? cause.message : String(cause)),
+                                    ...(fault ? { fault: fault } : {}),
+                                },
                                 { status: 500 },
                             )
                         }

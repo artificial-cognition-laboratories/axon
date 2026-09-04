@@ -1,6 +1,8 @@
 import { Hardware } from "./hardware"
+import { Budget } from "./budget"
 import { Identity } from "./identity"
 import { Probe } from "./probe"
+import { Share } from "./share"
 import { Residency } from "./residency"
 import { Samples } from "./samples"
 import type { Admission, MachineState } from "./types"
@@ -14,8 +16,19 @@ export type MachineOpts = {
      * none declared, and the measured hardware is the ceiling.
      */
     budget?: () => number | null
+    /**
+     * Process groups Axon owns beyond this one, read fresh per call.
+     *
+     * A THUNK because agents come and go while the daemon runs. Only the
+     * `/proc` fallback in `Share` consults it — under systemd the cgroup is
+     * the membership list — so a caller that omits it still gets an attributed
+     * share on any machine running the unit.
+     */
+    groups?: () => number[]
     /** Where holds are written. Tests point this at a scratch dir. */
     residencyRoot?: string
+    /** Where the declared ceiling is written. Tests point this at a scratch file. */
+    budgetPath?: string
 }
 
 /**
@@ -39,17 +52,83 @@ export type MachineOpts = {
  * honest cost until there is a policy worth defending, and the moment there is
  * one, `admit` is where it goes.
  */
+/** How many readings `state()` carries. Enough for any chart, small enough to send often. */
+const WIRE_SAMPLES = 180
+
 export function Machine(opts: MachineOpts = {}) {
+    /**
+     * How many callers are currently reading the sample ring.
+     *
+     * `Samples` drops to a ten-second cadence when nothing is resident,
+     * reasoning that with no admission pending there is "nobody watching a
+     * graph". A desktop panel streaming state is exactly that somebody, and it
+     * arrived after the assumption did — so interest is now something a caller
+     * declares rather than something inferred from residency alone.
+     *
+     * A count rather than a flag: two surfaces open at once must not have the
+     * first one closing drop the cadence under the second.
+     */
+    let observers = 0
+
+    /**
+     * When the last REMOTE watcher's interest expires, epoch ms.
+     *
+     * A lease rather than a second counter, because the counter above is only
+     * safe in-process: `observe` hands back a closure, so the release is
+     * guaranteed by the caller's own scope. A client on the far side of a
+     * socket has no such guarantee — a panel that crashes or a pipe that
+     * breaks would leave the count raised, and the daemon would poll at the
+     * fast cadence forever with nobody looking. An expiring lease costs the
+     * watcher one call per tick and cannot leak.
+     */
+    let leasedUntil = 0
+
     const identity = Identity()
     const hardware = Hardware()
     const probe = Probe()
     const residency = Residency(opts.residencyRoot !== undefined ? { root: opts.residencyRoot } : {})
+    const budget = Budget(opts.budgetPath !== undefined ? { path: opts.budgetPath } : {})
+
+    /**
+     * The declared ceiling, read fresh on every ask.
+     *
+     * `opts.budget` still wins where a caller supplies one — that is how a
+     * test pins a ceiling without a file — and the stored declaration is the
+     * answer for everyone else. Before this there was no source at all: the
+     * thunk was optional, nothing passed it, and `budget` was permanently null
+     * however the product described the feature.
+     */
+    /** Whether anything — in this process or across the socket — is drawing these readings. */
+    const watchedNow = (): boolean => observers > 0 || Date.now() < leasedUntil
+
+    const declared = (): number | null => opts.budget?.() ?? budget.current()
+
+    /**
+     * What Axon costs this machine.
+     *
+     * Its process groups come from the agent records: an agent is a launcher
+     * plus the runtime it spawned, so the GROUP is the unit of ownership — the
+     * same one `agents.signal` already uses. Only the `/proc` fallback needs
+     * them; under systemd the cgroup answers on its own.
+     */
+    const share = Share({
+        groups: () => opts.groups?.() ?? [],
+        // The per-process video-memory query is a second nvidia-smi, ~25ms on
+        // top of the machine probe's own. Worth it while a graph is on screen
+        // and not worth it otherwise, so it follows the same gate the fast
+        // cadence does.
+        gpu: () => watchedNow(),
+    })
 
     const samples = Samples({
         probe: probe,
+        share: share,
+        held: () => residency.held(),
         // Polling faster only earns its cost while something is loaded — see
         // the rates in Samples.
-        busy: () => residency.live().length > 0,
+        busy: () => residency.live().length > 0 || watchedNow(),
+        // Someone is drawing the readings, so they arrive four times as often.
+        watched: () => watchedNow(),
     })
 
     /**
@@ -62,7 +141,7 @@ export function Machine(opts: MachineOpts = {}) {
      * every local model on any machine we cannot measure.
      */
     function ceiling(): number | null {
-        return opts.budget?.() ?? hardware.current().vram
+        return declared() ?? hardware.current().vram
     }
 
     return {
@@ -71,17 +150,41 @@ export function Machine(opts: MachineOpts = {}) {
         samples: samples,
         residency: residency,
 
+        /**
+         * The declared ceiling: read it, set it, clear it with null.
+         *
+         * A nested bag rather than `setBudget`, so the verb path a socket
+         * walks reads `machine.budget.set` — the noun owns its verbs, and a
+         * surface offering the control gets the getter beside it.
+         */
+        budget: {
+            current: () => declared(),
+            set: (bytes: number | null) => budget.set(bytes),
+            get path() { return budget.path },
+        },
+
         /** Everything the machine reports, in one read. */
         state(): MachineState {
             const holds = residency.live()
             return {
                 identity: identity.current(),
                 capacity: hardware.current(),
-                usage: samples.latest() ?? probe.read(),
-                budget: opts.budget?.() ?? null,
-                held: holds.reduce((total, hold) => total + hold.bytes, 0),
+                // `now()` rather than the bare probe: a reading has to carry
+                // our share alongside the machine's, and Samples is what knows
+                // how to stamp it. Before the first poll it takes one.
+                usage: samples.latest() ?? samples.now(),
+                budget: declared(),
+                // The domain's own figure, which counts a weight once however
+                // many agents hold it. This summed the holds instead — the
+                // same error `admit()` carried, in a second place, which is
+                // what one shared answer existing in two forms produces.
+                held: residency.held(),
                 holds: holds,
-                samples: samples.history(),
+                // Thinned for transport. The full ring stays in memory for
+                // anything in-process; what crosses a socket every tick does
+                // not need six hundred readings to draw a line four hundred
+                // pixels wide.
+                samples: samples.history(WIRE_SAMPLES),
             }
         },
 
@@ -102,7 +205,9 @@ export function Machine(opts: MachineOpts = {}) {
 
             const usage = samples.now()
             const holds = residency.live()
-            const held = holds.reduce((total, hold) => total + hold.bytes, 0)
+            // The domain's own figure, which counts a shared weight once.
+            // Recomputing it here is how the two answers drifted apart.
+            const held = residency.held()
 
             // Prefer the driver's own figure — it counts every process on the
             // machine. Our own accounting is the fallback where the GPU cannot
@@ -118,6 +223,46 @@ export function Machine(opts: MachineOpts = {}) {
         /** Begin polling. Called once when the daemon starts serving. */
         start(): void {
             samples.start()
+        },
+
+        /**
+         * Declare that something is reading the samples, and keep the fast
+         * cadence while it is. Returns the release.
+         *
+         * Idempotent per caller only by contract — each `observe` must be
+         * released exactly once, which is why it hands back a closure rather
+         * than exposing the counter. Releasing twice would starve a sibling
+         * watcher of the rate it asked for.
+         */
+        observe(): () => void {
+            observers++
+            samples.kick()
+            let released = false
+            return () => {
+                if (released) return
+                released = true
+                observers = Math.max(0, observers - 1)
+            }
+        },
+
+        /**
+         * Declare from ACROSS THE SOCKET that something is drawing the
+         * readings, for the next `ms`.
+         *
+         * The remote twin of `observe`, and deliberately not the same
+         * mechanism — see `leasedUntil`. The caller renews on every tick, so
+         * the lease need only outlive one interval; it is clamped because a
+         * client asking to be watched for an hour would pin the cadence long
+         * after it was gone.
+         */
+        watching(ms?: number): boolean {
+            const span = Math.max(1_000, Math.min(30_000, Number(ms) || 3_000))
+            leasedUntil = Date.now() + span
+            // The pending tick may have been armed at the idle rate; without
+            // this the first ten seconds of a freshly-opened panel are a
+            // motionless line.
+            samples.kick()
+            return true
         },
 
         /**

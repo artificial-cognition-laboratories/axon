@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/air",
-    "version": "2.0.165",
+    "version": "2.0.187",
     "description": "AIR — the Agent Intermediate Representation: one grammar, rendered for a model and parsed from its reply.",
     "type": "module",
     "private": false,

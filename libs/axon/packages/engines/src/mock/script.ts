@@ -1,5 +1,14 @@
 import type { AxonEngineRequest } from "@arcforge/types"
 import type { MockInput, MockStep, MockTurn } from "./mock"
+import { MOCK_COMMANDS } from "./commands"
+
+/**
+ * The boundary the AIR renderer emits between the few-shot preflight and the
+ * real conversation. The preflight's turns are deliberately indistinguishable
+ * from genuine ones — that is what makes few-shot work — so this marker is the
+ * only thing that says where reading should stop.
+ */
+const SESSION_START = `<system type="session:start"/>`
 
 /**
  * Script — the mock's counterpart to a provider backend: instead of a wire
@@ -26,7 +35,28 @@ function isTurn(turn: MockTurn): turn is { step: MockStep; continue?: boolean } 
 
 function buildResolver(input: MockInput | undefined): (req: AxonEngineRequest) => Promise<{ step: MockStep; isLast: boolean }> {
     if (!input) {
-        return async (req) => ({ step: extractUserText(req), isLast: true })
+        /**
+         * A bare `Mock()` answers the standard command set, and echoes anything
+         * it does not recognise.
+         *
+         * `mock` is now in every pool without being declared, so `*mock:mock`
+         * is always reachable — and a route that echoes the prompt back is one
+         * that exists and does nothing worth doing. MOCK_COMMANDS covers the UI
+         * surfaces that are otherwise hard to provoke on purpose (a denied
+         * call, a non-zero exit, a reply long enough to wrap).
+         *
+         * The echo REMAINS as the fallback. It is what makes a mock useful as a
+         * plain double — a test asserting "the reply came back" reads its own
+         * prompt — and the commands are additive rather than a replacement.
+         */
+        const commands = buildResolver(MOCK_COMMANDS)
+        return async (req) => {
+            const text = extractUserText(req).toLowerCase()
+            const matched = Object.keys(MOCK_COMMANDS as Record<string, unknown>)
+                .some(pattern => text.includes(pattern.toLowerCase()))
+
+            return matched ? commands(req) : { step: extractUserText(req), isLast: true }
+        }
     }
 
     if (typeof input === "function") {
@@ -109,6 +139,12 @@ function countPriorSteps(req: AxonEngineRequest): number {
         if (message.role === "assistant") { steps++; continue }
         if (message.role !== "user") continue
         const content = message.content.trimStart()
+        // The preflight is a few-shot demonstration rendered as genuine user
+        // and assistant turns, so nothing about its SHAPE distinguishes it
+        // from real history — its agent turns would be counted as steps of
+        // this sequence. SESSION_START is the boundary the renderer emits for
+        // exactly this question; stop there.
+        if (content.startsWith(SESSION_START)) return steps
         if (content.startsWith("<stdout") || content.startsWith("<system")) continue
         break
     }
@@ -133,16 +169,32 @@ export function extractUserText(req: AxonEngineRequest): string {
         const message = req.messages[i]
         if (message?.role !== "user") continue
 
-        const content = message.content.trim()
+        // The session:start marker heads the FIRST real user turn rather than
+        // standing as a message of its own (providers reject two adjacent user
+        // turns), so the user's words sit behind it. Strip it before the
+        // runtime-authored check below, which would otherwise read the whole
+        // turn as a `<system>` block and skip the only real message there is —
+        // landing on the preflight's demonstration turns instead.
+        const trimmed = message.content.trim()
+        const content = (trimmed.startsWith(SESSION_START) ? trimmed.slice(SESSION_START.length) : trimmed).trim()
+
+        // The user's words, wherever they sit in this message.
+        //
+        // Read BEFORE the runtime-authored check below, because one message
+        // can carry both. A preflight ending on an interrupt folds into the
+        // session's opening turn (see render/index.ts), so that turn is
+        // `<interrupt/>` + `<text from="user">` together — and a prefix test
+        // would classify the whole thing as runtime-authored and skip past
+        // the only real message there is.
+        //
+        // Both render forms carry the words inside a user block: the document
+        // as the last one in a <timeline>, the conversation as this message.
+        // The greedy prefix takes the LAST in either case.
+        const match = content.match(/.*<(?:user|text from="user")[^>]*>([\s\S]*?)<\/(?:user|text)>/s)
+        if (match?.[1] !== undefined) return match[1].trim()
 
         // Runtime-authored turns are not the user speaking. Keep looking back.
-        if (content.startsWith("<stdout") || content.startsWith("<system")) continue
-
-        // Both forms carry the words inside a <user> block — the document as
-        // the last one in a <timeline>, the conversation as the whole message.
-        // The greedy prefix takes the LAST turn in either case.
-        const match = content.match(/.*<user[^>]*>([\s\S]*?)<\/user>/s)
-        if (match?.[1] !== undefined) return match[1].trim()
+        if (content.startsWith("<stdout") || content.startsWith("<system") || content.startsWith("<interrupt")) continue
 
         // Not a rendered turn at all — a hand-built message in a unit test.
         return content

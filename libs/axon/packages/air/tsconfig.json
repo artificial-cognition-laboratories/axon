@@ -11,9 +11,13 @@
         ],
         "skipLibCheck": true,
         "allowImportingTsExtensions": true,
-        "noEmit": true
+        "noEmit": true,
+        "types": [
+            "bun"
+        ]
     },
     "include": [
-        "src"
+        "src",
+        "tests/**/*.ts"
     ]
 }

@@ -91,15 +91,27 @@ export function renderScope(scope: AxonScope, output?: string): string {
 }
 
 function toolDeclarations(module: AxonScopeModule): string {
-    // Every export is a top-level global under its own name, so each needs
-    // its own `declare`. The module name groups them for the reader; it is
-    // not a namespace the model addresses through.
+    const header = module.description ? `${jsdocBlock(module.description)}\n` : ""
+
+    /**
+     * EVERY tool is a top-level global, whatever its origin.
+     *
+     * A module's tools were wrapped in `declare namespace <tool name>`, to
+     * mirror a runtime that placed them under that name. Both have stopped:
+     * placement is unconditional now (core's Tools.globals), because a tool
+     * exporting `const fs = {…}` is already its own namespace and wrapping it
+     * again told the model `fs.fs.read()` — a scope lie of exactly the kind
+     * this branch existed to prevent, pointing the other way.
+     *
+     * The model's scope and the editor's `.d.ts` are rendered from one
+     * AxonScope by two functions; neither decides the spelling any more, which
+     * is what stops them drifting apart again.
+     */
     const members = module.members.map(member => {
         const jsdoc = member.jsdoc ? `${jsdocBlock(member.jsdoc)}\n` : ""
         return `${jsdoc}declare ${member.declaration}`
     })
 
-    const header = module.description ? `${jsdocBlock(module.description)}\n` : ""
     return `${header}${members.join("\n\n")}`
 }
 
@@ -400,7 +412,20 @@ export function renderTimeline(entries: readonly AxonEntry[], grammar: GrammarT)
         // The turn boundary, inside the turn it ends.
         if (item.type === "done") return `        <done from="agent"/>`
         if (item.type === "message") {
-            return `        <${speechTag} from="agent" lang="${escAttr(item.lang)}">\n${indent(esc(item.content.trim()), 12)}\n        </${speechTag}>`
+            // MARKDOWN IS NOT INDENTED. Every other block here is indented to
+            // sit inside its turn, and speech used to be too — which taught the
+            // model to indent its own `<text>` body, because the transcript it
+            // continues from is the strongest instruction it gets.
+            //
+            // Four leading spaces IS an indented code block in markdown. A
+            // one-line reply survives it; a long answer does not. Observed:
+            // a 9,439-char reply parsed as a single `code_block` rather than
+            // 68 paragraphs, 14 headings and 24 fences — so it reached the
+            // user as raw source, unwrapped and unstyled.
+            //
+            // Code blocks keep their indent below: `<script>` and `<stdout>`
+            // are not markdown, so leading whitespace costs nothing there.
+            return `        <${speechTag} from="agent" lang="${escAttr(item.lang)}">\n${esc(item.content.trim())}\n        </${speechTag}>`
         }
         if (item.type === "execute") {
             const id = shortExecId(item.id)
@@ -437,7 +462,10 @@ export function renderTimeline(entries: readonly AxonEntry[], grammar: GrammarT)
             // has to infer a default, and a terminal message is visibly from
             // somewhere rather than from nowhere.
             const channel = escAttr(item.channel ?? "terminal")
-            lines.push(`    <text from="user" id="u${++userCount}" channel="${channel}" lang="${escAttr(item.lang)}">\n${indent(esc(item.content.trim()), 8)}\n    </text>`)
+            // Flush-left for the same reason as agent speech above: the user's
+            // markdown is markdown too, and an indented example is one the
+            // model mirrors back.
+            lines.push(`    <text from="user" id="u${++userCount}" channel="${channel}" lang="${escAttr(item.lang)}">\n${esc(item.content.trim())}\n    </text>`)
             continue
         }
 
@@ -500,7 +528,7 @@ export function renderTimeline(entries: readonly AxonEntry[], grammar: GrammarT)
                 (_m, tag: string, attrs: string | undefined) => `<${tag}${attrs ?? ""} status="rejected">`,
             )
             lines.push(stamped === item.content.trim()
-                ? `    <text from="agent" status="rejected" lang="md">\n${indent(esc(item.content.trim()), 8)}\n    </text>`
+                ? `    <text from="agent" status="rejected" lang="md">\n${esc(item.content.trim())}\n    </text>`
                 : indent(stamped, 4))
             continue
         }

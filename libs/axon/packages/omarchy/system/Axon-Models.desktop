@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Name=Axon Models
+Comment=Browse, download and load local models
+# Straight to the shell's IPC — omarchy-shell is on the graphical session's
+# PATH, so this needs no login shell the way the TUI entry does. `toggle`
+# rather than `summon` so launching it twice closes it, which is the idiom
+# every other Omarchy overlay follows.
+Exec=omarchy-shell shell toggle arclabs.axon
+Terminal=false
+Type=Application
+Icon=axon
+StartupNotify=false
+Categories=Development;
+Keywords=model;models;llm;ollama;huggingface;ai;inference;axon;

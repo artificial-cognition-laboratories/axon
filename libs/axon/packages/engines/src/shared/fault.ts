@@ -28,6 +28,13 @@ export function failure(input: {
 export function asEngineFault(error: unknown, fallback: { provider: string; model?: string }): AxonEngineFault {
     if (error instanceof EngineFailure) return error.fault
 
+    // Engine failures can cross the supervisor link between two processes.
+    // The transport deliberately rehydrates an ordinary Error rather than a
+    // class from this package, so accept the serializable fault shape too.
+    // Requiring `instanceof` here silently turned retryable remote failures
+    // into UNKNOWN/non-retryable ones.
+    if (hasEngineFault(error)) return error.fault
+
     if (error instanceof DOMException && error.name === "AbortError") {
         return { code: "ABORTED", message: error.message || "engine request aborted", retryable: false, ...fallback }
     }
@@ -46,4 +53,15 @@ export function asEngineFault(error: unknown, fallback: { provider: string; mode
         retryable: false,
         ...fallback,
     }
+}
+
+function hasEngineFault(error: unknown): error is { fault: AxonEngineFault } {
+    if (!error || typeof error !== "object" || !("fault" in error)) return false
+    const fault = (error as { fault?: unknown }).fault
+    return !!fault
+        && typeof fault === "object"
+        && typeof (fault as { code?: unknown }).code === "string"
+        && typeof (fault as { message?: unknown }).message === "string"
+        && typeof (fault as { retryable?: unknown }).retryable === "boolean"
+        && typeof (fault as { provider?: unknown }).provider === "string"
 }

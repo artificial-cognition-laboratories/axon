@@ -1,4 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { err } from "../src/err"
+import { parseStack } from "../src/stack"
+import { describe, it, test, expect } from "bun:test"
 
 describe("AxonError.render()", () => {
     it("prints a full report with source context around the call site", () => {
@@ -123,5 +129,44 @@ describe("unexpected failures keep the full diagnostic", () => {
 
         expect(e.expected).toBeUndefined()
         expect(e.render()).toContain("\nat ")
+    })
+})
+
+describe("a minified bundle", () => {
+    /**
+     * The regression: `readSourceWindow` guarded against a bundle being
+     * UNREADABLE, but a published bundle is readable and minified — one line
+     * is hundreds of kilobytes. Every unclassified error in a released build
+     * printed three of them, burying the actual message under a wall of
+     * generated code.
+     */
+    test("produces no source snippet", async () => {
+        const dir = await mkdtemp(join(tmpdir(), "err-minified-"))
+        try {
+            // One line, far past anything real source produces.
+            const file = join(dir, "bundle.js")
+            writeFileSync(file, `${"var a=1;".repeat(60_000)}\nexport{}\n`)
+
+            const frames = parseStack(`Error: boom\n    at thing (${file}:1:10)`)
+
+            expect(frames.length).toBeGreaterThan(0)
+            expect(frames[0]!.source).toBeNull()
+        } finally {
+            await rm(dir, { recursive: true, force: true })
+        }
+    })
+
+    test("still captures a snippet from ordinary source", async () => {
+        const dir = await mkdtemp(join(tmpdir(), "err-plain-"))
+        try {
+            const file = join(dir, "plain.ts")
+            writeFileSync(file, "const a = 1\nconst b = 2\nthrow new Error('x')\n")
+
+            const frames = parseStack(`Error: boom\n    at thing (${file}:2:7)`)
+
+            expect(frames[0]!.source).not.toBeNull()
+        } finally {
+            await rm(dir, { recursive: true, force: true })
+        }
     })
 })

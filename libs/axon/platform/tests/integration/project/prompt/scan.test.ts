@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { scanPromptPackage } from "../../../../src/build/blueprint/scan/promptPackages"
+import { describe, it, expect } from "bun:test"
 
 /**
  * How a published prompt package becomes invokable prompts.

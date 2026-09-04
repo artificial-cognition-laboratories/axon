@@ -17,6 +17,7 @@ let stopping = false
 const channels = await connect({
     paths,
     ...agentHandlers({
+        async ingest() {},
         async stimulus(entry) {
             const content = (entry as { data?: { content?: string } }).data?.content
             // Echo what we heard back through the log, so the supervisor can
@@ -32,6 +33,16 @@ const channels = await connect({
         },
         async run(code) {
             return { ok: true, value: `ran:${code}`, stdout: [], scope: { modules: [] } }
+        },
+        // AgentServices requires all eight verbs. This fixture exercises the
+        // PROCESS boundary rather than the runtime, so the two it has no
+        // opinion on answer minimally rather than being omitted — an omitted
+        // required verb is a hole `agentHandlers` would dispatch straight into.
+        async request() {
+            return { ok: true }
+        },
+        async serve(port: number) {
+            return { port }
         },
         async prompts(request) {
             return { served: request.action, ...(request.name ? { name: request.name } : {}) }

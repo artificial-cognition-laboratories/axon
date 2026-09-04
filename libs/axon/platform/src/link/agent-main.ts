@@ -24,7 +24,7 @@ import { err } from "@arcforge/err"
 import { readFileSync } from "node:fs"
 import { Axon, AxonBus } from "@arcforge/core"
 import { Routes, Middleware, Plugins } from "../build/blueprint"
-import type { AxonMiddleware, AxonPartialBlueprint, AxonPlugin, AxonRoute } from "@arcforge/types"
+import type { AxonCommitContext, AxonMiddleware, AxonPartialBlueprint, AxonPlugin, AxonRoute } from "@arcforge/types"
 import {
     AGENT_BLUEPRINT_ENV,
     AgentRuntime,
@@ -84,6 +84,7 @@ export async function main(): Promise<void> {
 
     const handlers = agentHandlers({
         stimulus: entry => serve().then(s => s.stimulus(entry)),
+        ingest: entry => serve().then(s => s.ingest(entry)),
         update: bp => serve().then(s => s.update(bp)),
         /**
          * Interrupt is sync and fire-and-forget — but it must not be LOST.
@@ -170,8 +171,8 @@ export async function main(): Promise<void> {
      * which is why the TUI's header came up blank: the facts it renders had
      * already gone past.
      */
-    const pending: Array<{ type: string; data: unknown }> = []
-    let forward = (type: string, data: unknown) => { pending.push({ type, data }) }
+    const pending: Array<{ type: string; data: unknown; ctx?: AxonCommitContext }> = []
+    let forward = (type: string, data: unknown, ctx?: AxonCommitContext) => { pending.push({ type, data, ctx }) }
 
     /**
      * The bus, built HERE and handed to Axon() — so this can subscribe
@@ -240,6 +241,24 @@ export async function main(): Promise<void> {
      * shape is known: the supervisor receives (type, data) and cannot tell an
      * envelope from a payload that happens to have a `data` field of its own.
      */
+    /**
+     * The correlation half of an envelope's context, for the wire.
+     *
+     * `agentId` and `sessionId` are the SUPERVISOR's to stamp — it owns the
+     * session and knows both — so sending them back would be the child
+     * asserting its own identity to the thing that assigned it. Only the ids
+     * the child actually mints travel: runId and spanId.
+     *
+     * Returns undefined when neither is present, so an event with no
+     * correlation commits with no context rather than an empty object.
+     */
+    function contextOf(context: AxonCommitContext | undefined): AxonCommitContext | undefined {
+        if (!context) return undefined
+        const { runId, spanId } = context
+        if (!runId && !spanId) return undefined
+        return { ...(runId ? { runId } : {}), ...(spanId ? { spanId } : {}) }
+    }
+
     function announce(type: string, payload: unknown): void {
         /**
          * Two shapes travel this bus, and the difference is not cosmetic.
@@ -261,9 +280,21 @@ export async function main(): Promise<void> {
          * payload with its own `data` field is a shape nobody should have to
          * reason about at this seam.
          */
-        const carrier = payload as { time?: unknown; data?: unknown; type?: unknown } | undefined
+        const carrier = payload as {
+            time?: unknown
+            data?: unknown
+            type?: unknown
+            context?: AxonCommitContext
+        } | undefined
         if (carrier && typeof carrier === "object" && "time" in carrier) {
-            forward(type, carrier.data)
+            // The context travels WITH the payload, as its own argument.
+            // Unwrapping the envelope and dropping `context` is what silently
+            // un-correlated every span once agents moved into subprocesses:
+            // the kernel mints one spanId per engine call, start/input/
+            // complete share it, and nothing else joins them. The supervisor
+            // re-envelopes on the far side, so this is the only place the ids
+            // can be handed over.
+            forward(type, carrier.data, contextOf(carrier.context))
             return
         }
         // A raw event: strip the name it already travels under, keep the rest.
@@ -276,8 +307,8 @@ export async function main(): Promise<void> {
     }
 
     // Live from here — and everything boot produced goes first, in order.
-    forward = (type, data) => { supervisor.commit(type as never, data as never) }
-    for (const event of pending.splice(0)) forward(event.type, event.data)
+    forward = (type, data, ctx) => { supervisor.commit(type as never, data as never, ctx) }
+    for (const event of pending.splice(0)) forward(event.type, event.data, event.ctx)
 
     /**
      * The agent's last words.

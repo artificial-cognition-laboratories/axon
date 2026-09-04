@@ -1,6 +1,6 @@
 import { err } from "@arcforge/err"
 import type { AxonCloudClient } from "@arcforge/cloud"
-import { foldChunks, type AxonBlueprint, type AxonRequestInput, type AxonResult } from "@arcforge/types"
+import { foldChunks, type AxonBlueprint, type AxonRequestInput, type AxonResult, type AxonToolNamespaces } from "@arcforge/types"
 import { AxonHooksT, Inject } from "../platform"
 import type { AxonBusT } from "../platform"
 import type { AxonOutputEvent } from "@arcforge/types"
@@ -26,6 +26,23 @@ type AxonHandleOpts = {
      * captured map would keep serving the tool the author just deleted.
      */
     loaded?: () => Record<string, unknown>
+    /**
+     * The same tools, addressed by namespace — backs `axon.tools.*`.
+     *
+     * A thunk for the same reason `loaded` is one, and built from the loaded
+     * set's own namespaces rather than re-derived from the flat globals: that
+     * re-derivation is what once turned a module exporting one object into
+     * `{ fs: { fs: {...} } }` (see inject.ts).
+     */
+    namespaced?: () => AxonToolNamespaces
+    /**
+     * Rebuild the loaded tool set for a hot reload.
+     *
+     * The thunks above serve whatever is loaded NOW; this is what makes "now"
+     * change. Without it `update()` re-projected both surfaces off a set that
+     * could never differ from the one Axon() installed at boot.
+     */
+    reload?: (tools: AxonBlueprint["tools"]) => Promise<void>
 }
 
 /**
@@ -116,6 +133,7 @@ export function AxonHandle(opts: AxonHandleOpts) {
     const scripts = Scripts({
         blueprint: opts.blueprint,
         inject: opts.inject,
+        session: session,
     })
 
 
@@ -127,6 +145,33 @@ export function AxonHandle(opts: AxonHandleOpts) {
         get ready() { return kernel.ready },
 
         prompt: prompt.render,
+
+        /**
+         * `axon.tools.<namespace>.<fn>()` — the explicit tool surface.
+         *
+         * An ESCAPE HATCH, not the primary path. Model-emitted code and the
+         * author's own code call tools flat (`add(1, 2)`), exactly as the
+         * model's <scope> block and the generated `.agent/tool-globals.d.ts`
+         * declare them. This surface is for the cases a bare name cannot
+         * serve:
+         *
+         *   - the name is already taken. A tool exporting `fetch` never
+         *     replaces the host builtin, so this is where it lives.
+         *   - the caller wants to be explicit about WHICH tool it means —
+         *     host-side code, a route, a hook, a prompt's `<script setup>`.
+         *
+         * A GETTER over a thunk, never a snapshot: a hot reload replaces the
+         * loaded set, and a map projected once at construction meant a script
+         * calling a newly added tool got `undefined` while the model could
+         * already call it, and a deleted tool stayed callable until restart.
+         *
+         * The functions here are the SAME mediated ones the globals expose —
+         * one loader, one wrapper — so policy, tracing and escalation cannot
+         * drift between the two surfaces. A tool declared in the blueprint but
+         * never loaded is absent here, so calling it throws rather than
+         * silently doing nothing.
+         */
+        get tools() { return opts.namespaced?.() ?? {} },
 
         /**
          * Installed modules and their validated options.
@@ -251,6 +296,12 @@ export function AxonHandle(opts: AxonHandleOpts) {
 
         async update(blueprint: AxonBlueprint) {
             await kernel.update(blueprint)
+            // Rebuild the loaded set FIRST. Both surfaces below read through
+            // thunks, so re-projecting them off a scope that was still the
+            // boot-time one left a deleted tool callable and an added one
+            // unreachable until restart — the set was installed once by Axon()
+            // and nothing rebuilt it.
+            await opts.reload?.(blueprint.tools)
             // Re-project the tool map from the blueprint that just went live,
             // so this handle and the capsule always agree on what exists.
             // …and re-bind the host-side tool globals off the new map, so a

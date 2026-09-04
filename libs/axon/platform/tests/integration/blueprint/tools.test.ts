@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { Tools } from "@arcforge/platform/build/blueprint/scan/tools"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 /**
  * What becomes a tool.
@@ -50,8 +51,10 @@ describe("Tools(): what becomes a tool", () => {
             const result = await Tools(project.root)
 
             const entry = result.entries.find(e => e.name === "greet")
+            // `origin` IS the placement decision — "src" means flat. There is
+            // no separate `flat` field; it was removed when origin became the
+            // single source of that answer.
             expect(entry?.origin).toBe("src")
-            expect(entry?.flat).toBe(true)
             expect(entry?.entryPath).toBe(join(project.root, "src", "tools", "greet.ts"))
             expect(entry?.fns.map(f => f.name)).toEqual(["greet"])
         } finally {

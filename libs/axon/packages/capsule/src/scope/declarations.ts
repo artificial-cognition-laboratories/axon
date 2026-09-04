@@ -62,7 +62,7 @@ export const CAPSULE_SCOPE_MODULE: AxonScopeModule = {
     readonly command: string
     readonly pid: number | undefined
     readonly cwd: string | undefined
-    readonly status: "running" | "exited"
+    readonly status: "pending" | "running" | "exited"
     readonly exitCode: number | undefined
     readonly startedAt: number
     readonly endedAt: number | undefined
@@ -72,6 +72,7 @@ export const CAPSULE_SCOPE_MODULE: AxonScopeModule = {
     tail(lines: number, include?: ProcOutputStream[]): string
     query(opts?: ProcQueryOptions): ProcQuerySnapshot
     extract(regex: RegExp, include?: ProcOutputStream[]): string[]
+    readonly started: Promise<{ ok: boolean; pid: number | undefined; err: string | undefined }>
     readonly exited: Promise<{ exitCode: number; ok: boolean; stdout: string }>
     waitFor(pattern: string | RegExp, opts?: { timeoutMs?: number }): Promise<{ line: string; stdout: string }>
     on(match: string | RegExp, cb: (line: string) => void): () => void
@@ -80,6 +81,8 @@ export const CAPSULE_SCOPE_MODULE: AxonScopeModule = {
         `type CapsuleProcess = NodeJS.Process & {
     run(command: string, opts?: ProcRunOptions): Promise<ProcRunResult>
     spawn(command: string, opts?: ProcSpawnOptions): LiveProcHandle
+    procs(): LiveProcHandle[]
+    proc(procId: string): LiveProcHandle | undefined
 }`,
     ],
     members: [
@@ -87,7 +90,11 @@ export const CAPSULE_SCOPE_MODULE: AxonScopeModule = {
             name: "process",
             declaration: "const process: CapsuleProcess",
             jsdoc: `Your native, persistent Bun/Node-compatible process object.
-Executable blocks live in this process, so standard APIs such as cwd(), chdir(), env, argv, pid, timing, resources, and process events are available without being enumerated here. Runtime state and cwd changes persist across blocks. Axon adds run() and spawn(); Axon manages process lifecycle and redirects protocol stdio, so those members have capsule-specific behavior.`,
+Executable blocks live in this process, so standard APIs such as cwd(), chdir(), env, argv, pid, timing, resources, and process events are available without being enumerated here. Runtime state and cwd changes persist across blocks. Axon adds run(), spawn(), procs() and proc(); Axon manages process lifecycle and redirects protocol stdio, so those members have capsule-specific behavior.
+
+spawn() returns IMMEDIATELY, before the process has actually launched, so the handle starts at status "pending" with no pid. Await handle.started to find out whether it launched — it resolves { ok, pid, err } once the spawn settles, and ok:false carries the reason it was refused. Do not infer failure from a missing pid on a freshly returned handle, and do not await handle.exited to confirm a background process started: exited only resolves when it dies, which for ambient work is never.
+
+Spawned processes OUTLIVE the block that created them. Use procs() to see every process this agent owns, and proc(procId) to recover a handle in a later block.`,
         },
         {
             name: "signal",

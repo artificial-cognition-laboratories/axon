@@ -11,6 +11,13 @@ import type { AxonEventMap, CapsuleEventMap } from "@arcforge/types"
  * process that is down was alive when its agent stopped reporting. A remote
  * agent that goes unreachable leaves rows in exactly that state, and calling
  * them "exited" would invent an exit nobody observed.
+ *
+ * "pending" is the fourth: a spawn that was asked for but has not yet been
+ * mediated or launched. No row reaches this fold in that state — the log only
+ * learns about a process once `process:proc:start` carries a real pid — but
+ * the type admits it because a LIVE handle does, and a surface rendering both
+ * a folded row and a live one must not have two vocabularies for one
+ * lifecycle.
  */
 export type ProcNode = {
     procId: string
@@ -18,7 +25,7 @@ export type ProcNode = {
     command: string
     pid?: number
     cwd?: string
-    status: "running" | "exited" | "down"
+    status: "pending" | "running" | "exited" | "down"
     exitCode?: number
     startedAt: number
     endedAt?: number

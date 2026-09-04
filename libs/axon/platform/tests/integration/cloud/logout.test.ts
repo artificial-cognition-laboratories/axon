@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 const backendUrl = "http://localhost:3099"
 
@@ -71,7 +72,21 @@ describe("cloud.logout", () => {
         }
     }, 20_000)
 
-    it("preserves providers on the record after logout", async () => {
+    it("logout deactivates the profile and leaves the rest of the record intact", async () => {
+        // BYOK providers used to live on ProfileRecord and this asserted they
+        // survived a logout. They moved to the profile's own
+        // `profile.config.ts` — a FILE logout never opens — so the old
+        // assertion could not compile and, more importantly, was asserting
+        // about a field that no longer exists.
+        //
+        // The property it protected is still worth pinning, so it is pinned
+        // where the answer now lives: logout DEACTIVATES the profile
+        // (REMEMBER_ME is on, so the token deliberately stays on disk for
+        // switch() to refresh) and rewrites nothing else. Anything a profile
+        // accumulates — the user block here, and by the same construction the
+        // config file beside it — has to come back untouched. A logout that
+        // reset the whole record would take the user's own configuration with
+        // their credential, which is not what logging out means.
         const storeDir = await mkdtemp(join(tmpdir(), "axon-test-store-"))
 
         try {
@@ -79,12 +94,15 @@ describe("cloud.logout", () => {
             const email = platform.cloud.client.user.auth.user!.email
 
             const before = platform.store.profiles.get(email).record.get()!
-            platform.store.profiles.save(email, { ...before, providers: { openai: { fake: "credential-blob" } } })
 
             await platform.cloud.logout()
 
+            // No profile is active any more — that is what logging out does.
+            expect(platform.store.profiles.active()).toBeNull()
+
+            // …and the record itself is untouched, credential included.
             const record = platform.store.profiles.get(email).record.get()
-            expect(record?.providers).toEqual({ openai: { fake: "credential-blob" } })
+            expect(record).toEqual(before)
         } finally {
             await rm(storeDir, { recursive: true, force: true })
         }

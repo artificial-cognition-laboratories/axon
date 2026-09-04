@@ -31,6 +31,22 @@ export type AxonStackFrame = {
 export type AxonErrorSource =
     | "runtime" | "manifest" | "capsule" | "server" | "thread" | "cli"
     | "cloud" | "kernel" | "cognet" | "tui" | "bench"
+    /**
+     * A third-party inference provider — the user's own Codex, OpenRouter,
+     * Ollama or Axon route.
+     *
+     * Its own source rather than "kernel", because the two answer different
+     * questions and only one of them is the user's. A provider refusing a
+     * credential, running out of credit or rate-limiting is COMMON, entirely
+     * about the user's own accounts, and fixable by them. A kernel failure is
+     * rare and ours to debug.
+     *
+     * They shared a namespace, so a spent ChatGPT allowance reached the user
+     * as `AX-KERNEL-008` — a code that reads as "the runtime broke" for a
+     * situation where nothing had. Separating them is what lets a reader tell
+     * "top up your account" from "file a bug" at a glance.
+     */
+    | "provider"
     // The machine-wide daemon. Its own source rather than "runtime": a
     // failure here is about SHARED state — the GPU, the instance registry —
     // and telling that apart from one agent's runtime fault is the difference

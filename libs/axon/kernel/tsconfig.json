@@ -6,10 +6,18 @@
         "moduleDetection": "force",
         "strict": true,
         "noUncheckedIndexedAccess": true,
-        "lib": ["ESNext"],
+        "lib": [
+            "ESNext"
+        ],
         "skipLibCheck": true,
         "allowImportingTsExtensions": true,
-        "noEmit": true
+        "noEmit": true,
+        "types": [
+            "bun"
+        ]
     },
-    "include": ["src"]
+    "include": [
+        "src",
+        "tests/**/*.ts"
+    ]
 }

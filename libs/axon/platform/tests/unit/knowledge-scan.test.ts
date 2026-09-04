@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Knowledge } from "../../src/build/blueprint/scan/knowledge"
+import { describe, it, expect } from "bun:test"
 
 /**
  * The knowledge scanner — build-time discovery of data/knowledge/.

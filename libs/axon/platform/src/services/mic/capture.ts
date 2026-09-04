@@ -24,42 +24,67 @@ export type CaptureOpts = {
     windowSamples: number
 }
 
-/** Priority order per platform — first one found on $PATH wins. Windows has no reliable always-present CLI capture tool, so sox/ffmpeg only. */
-function detectBackend(): CaptureBackend | null {
-    const candidates: CaptureBackend[] =
-        process.platform === "darwin" ? ["sox", "ffmpeg"]
-        : process.platform === "win32" ? ["sox", "ffmpeg"]
-        : ["arecord", "sox", "ffmpeg"] // linux and other unix
+/**
+ * Capture backends worth trying, in priority order, for one platform.
+ *
+ * Split from the $PATH probe and given the platform as a PARAMETER so all
+ * three orders are assertable from one machine. The darwin and win32 lists
+ * cannot execute on Linux CI otherwise, which is how a wrong argv ships: the
+ * failure is a silent "voice unavailable", indistinguishable from a machine
+ * that genuinely has no capture tool installed.
+ */
+export function backendsFor(platform: NodeJS.Platform = process.platform): CaptureBackend[] {
+    // Windows has no reliable always-present CLI capture tool, so sox/ffmpeg
+    // only. macOS likewise — arecord is ALSA, which is Linux's.
+    if (platform === "darwin" || platform === "win32") return ["sox", "ffmpeg"]
+    return ["arecord", "sox", "ffmpeg"] // linux and other unix
+}
 
-    for (const cmd of candidates) {
+/** First backend actually present on $PATH, or null when none is. */
+function detectBackend(): CaptureBackend | null {
+    for (const cmd of backendsFor()) {
         if (Bun.which(cmd)) return cmd
     }
     return null
 }
 
-/** Spawn args per backend — all produce raw signed 16-bit LE PCM, mono, at opts.sampleRate, on stdout. */
-function buildArgs(backend: CaptureBackend, sampleRate: number): string[] {
+/**
+ * Spawn args per backend — all produce raw signed 16-bit LE PCM, mono, at
+ * `sampleRate`, on stdout. Every branch ends in that same format, which is the
+ * invariant the reader downstream depends on.
+ *
+ * The platform is a PARAMETER, not a `process.platform` read, so the six
+ * OS-specific argv shapes can be asserted on any machine. Each names a
+ * different audio subsystem — avfoundation on macOS, dshow on Windows, ALSA on
+ * Linux — and getting one wrong yields a backend that spawns and then produces
+ * nothing, which reads to the user as a microphone that does not work.
+ */
+export function buildArgs(
+    backend: CaptureBackend,
+    sampleRate: number,
+    platform: NodeJS.Platform = process.platform,
+): string[] {
     const rate = String(sampleRate)
 
     if (backend === "arecord") {
+        // ALSA only — never selected on darwin or win32 (see backendsFor).
         return ["-t", "raw", "-f", "S16_LE", "-r", rate, "-c", "1", "-"]
     }
 
     if (backend === "sox") {
-        if (process.platform === "darwin") {
-            return ["-d", "-r", rate, "-c", "1", "-e", "signed-integer", "-b", "16", "-t", "raw", "-"]
-        }
-        if (process.platform === "win32") {
+        // `-d` is sox's default input device, which both macOS and Windows
+        // resolve themselves. Linux needs the ALSA device named explicitly.
+        if (platform === "darwin" || platform === "win32") {
             return ["-d", "-r", rate, "-c", "1", "-e", "signed-integer", "-b", "16", "-t", "raw", "-"]
         }
         return ["-t", "alsa", "default", "-r", rate, "-c", "1", "-e", "signed-integer", "-b", "16", "-t", "raw", "-"]
     }
 
-    // ffmpeg
-    if (process.platform === "darwin") {
+    // ffmpeg — one flag per platform's capture subsystem.
+    if (platform === "darwin") {
         return ["-f", "avfoundation", "-i", ":0", "-ac", "1", "-ar", rate, "-f", "s16le", "-"]
     }
-    if (process.platform === "win32") {
+    if (platform === "win32") {
         return ["-f", "dshow", "-i", "audio=default", "-ac", "1", "-ar", rate, "-f", "s16le", "-"]
     }
     return ["-f", "alsa", "-i", "default", "-ac", "1", "-ar", rate, "-f", "s16le", "-"]

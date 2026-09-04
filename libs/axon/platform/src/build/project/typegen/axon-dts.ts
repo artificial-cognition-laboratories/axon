@@ -275,6 +275,12 @@ export const CONFIG_DTS = HEADER + SHARED_BODY + `
      */
     const Axon: typeof import("@arcforge/engines").Axon
 
+    /** Local inference on this machine, managed by Axond. It is implicit; declare it only to override options. */
+    const Local: typeof import("@arcforge/engines").Local
+
+    /** Local inference on this machine, managed by Axond. It is implicit; declare it only to override options. */
+    const Local: typeof import("@arcforge/engines").Local
+
     /**
      * Ollama local inference.
      *

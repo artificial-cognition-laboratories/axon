@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { Blueprint } from "@arcforge/platform/build/blueprint"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK } from "../../../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 function disposableName(): string {
     return `@${TEST_USER.username}/test-agent-${crypto.randomUUID().slice(0, 8)}`

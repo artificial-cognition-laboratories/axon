@@ -5,6 +5,7 @@ import { Platform } from "@arcforge/platform/platform"
 import { Blueprint } from "@arcforge/platform/build/blueprint"
 import { Manifest } from "@arcforge/platform/build/project"
 import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK } from "../../../setup/user"
+import { describe, it, expect } from "bun:test"
 
 function disposableName(prefix: string): string {
     return `@${TEST_USER.username}/test-${prefix}-${crypto.randomUUID().slice(0, 8)}`

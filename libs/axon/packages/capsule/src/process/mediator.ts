@@ -3,10 +3,20 @@ import { decideShell, evaluateRule, isMemberBag, POLICY_WILDCARD } from "@arcfor
 import type { EffectiveRule, ResolvedCapsulePolicy, ShellDecision } from "@arcforge/types"
 
 import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
+import type { ExecutionT } from "./execution"
 
 type MediatorOpts = {
     policy: ResolvedCapsulePolicy
     wire: SandboxWireT
+    /**
+     * Which command is running, so a denial can name the block it belongs to.
+     *
+     * Same store `activities` correlates through. Without it a
+     * `process:policy:denied` was an orphan on the log — real, durable, and
+     * impossible to attach to the `Run(...)` that provoked it, which is why
+     * no surface ever rendered one.
+     */
+    execution: ExecutionT
 }
 
 export type MediatorT = {
@@ -19,7 +29,7 @@ export type MediatorT = {
      * a command string, which `git  push`, `env git push` and `sh -c "git
      * push"` each defeated while naming the same binary.
      */
-    shell(argv: string[]): Promise<ShellDecision>
+    shell(argv: string[], command?: string): Promise<ShellDecision>
     /**
      * Check one call against policy. `fn` is fully qualified ("process.spawn",
      * "network.api.github.com", "math.add"); `subject` is the string the rule
@@ -57,7 +67,12 @@ function spawnRule(shell: ResolvedCapsulePolicy["shell"]): EffectiveRule | undef
  */
 export function Mediator(opts: MediatorOpts): MediatorT {
     let policy = opts.policy
-    const { wire } = opts
+    const { wire, execution } = opts
+
+    /** The block this denial belongs to, or null for a host-initiated call. */
+    function commandId(): string | null {
+        return execution.current?.id ?? null
+    }
 
     const pending = new Map<string, (allow: boolean) => void>()
 
@@ -141,7 +156,7 @@ export function Mediator(opts: MediatorOpts): MediatorT {
 
         if (verdict === "allow") return true
         if (verdict === "deny") {
-            wire.emit("process:policy:denied", { id: randomUUID(), module, fn, args, rule: String(rule) })
+            wire.emit("process:policy:denied", { id: randomUUID(), commandId: commandId(), module, fn, args, rule: String(rule) })
             return false
         }
 
@@ -149,10 +164,32 @@ export function Mediator(opts: MediatorOpts): MediatorT {
         const id = randomUUID()
 
         return new Promise<boolean>(resolve => {
+            /**
+             * A refused escalation is a DENIAL, and says so on the record.
+             *
+             * Only the immediate `verdict === "deny"` path emitted one, so a
+             * call the user was asked about and declined settled silently:
+             * the escalation event said it was asked, nothing said the answer
+             * was no. A surface reading the log could show the question and
+             * never the outcome.
+             *
+             * `rule` carries WHICH refusal it was — the user said no, or
+             * nobody answered in time. Those are different facts and a person
+             * debugging a blocked agent needs to tell them apart.
+             */
+            const settle = (allow: boolean, reason: "escalation-denied" | "escalation-timeout" | "escalation-headless") => {
+                if (!allow) {
+                    wire.emit("process:policy:denied", {
+                        id: randomUUID(), commandId: commandId(), module, fn, args, rule: reason,
+                    })
+                }
+                resolve(allow)
+            }
+
             const timeoutMs = 30_000
             const timer = setTimeout(() => {
                 pending.delete(id)
-                resolve(false)
+                settle(false, "escalation-timeout")
             }, timeoutMs)
 
             /**
@@ -172,10 +209,10 @@ export function Mediator(opts: MediatorOpts): MediatorT {
              */
             pending.set(id, allow => {
                 clearTimeout(timer)
-                resolve(allow)
+                settle(allow, "escalation-denied")
             })
 
-            wire.emit("process:policy:escalation", { id, module, fn, args, rule: String(rule) })
+            wire.emit("process:policy:escalation", { id, commandId: commandId(), module, fn, args, rule: String(rule) })
         })
     }
 
@@ -184,13 +221,15 @@ export function Mediator(opts: MediatorOpts): MediatorT {
      * `not-allowed` are different mistakes and the model can act on the
      * difference; "denied by policy" tells it nothing it can fix.
      */
-    async function shell(argv: string[]): Promise<ShellDecision> {
-        const decision = decideShell(policy.shell, argv)
+    async function shell(argv: string[], command?: string): Promise<ShellDecision> {
+        // `command` is the unsplit line — the only form in which a chain is
+        // still visible. See decideShell.
+        const decision = decideShell(policy.shell, argv, undefined, command)
         if (decision.verdict === "allow") return decision
 
         if (decision.verdict === "deny") {
             wire.emit("process:policy:denied", {
-                id: randomUUID(), module: "shell", fn: `shell.run:${decision.program}`,
+                id: randomUUID(), commandId: commandId(), module: "shell", fn: `shell.run:${decision.program}`,
                 args: argv, rule: decision.reason,
             })
             return decision

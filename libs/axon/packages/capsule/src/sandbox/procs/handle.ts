@@ -1,4 +1,4 @@
-import type { LiveProcHandle, ProcOutputStream, ProcQueryOptions } from "../../../types"
+import type { LiveProcHandle, ProcOutputStream, ProcQueryOptions, ProcStatus } from "../../../types"
 import { extractFromBuffers, queryBuffers } from "./query"
 
 /**
@@ -12,8 +12,10 @@ export type ProcEntry = {
     command: string
     pid?: number
     cwd?: string
-    status: "running" | "exited"
+    status: ProcStatus
     exitCode?: number
+    /** Why the spawn was refused, when it was. Set with status `exited` and no pid. */
+    error?: string
     stdout: string[]
     stderr: string[]
     startedAt: number
@@ -24,7 +26,11 @@ export type ProcEntry = {
 export type ProcEntryImpl = {
     kill(): void
     stdin(data: string): void
-    /** Per-line listener for this procId; procId + ":exit" fires once on exit. */
+    /**
+     * Per-line listener for this procId. Two reserved keys carry lifecycle
+     * rather than output: `procId + ":start"` fires once when the spawn
+     * settles (launched or refused), `procId + ":exit"` once on exit.
+     */
     subscribe(key: string, cb: (line: string) => void): () => void
 }
 
@@ -51,6 +57,31 @@ function lastNLines(text: string, n: number): string {
 
 /** Wrap a mirror entry as the caller-facing live handle. */
 export function wrapEntry(entry: ProcEntry, impl: ProcEntryImpl): LiveProcHandle {
+    /**
+     * Settled at wrap time so it is always safe to await right after spawn,
+     * including on a handle wrapped from an entry that already settled.
+     *
+     * "Settled" means mediation finished and the OS answered — NOT that the
+     * process finished. A refusal settles it too, with `ok: false` and the
+     * reason, so a caller learns why rather than inferring it from a missing
+     * pid.
+     */
+    const started = new Promise<{ ok: boolean; pid: number | undefined; err: string | undefined }>(resolve => {
+        const settle = () => resolve({
+            ok: entry.status === "running",
+            pid: entry.pid,
+            err: entry.error,
+        })
+        if (entry.status !== "pending") {
+            settle()
+            return
+        }
+        const off = impl.subscribe(entry.procId + ":start", () => {
+            off()
+            settle()
+        })
+    })
+
     // Created at wrap time so it's always safe to await right after spawn.
     const exited = new Promise<{ exitCode: number; ok: boolean; stdout: string }>(resolve => {
         if (entry.status === "exited") {
@@ -89,6 +120,7 @@ export function wrapEntry(entry: ProcEntry, impl: ProcEntryImpl): LiveProcHandle
         query: (opts: ProcQueryOptions = {}) => queryBuffers(entry.procId, entry.stdout, entry.stderr, opts),
         extract: (regex, include) => extractFromBuffers(entry.stdout, entry.stderr, regex, include),
 
+        started,
         exited,
 
         waitFor(pattern, opts) {

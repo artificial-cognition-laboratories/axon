@@ -13,7 +13,7 @@ import { Publish, type PublishResult, type PublishStep } from "./publish"
 import { Tree } from "./tree"
 import type { VerifyReport } from "./verify"
 import { Typegen } from "./typegen"
-import { Watcher } from "./watcher"
+import { Watcher, RELOAD_DEBOUNCE_MS } from "./watcher"
 import type { WatcherT, DuringOptions } from "./watcher"
 import { type ProjectKind } from "./kinds"
 import { Bench, type BenchT, type BenchExtras } from "../bench"
@@ -118,7 +118,16 @@ export function Project(opts: ProjectOpts) {
     })
     const publish = Publish({ kind, root, bundle, manifest, cloud: opts.cloud })
     const deploy = Deploy({ bundle, manifest, cloud: opts.cloud })
-    const watcher = Watcher({ root })
+    /**
+     * 150ms, not the watcher's own 100ms default.
+     *
+     * An editor writes several times per save (temp file, rename, mtime
+     * touch), and every one of those is a separate fs notification. The
+     * profile watcher settled on 150 for the same reason and has been carrying
+     * it in production — matching it keeps one answer to one question rather
+     * than two that drift.
+     */
+    const watcher = Watcher({ root, debounceMs: RELOAD_DEBOUNCE_MS })
 
     return {
         root: root,

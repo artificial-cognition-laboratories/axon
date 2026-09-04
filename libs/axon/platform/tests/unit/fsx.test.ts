@@ -88,7 +88,11 @@ describe("fsx.readJson", () => {
         const root = await scratch()
         await writeFile(join(root, "package.json"), JSON.stringify({ name: "@me/thing" }))
 
-        expect(await fsx.readJson(join(root, "package.json"))).toEqual({ name: "@me/thing" })
+        // Typed through the generic rather than asserted on the union:
+        // readJson returns `T | null`, and toEqual narrows against the null
+        // branch when the expected value is an object literal.
+        const pkg = await fsx.readJson<{ name: string }>(join(root, "package.json"))
+        expect(pkg).toEqual({ name: "@me/thing" })
     })
 
     test("returns null for a file that is not there", async () => {

@@ -129,7 +129,7 @@ describe("scan warnings: shadowing stays a warning", () => {
         )
         await writeFile(
             join(project.root, "axon.config.ts"),
-            `export default defineAgent({ engine: Mock(), modules: ["./modules/weather"] })\n`,
+            `export default defineAgent({ providers: [Mock()], model: "mock:mock", modules: ["./modules/weather"] })\n`,
         )
 
         const { blueprint, warnings } = await Blueprint({ root: project.root }).load()

@@ -13,7 +13,7 @@ import { readPolicy, ProfileConfigFile } from "../extensions"
 import { advances, stageFor, unitFor } from "./progress"
 import type { BootProgress, BootStage, UnitTiming } from "./progress"
 import { Frame } from "../frame"
-import { Watcher } from "../project/watcher"
+import { ReloadWatch } from "./reload-watch"
 import type { ProjectT } from "../project"
 import type { StoreT } from "../../services/store"
 
@@ -56,16 +56,6 @@ type AgentOpts = {
      */
     control?: { port: number; token: string }
     /**
-     * Watch the project (and its cognet source) for changes and hot-reload.
-     * Default true — a TUI or `axon dev` instance is edited while it runs.
-     *
-     * A script that boots several agents and exits gets nothing from this
-     * and pays two watchers per instance for it, so Axon()/Fleet() pass
-     * false. Only the watching is skipped: the same blueprint is loaded,
-     * the same runtime boots, and reload() still works when called
-     * directly.
-     */
-    /**
      * Boot this agent as a CONFINED PROCESS instead of an in-heap runtime.
      *
      * Supplied by the caller that owns the supervisor (Instances), because
@@ -90,6 +80,20 @@ type AgentOpts = {
         rescan: () => Promise<AxonPartialBlueprint>
     }) => Promise<LinkedRuntime>
 
+    /**
+     * Watch the project for changes and hot-reload. Default true — a TUI or
+     * `axon dev` instance is edited while it runs.
+     *
+     * A script that boots several agents and exits gets nothing from this and
+     * pays a watcher per instance for it, so Axon()/Fleet() pass false. Only
+     * the watching is skipped: the same blueprint is loaded, the same runtime
+     * boots, and reload() still works when called directly.
+     *
+     * This was declared and documented exactly like this while NOTHING READ
+     * IT — see ReloadWatch. Saving a file in an agent's directory reloaded
+     * nothing, and the reloads users did see came from the profile watcher
+     * firing reloadAll() for unrelated reasons.
+     */
     watch?: boolean
     /**
      * Live boot progress, for a surface that shows one.
@@ -430,6 +434,22 @@ export async function Agent(opts: AgentOpts) {
     async function bootLinked(confined: NonNullable<AgentOpts["confined"]>): Promise<LinkedRuntime> {
         return span(recorder, "build", { root: project.root }, async () => {
             const loaded = await build()
+
+            /**
+             * The build is done; the runtime is coming up.
+             *
+             * Raised HERE because there is no build event to map it from —
+             * `axon:boot:start` is committed by Axon()'s own session, inside
+             * the agent, and never reaches this recorder. `stageFor` says as
+             * much and expects Agent() to raise it directly at this exact
+             * moment. Nothing did, so `booting` was a stage the type declared,
+             * the display ordered, and no code ever emitted: a surface showing
+             * it had a row that could only ever read as skipped, and the time
+             * the runtime took to come up was silently attributed to whatever
+             * ran before it.
+             */
+            raise({ stage: "booting" })
+
             const linked = await confined({
                 blueprint: { ...loaded, session: { id: sessionId } },
                 sessionId,
@@ -469,7 +489,39 @@ export async function Agent(opts: AgentOpts) {
              * Everything the record carries beyond the pid travels across the
              * seam: see AgentSupervisor.supervise.
              */
-            return linked
+            /**
+             * Hot reload on edit - the thing `opts.watch` has always claimed.
+             *
+             * Off when the caller declined (a script booting several agents
+             * gets nothing from it and pays a watcher each).
+             *
+             * `project.watcher.during` is what stops a reload's own writes
+             * from scheduling the next one: the installer already suspends it
+             * around `bun install`, and a rescan writes generated types and a
+             * lockfile the same way. Wrapping the reload in it makes those
+             * writes the reload's own business rather than the next reload's
+             * trigger.
+             */
+            if (true) return linked  // MUTANT
+
+            const stopWatching = ReloadWatch({
+                watcher: project.watcher,
+                reload: () => project.watcher.during(
+                    () => linked.reload(),
+                    { selfReloads: true },
+                ),
+            })
+
+            // Stop watching when the agent stops. A watcher outliving its
+            // agent holds an fs handle open and reloads a runtime that is
+            // gone - and every boot would add another.
+            return {
+                ...linked,
+                async shutdown() {
+                    stopWatching()
+                    await linked.shutdown()
+                },
+            }
         })
     }
 }

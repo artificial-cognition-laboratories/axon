@@ -561,11 +561,52 @@ async function linkFramework(root: string): Promise<void> {
  * claim the specifier, so a moved or renamed package fails to link instead of
  * linking the wrong directory.
  */
+/**
+ * Every package.json under `root`, to `depth` levels, skipping node_modules.
+ *
+ * Walked in-process rather than shelled out to `find`. Two reasons, and the
+ * second is the one that matters:
+ *
+ * - `find` does not exist on Windows, so the spawn produced no output there.
+ * - `spawnSync` reports a missing binary as EMPTY STDOUT, which is exactly what
+ *   a successful search with no matches looks like. Both call sites then looped
+ *   over nothing and returned null — so "this machine has no `find`" was
+ *   indistinguishable from "this workspace has no framework packages", and a
+ *   developer on a Mac or Windows box silently linked against the published
+ *   copy while believing they were testing their own checkout.
+ *
+ * A directory walk cannot fail that way: an unreadable directory is skipped
+ * explicitly, and there is no binary to be absent.
+ */
+function manifestsUnder(root: string, depth: number): string[] {
+    const out: string[] = []
+
+    const walk = (dir: string, remaining: number): void => {
+        if (remaining < 0) return
+        let entries
+        try {
+            entries = readdirSync(dir, { withFileTypes: true })
+        } catch {
+            // Unreadable directory — a permission fault or a broken symlink.
+            // Skipped rather than fatal: it is one branch of a search, and the
+            // caller's question is "is this package here", not "is every
+            // directory readable".
+            return
+        }
+        for (const entry of entries) {
+            if (entry.name === "node_modules") continue
+            const path = join(dir, entry.name)
+            if (entry.isDirectory()) walk(path, remaining - 1)
+            else if (entry.name === "package.json") out.push(path)
+        }
+    }
+
+    walk(root, depth)
+    return out
+}
+
 function frameworkDir(workspace: string, name: string): string | null {
-    const found = Bun.spawnSync([
-        "find", join(workspace, "libs"), "-maxdepth", "5", "-name", "package.json",
-        "-not", "-path", "*/node_modules/*",
-    ]).stdout.toString().trim().split("\n")
+    const found = manifestsUnder(join(workspace, "libs"), 5)
 
     for (const candidate of found) {
         if (!candidate) continue
@@ -586,8 +627,7 @@ function findWorkspacePackage(from: string, name: string): string | null {
             try {
                 const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { workspaces?: string[] }
                 if (pkg.workspaces) {
-                    const found = Bun.spawnSync(["find", dir, "-maxdepth", "4", "-name", "package.json",
-                        "-not", "-path", "*/node_modules/*"]).stdout.toString().trim().split("\n")
+                    const found = manifestsUnder(dir, 4)
                     for (const candidate of found) {
                         if (!candidate) continue
                         try {

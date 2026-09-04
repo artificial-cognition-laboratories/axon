@@ -48,7 +48,10 @@ export function Clock(opts: ClockOpts) {
         get tick() {
             return tick
         },
-        get phase() {
+        // Annotated: without it the inferred return collapses to `null` (the
+        // initializer's type), so a consumer comparing it to a phase name gets
+        // a "no overlap" error for a comparison that is exactly the point.
+        get phase(): string | null {
             return phase
         },
         stamp,

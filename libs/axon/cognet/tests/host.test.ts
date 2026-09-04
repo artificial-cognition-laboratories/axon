@@ -1,5 +1,6 @@
 import type { KernelAbi } from "@arcforge/types"
 import { CognetHost } from "../src/host"
+import { describe, it, expect } from "bun:test"
 
 describe("CognetHost lifecycle", () => {
     it("executes and registers a hash-busted artifact only once when load is repeated", async () => {
@@ -68,7 +69,9 @@ describe("CognetHost lifecycle", () => {
         await host.load(abi)
         await host.wake({ stimuli: [], signal: new AbortController().signal })
 
-        expect(read).toBe("body")
+        // Same as clock.test.ts: `read` is assigned inside a callback, so
+        // it is still narrowed to `null` here by control flow.
+        expect(read as string | null).toBe("body")
         expect(calls).toEqual(["read", "list", "write", "remove"])
         await host.unload?.()
     })
