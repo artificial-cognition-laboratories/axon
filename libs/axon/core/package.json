@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/core",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {
@@ -10,7 +10,9 @@
         "src"
     ],
     "scripts": {
-        "test": "bun test",
+        "test": "bun run test:full",
+        "test:hot": "bun test tests/hot",
+        "test:full": "bun test tests/hot tests/integration",
         "test:coverage": "bun test --coverage"
     },
     "dependencies": {
@@ -34,5 +36,6 @@
         "@arclabs/repo": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^5"
-    }
+    },
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

@@ -515,6 +515,16 @@ export type PolicyResponseCommand = {
     id: string
     type: "policy:response"
     allow: boolean
+    /**
+     * Why a refusal was a refusal, when it was not a person saying no.
+     *
+     * "headless" means there was nobody to ask — a script, CI, a deployment.
+     * Without it every such denial recorded `escalation-denied`, which reads as
+     * a decision someone made and sends whoever is debugging a blocked agent
+     * looking for the person who made it. Absent on an allow, and absent when a
+     * decider genuinely declined.
+     */
+    reason?: "headless"
 }
 
 export type PolicyCall = {

@@ -4,11 +4,11 @@ import type { AxonCloudClient } from "@arcforge/cloud"
 import { Boot, daemonPaths, Dispatch, Lifecycle, Preferences, Server } from "./control/index"
 import { Machine } from "./machine/index"
 import { Agents, Credential, Supervise } from "./agents/index"
-import { Models } from "./models/index"
-import { Jobs, Runner } from "./jobs/index"
+import { Models, Runtimes } from "./models/index"
+import { Jobs, Runner, Workspaces, type Job } from "./jobs/index"
 import { Schedule } from "./schedule/index"
 import { Dictation } from "./dictation/index"
-import type { Job } from "./jobs/index"
+import { Worlds } from "./worlds/index"
 import type { DaemonPaths } from "../types/index"
 
 export type AxondOpts = {
@@ -21,6 +21,24 @@ export type AxondOpts = {
     /** Where running-agent records are written. Tests point this at a scratch dir. */
     agentsRoot?: string
     /**
+     * The human decider for a policy escalation.
+     *
+     * Supplied by the surface that HAS a person watching — the TUI. Its
+     * absence means deny: a daemon with no surface to ask cannot answer on
+     * someone's behalf, and defaulting to allow would make an unattended agent
+     * strictly more privileged than an attended one.
+     *
+     * Threaded through to `Supervise`, which binds it per spawn and hands it to
+     * the LINK's supervisor-side services. It never crosses into the box — the
+     * agent reaches it through the `escalate` verb and never holds the
+     * callback, which is the whole reason it lives on this side.
+     *
+     * A THUNK-shaped dependency like `cloud`, for the same reason: the platform
+     * owns the decider and the daemon supervises the platform's agents, so a
+     * value here would force one to exist before the other.
+     */
+    decide?: (input: { agent: string; sessionId: string }, call: unknown) => Promise<boolean>
+    /**
      * The command a boot unit runs. Defaults to `axon daemon serve`.
      *
      * Overridable because a source checkout is not on PATH as `axon`, and a
@@ -31,6 +49,8 @@ export type AxondOpts = {
     bootRoot?: string
     /** Where model weights are cached. Tests point this at a scratch dir. */
     modelsRoot?: string
+    /** Where Axon-managed inference runtimes are cached. */
+    runtimesRoot?: string
     /**
      * The cloud client, for supervising agents.
      *
@@ -144,6 +164,11 @@ export function Axond(opts: AxondOpts = {}) {
      */
     const supervise = Supervise({
         cloud: opts.cloud ?? (() => credential.client()),
+        // Without this the daemon has no way to ask anybody anything, so every
+        // escalation is refused by a supervisor that never had a decider —
+        // which is how a TUI showed "needs approval, and nothing was listening"
+        // while the user was sitting right there.
+        ...(opts.decide ? { decide: opts.decide } : {}),
         // Models is assembled below. The thunk is called only when an agent
         // resolves its inference roles, after the daemon composition is complete.
         local: () => ({
@@ -170,8 +195,12 @@ export function Axond(opts: AxondOpts = {}) {
      */
     const preferences = Preferences({ path: join(paths.root, "preferences.json") })
 
+    // One machine-wide runtime manager shared by every agent and model adapter.
+    const runtimes = Runtimes(opts.runtimesRoot !== undefined ? { root: opts.runtimesRoot } : {})
+
     const models = Models({
         machine: machine,
+        runtimes: runtimes,
         autoload: () => preferences.flag("autoload", true),
         ...(opts.modelsRoot !== undefined ? { root: opts.modelsRoot } : {}),
     })
@@ -197,18 +226,23 @@ export function Axond(opts: AxondOpts = {}) {
         version: version,
         report: {
             say: (ref, text) => { jobs.say({ ref: ref, text: text, by: { kind: "agent", session: "runner" } }) },
-            finish: (ref, summary) => { jobs.finish({ ref: ref, summary: summary, by: { kind: "agent", session: "runner" } }) },
-            fail: (ref, reason) => { jobs.fail({ ref: ref, reason: reason, by: { kind: "agent", session: "runner" } }) },
+            finish: (ref, run, summary) => { jobs.finish({ ref: ref, run: run, summary: summary, by: { kind: "agent", session: "runner" } }) },
+            fail: (ref, run, reason) => { jobs.fail({ ref: ref, run: run, reason: reason, by: { kind: "agent", session: "runner" } }) },
         },
     })
 
     const jobs = Jobs({
         root: join(paths.root, "jobs"),
+        workspace: paths.root,
         machineId: () => machine.identity.current().id,
         // `opts.startJob` still wins where a caller supplies one — that is how
         // a test boots nothing — and the runner is the answer for everyone
         // else. Without it every job sat queued forever.
         start: opts.startJob ?? (job => runner.start(job)),
+    })
+    const workspaces = Workspaces({
+        root: paths.root,
+        machineId: () => machine.identity.current().id,
     })
 
     const schedule = Schedule({ root: paths.root })
@@ -223,6 +257,11 @@ export function Axond(opts: AxondOpts = {}) {
      */
     const dictation = Dictation({ models: models, preferences: preferences })
 
+    // The lab: Terraria worlds and the warm bodies agents occupy. Machine-wide
+    // for the same reason models are — a display, a port, a game client is
+    // something only one process on this box can own.
+    const worlds = Worlds({ root: join(paths.root, "worlds") })
+
     const dispatch = Dispatch({
         domains: {
             machine: machine,
@@ -231,6 +270,7 @@ export function Axond(opts: AxondOpts = {}) {
             jobs: jobs,
             schedule: schedule,
             dictation: dictation,
+            worlds: worlds,
             preferences: preferences,
             /**
              * Who is signed in. A domain of one verb, because a surface asking
@@ -266,8 +306,10 @@ export function Axond(opts: AxondOpts = {}) {
         agents: agents,
         models: models,
         jobs: jobs,
+        workspaces: workspaces,
         schedule: schedule,
         dictation: dictation,
+        worlds: worlds,
 
         /**
          * Become the daemon: bind the socket, claim the pidfile, and stay up.
@@ -346,6 +388,9 @@ export function Axond(opts: AxondOpts = {}) {
         /** Stop listening and release the pidfile. Idempotent. */
         async shutdown(): Promise<void> {
             await agents.dispose()
+            // After agents, so leases are released by agents leaving rather
+            // than by bodies being pulled out from under them.
+            await worlds.dispose()
             await models.dispose()
             machine.stop()
             schedule.stop()

@@ -193,10 +193,26 @@ export async function main(): Promise<void> {
         runtime = await Axon({
             blueprint,
             bus,
-            // The two facts that make this runtime confined:
-            //   remote — inference crosses the link, so no credential is here
-            //   (tools then load in this heap, see Axon())
+            // The three facts that make this runtime confined:
+            //   remote   — inference crosses the link, so no credential is here
+            //              (tools then load in this heap, see Axon())
+            //   escalate — the DECIDER stays outside; this asks over a verb
             remote: role => RemoteDriver({ role, supervisor }),
+            /*
+             * Ask the supervisor, which asks the person.
+             *
+             * Without this the agent's kernel had no decider at all, so
+             * `headless()` was true inside every confined agent and each
+             * escalation was refused before it was ever raised — the TUI
+             * reporting "needs approval, and nothing was listening" while the
+             * user sat in front of it. The verb, the supervisor-side handler
+             * and the decider all existed; nothing called this.
+             *
+             * A CALL, not the callback itself: what crosses into the box is the
+             * ability to ask, never the ability to answer. A program that held
+             * the decider could raise and settle its own escalations.
+             */
+            escalate: async call => (await supervisor.escalate(call)).allow,
         })
     } catch (cause) {
         const failure = err(cause)

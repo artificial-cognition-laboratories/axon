@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
 import type { AxonCloudClient } from "@arcforge/cloud"
-import { err } from "@arcforge/err"
+import { err, type AxonError } from "@arcforge/err"
 import { parseSpecifier } from "../build/project/specifier"
 
 /**
@@ -89,27 +89,97 @@ export function PromptCache(opts: { cloud: AxonCloudClient; root: string }) {
 
 export type PromptCacheT = ReturnType<typeof PromptCache>
 
-export function Registry(opts: { cloud: AxonCloudClient; prepare(root: string): Promise<void> }) {
-    async function clone(ref: string, cwd: string, options: { dir?: string } = {}) {
+/**
+ * `reportPrepareFailure` is opt-in, never the default — see runPrepare().
+ * Only a caller that asked for FILES (the `axon clone` / `axon fork` commands)
+ * wants a half-installed tree back instead of a throw.
+ */
+export type CloneOptions = { dir?: string; reportPrepareFailure?: boolean }
+
+/**
+ * Fetching the artifact bytes is an INJECTABLE seam, not a bare global.
+ *
+ * `download` used to reach straight for `globalThis.fetch`, which left a test
+ * no way to serve a fixture tarball except to assign over that global. With
+ * `parallel = true` in bunfig, Bun interleaves test FILES in one process, so
+ * one file's stub was live inside every other file running at the same
+ * moment: `zeno.test.ts` called clone() and was served `registry.test.ts`'s
+ * archive of a directory that test had already deleted. 94 failures traced to
+ * that one assignment, and an `afterEach` restore cannot help — it runs after
+ * its own describe, long after a concurrent file has been handed the wrong
+ * fetch.
+ *
+ * Injected the same way `Framework({ fetch })` in libs/repo already does it:
+ * the default is the real thing, so production wiring passes nothing.
+ */
+export type ArtifactDownload = (url: string) => Promise<ArrayBuffer>
+
+export function Registry(opts: {
+    cloud: AxonCloudClient
+    prepare(root: string): Promise<void>
+    download?: ArtifactDownload
+}) {
+    const fetchArtifact: ArtifactDownload = opts.download ?? download
+
+    /**
+     * Install what was downloaded. Throws by DEFAULT; reports only on request.
+     *
+     * `clone` and `fork` each do two things — fetch an artifact, then install
+     * its dependencies — and who is asking decides whether the second failing
+     * should destroy the first.
+     *
+     * `axon clone` asks for FILES ("copy a published artifact into a
+     * directory"). Its prepare step can fail for reasons belonging to the
+     * artifact's AUTHOR rather than to the person cloning: an agent pinning a
+     * cognet built for another kernel ABI aborted the clone outright
+     * (COGNET_ABI_MISMATCH, seen in production). The tarball had already been
+     * extracted, so the user got a tree on disk, no node_modules, and a fatal
+     * error naming a version pin they never chose. The prepare-time ABI gate
+     * catches a bad pairing at the moment it is CHOSEN — true of `axon
+     * prepare` on your own agent, false of cloning someone else's.
+     *
+     * Every OTHER caller — zeno's first-run scaffold, an extension install, a
+     * bench fixture — asked for a working project and never sees the
+     * directory. For them a returned error is a silent failure by another
+     * name: zeno would be installed broken, and the extension loader would
+     * record a version for something that cannot load. So the throw is the
+     * default and tolerance is opt-in, which also means no existing caller
+     * changes behaviour.
+     *
+     * Nothing unsafe is admitted either way: core/src/cognet refuses a bad ABI
+     * pairing at agent boot, so a cloned-but-unprepared project cannot quietly
+     * run against the wrong kernel.
+     */
+    async function runPrepare(target: string, report: boolean): Promise<AxonError | null> {
+        try {
+            await opts.prepare(target)
+            return null
+        } catch (cause) {
+            if (!report) throw cause
+            return err(cause)
+        }
+    }
+
+    async function clone(ref: string, cwd: string, options: CloneOptions = {}) {
         if (!ref) throw err("CLONE_REF_REQUIRED")
 
         const { name, version: requestedVersion } = parseSpecifier(ref)
         const resolved = await opts.cloud.registry.resolve(name, requestedVersion)
         const target = resolve(cwd, options.dir ?? directoryName(resolved.name))
-        await extract(await download(resolved.downloadUrl), target)
-        await opts.prepare(target)
+        await extract(await fetchArtifact(resolved.downloadUrl), target)
+        const prepareError = await runPrepare(target, options.reportPrepareFailure === true)
 
-        return { ...resolved, root: target }
+        return { ...resolved, root: target, prepareError }
     }
 
-    async function fork(ref: string, cwd: string, options: { as?: string; dir?: string } = {}) {
+    async function fork(ref: string, cwd: string, options: CloneOptions & { as?: string } = {}) {
         if (!options.as) throw err("FORK_NAME_REQUIRED")
 
         if (!ref) throw err("FORK_REF_REQUIRED")
         const { name, version: requestedVersion } = parseSpecifier(ref)
         const resolved = await opts.cloud.registry.resolve(name, requestedVersion)
         const target = resolve(cwd, options.dir ?? directoryName(options.as))
-        await extract(await download(resolved.downloadUrl), target)
+        await extract(await fetchArtifact(resolved.downloadUrl), target)
 
         const cloneResult = { ...resolved, root: target }
         const packagePath = join(cloneResult.root, "package.json")
@@ -125,9 +195,9 @@ export function Registry(opts: { cloud: AxonCloudClient; prepare(root: string): 
             forkedFrom: { name: cloneResult.name, version: cloneResult.version },
         }
         await writeFile(packagePath, JSON.stringify(raw, null, 2) + "\n")
-        await opts.prepare(target)
+        const prepareError = await runPrepare(target, options.reportPrepareFailure === true)
 
-        return { ...cloneResult, name: options.as, version: "0.1.0" }
+        return { ...cloneResult, name: options.as, version: "0.1.0", prepareError }
     }
 
     return { clone, fork }

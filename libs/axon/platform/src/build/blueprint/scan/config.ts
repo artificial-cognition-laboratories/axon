@@ -1,14 +1,15 @@
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { AsyncLocalStorage } from "node:async_hooks"
-import { defineModule, definePrompt } from "@arcforge/types"
-import { defineCognet } from "@arcforge/cognet"
 import type { AxonConfig, ModuleEntry } from "@arcforge/types"
-import { Axon, Local, Ollama, Codex, OpenRouter, HuggingFace, Mock } from "@arcforge/engines"
 import { err } from "@arcforge/err"
 import { fsx } from "../../../utils/fs"
 import { resolveModulePaths, type ResolvedModulePath } from "./moduleImports"
 import { resolveCognetPath } from "./cognetImports"
 import type { ResolvedDeclaration } from "./configImports"
+import { ProviderGlobals } from "./provider-globals"
+import { Frame } from "../../frame"
 
 /**
  * Config — loads and evaluates axon.config.ts. The ONE place in the
@@ -53,9 +54,63 @@ export type LoadedConfig = {
     cognetPath: ResolvedDeclaration | null
 }
 
+/**
+ * Config evaluation executes the agent's declaration graph. Keep that result
+ * while the project watcher vouches that the root has not changed; a new
+ * process still evaluates once, and every observed edit clears the entry.
+ */
+const cached = new Map<string, LoadedConfig>()
+
+/** Called by the project watcher when any authored input may have changed. */
+export function invalidateConfig(root: string): void {
+    cached.delete(resolve(root))
+}
+
+type DiskConfig = { hash: string; loaded: LoadedConfig }
+
+/**
+ * A cross-process cache for declarative, self-contained agent configs.
+ *
+ * We deliberately do not cache arbitrary evaluated code. A config that imports
+ * anything, reads an environment value, or calls require can have inputs that
+ * are not its own bytes, so it is evaluated normally. The common literal
+ * config has exactly one input; content-addressing that input makes a cache
+ * hit precise rather than an mtime guess.
+ */
+function configCache(root: string, source: string): { hash: string; path: string } | null {
+    if (/\bimport\b|\brequire\s*\(|\bprocess\.|\bBun\.env\b|\bDeno\.env\b/.test(source)) return null
+    return {
+        hash: createHash("sha256").update(source).digest("hex"),
+        path: Frame({ root: root, kind: "agent" }).file("cache", "config.json"),
+    }
+}
+
+function readCachedConfig(cache: { hash: string; path: string }): LoadedConfig | null {
+    if (!existsSync(cache.path)) return null
+    try {
+        const stored = JSON.parse(readFileSync(cache.path, "utf-8")) as DiskConfig
+        return stored.hash === cache.hash ? stored.loaded : null
+    } catch {
+        // Derived cache data is non-authoritative. A torn cache entry is
+        // replaced by the successful evaluation below; authored config errors
+        // still throw at their boundary.
+        return null
+    }
+}
+
+function writeCachedConfig(cache: { hash: string; path: string }, loaded: LoadedConfig): void {
+    Frame({ root: loaded.root, kind: "agent" }).ensure("cache")
+    writeFileSync(cache.path, JSON.stringify({ hash: cache.hash, loaded: loaded }) + "\n", "utf-8")
+}
+
 type ConfigEvaluation = {
     capture(config: AxonConfig): void
 }
+
+const providers = ProviderGlobals()
+const defineModule = <T>(config: T): T => config
+const defineCognet = <T>(config: T): T => config
+const definePrompt = <T>(config: T): { _kind: "prompt"; config: T } => ({ _kind: "prompt", config: config })
 
 const CONFIG_EVALUATION = Symbol.for("axon.config.evaluation")
 const evaluationStorage = (() => {
@@ -120,13 +175,13 @@ function installAuthoringGlobals(): void {
     // `??=` deliberately: an embedding host may have installed its own, and
     // the AUTHORITATIVE binding for the duration of an evaluation is applied
     // by withProviderGlobals() below rather than trusted from module load.
-    g.Axon ??= Axon
-    g.Local ??= Local
-    g.Ollama ??= Ollama
-    g.Codex ??= Codex
-    g.OpenRouter ??= OpenRouter
-    g.HuggingFace ??= HuggingFace
-    g.Mock ??= Mock
+    g.Axon ??= providers.Axon
+    g.Local ??= providers.Local
+    g.Ollama ??= providers.Ollama
+    g.Codex ??= providers.Codex
+    g.OpenRouter ??= providers.OpenRouter
+    g.HuggingFace ??= providers.HuggingFace
+    g.Mock ??= providers.Mock
 }
 
 /**
@@ -150,7 +205,7 @@ function installAuthoringGlobals(): void {
  */
 export async function withProviderGlobals<T>(body: () => Promise<T>): Promise<T> {
     const g = globalThis as Record<string, unknown>
-    const factories = { Axon, Local, Ollama, Codex, OpenRouter, HuggingFace, Mock }
+    const factories = providers
     const previous = Object.fromEntries(Object.keys(factories).map(name => [name, g[name]]))
     Object.assign(g, factories)
     try {
@@ -163,9 +218,21 @@ export async function withProviderGlobals<T>(body: () => Promise<T>): Promise<T>
 installAuthoringGlobals()
 
 export async function Config(root: string): Promise<LoadedConfig> {
-    const configPath = join(root, "axon.config.ts")
+    const resolvedRoot = resolve(root)
+    const cachedConfig = cached.get(resolvedRoot)
+    if (cachedConfig) return cachedConfig
+
+    const configPath = join(resolvedRoot, "axon.config.ts")
     if (!fsx.exists(configPath)) {
         throw err("CONFIG_NOT_FOUND", { context: { root } })
+    }
+    const source = await fsx.readText(configPath)
+    if (source === null) throw err("CONFIG_NOT_FOUND", { context: { root } })
+    const disk = configCache(resolvedRoot, source)
+    const fromDisk = disk ? readCachedConfig(disk) : null
+    if (fromDisk) {
+        cached.set(resolvedRoot, fromDisk)
+        return fromDisk
     }
 
     let captured: AxonConfig | null = null
@@ -221,13 +288,16 @@ export async function Config(root: string): Promise<LoadedConfig> {
         }
 
         const value: AxonConfig = captured
-        return {
-            root,
+        const loaded = {
+            root: resolvedRoot,
             value,
             modules: (value.modules ?? []) as ModuleEntry[],
             modulePaths: await resolveModulePaths(configPath),
             cognetPath: await resolveCognetPath(configPath),
         }
+        cached.set(resolvedRoot, loaded)
+        if (disk) writeCachedConfig(disk, loaded)
+        return loaded
     } finally {
         state.current = null
         release()

@@ -132,6 +132,11 @@ if (ownsProcessSweep) {
 const repo = Repo()
 const { backendUrl } = await repo.daemon.connect()
 
+// Axond's fixtures re-export the platform's seeded user. Resolve its
+// published framework version before any test imports that fixture.
+const { PUBLISHED_VERSION_ENV } = await import("../../../../platform/tests/setup/framework-version")
+process.env[PUBLISHED_VERSION_ENV] ??= await repo.framework.published()
+
 // Stripe test-mode secret key — same one the local staging backend runs
 // against. Loaded directly from the backend's own env file rather than
 // duplicated here.

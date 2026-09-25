@@ -1,11 +1,13 @@
 {
-  "lockfileVersion": 1,
+  "lockfileVersion": 2,
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "vox",
+      "name": "@axon/vox",
       "dependencies": {
-        "@arcforge/air": "2.0.117",
+        "@arcforge/air": "2.0.209",
+        "@axon/microphone": "0.1.2",
+        "@axon/speaker": "^0.1.0",
         "@huggingface/transformers": "^4.2.0",
         "h3": "^1.13.0",
         "kokoro-js": "^1.2.1",
@@ -18,15 +20,23 @@
     "onnxruntime-node": "1.24.3",
   },
   "packages": {
-    "@arcforge/air": ["@arcforge/air@2.0.117", "", { "dependencies": { "@arcforge/err": "2.0.117", "@arcforge/types": "2.0.117" } }, "sha512-hi00dC9Wp45R7bR71hM1HlgR+aKdLUOR69mFHPSi2v+CYqdn0EnQA6RMcfD4BZi/0iIzQRlGA+iUZ53Ptgby3w=="],
+    "@arcforge/air": ["@arcforge/air@2.0.209", "", { "dependencies": { "@arcforge/err": "2.0.209", "@arcforge/types": "2.0.209" } }, "sha512-RAuxpKMsBIybBKy/k5iuBAhf6V3P6ZtIRDU8fOXhFmeo57uv/bj7CRq2Bq9AP4+7sp9r1kee+MMezBgoklilLw=="],
 
-    "@arcforge/err": ["@arcforge/err@2.0.117", "", { "dependencies": { "@arcforge/types": "2.0.117" } }, "sha512-MAY2E8ZlLdD01Tq7nId4/zOGFFnosXcH9i3DWHZz9XoJjBlwHN2iPMnlr+BpMvJ7iVGGYwkHtlVrVKYRHswZvQ=="],
+    "@arcforge/cognet": ["@arcforge/cognet@2.0.199", "", { "dependencies": { "@arcforge/err": "2.0.199", "@arcforge/types": "2.0.199", "hookable": "^5.5.3" } }, "sha512-EycGZTqb1QAFBFHkEnGrvOTQA8aEAsevSUYhWQSqNrF53wnZ1/MMOLKlHhQiX4ImZ3s31upRphp10iTNuo9/og=="],
 
-    "@arcforge/types": ["@arcforge/types@2.0.117", "", { "dependencies": { "h3": "^1.13.0" } }, "sha512-j3yJ04Z+FBeIji5BGwYdLemq2guqEef/Ut5hCoRrzbK07YoQQjR1TEkqdAQoCj+V4BDszfhUGdB+lgMlIyobUw=="],
+    "@arcforge/engines": ["@arcforge/engines@2.0.199", "", { "dependencies": { "@arcforge/types": "2.0.199" }, "peerDependencies": { "@ai-sdk/anthropic": "^4.0.0", "@ai-sdk/cerebras": "^3.0.0", "@ai-sdk/deepseek": "^3.0.0", "@ai-sdk/google": "^4.0.0", "@ai-sdk/groq": "^4.0.0", "@ai-sdk/mistral": "^4.0.0", "@ai-sdk/openai": "^4.0.0", "@ai-sdk/openai-compatible": "^3.0.0", "@ai-sdk/perplexity": "^4.0.0", "@ai-sdk/xai": "^4.0.0", "@ai-sdk/zai": "^3.0.0" }, "optionalPeers": ["@ai-sdk/anthropic", "@ai-sdk/cerebras", "@ai-sdk/deepseek", "@ai-sdk/google", "@ai-sdk/groq", "@ai-sdk/mistral", "@ai-sdk/openai", "@ai-sdk/openai-compatible", "@ai-sdk/perplexity", "@ai-sdk/xai", "@ai-sdk/zai"] }, "sha512-GbBRneLSmxp2zx6jjjXxM+ziISufTQ3fBSEr9KQWGw4fEp/Hu8a7/I/V+4TyJVYexmGl4x4X8JRJboqKpePtAQ=="],
+
+    "@arcforge/err": ["@arcforge/err@2.0.209", "", { "dependencies": { "@arcforge/types": "2.0.209" } }, "sha512-wh3lW4WuF0JoBHw6Lkz5edjIae/ZcFCC/2jn5z3wZAji1ca6O/0eZePerpsm9Dv26pDMpnMxk52X3SGuQVYLxw=="],
+
+    "@arcforge/types": ["@arcforge/types@2.0.209", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-t9UDLfwuyaCR2Xm4Mf4MIFTId0HGGb8/K6ezxhGqt8papEYcc1Ndbl5xQhysWmKAAWEG40uzHtmj2k6HVVlYnQ=="],
+
+    "@axon/microphone": ["@axon/microphone@0.1.2", "http://127.0.0.1:3099/api/registry/npm/@axon/microphone/-/microphone-0.1.2.tgz", { "dependencies": { "@arcforge/air": "2.0.199", "@arcforge/cognet": "2.0.199", "@arcforge/engines": "2.0.199", "@arcforge/types": "2.0.199", "h3": "^1.13.0" } }, "sha512-Blj+z5N5z9h8ZdTCaZygTn5tvx5RvL9tEMMJyoRkn5sgiOiZyWDo+5wIYkMqyPtPZtlnL3JrTF02oVTRDbxWjw=="],
+
+    "@axon/speaker": ["@axon/speaker@0.1.0", "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/@axon/speaker/-/speaker-0.1.0.tgz", { "dependencies": { "@arcforge/air": "2.0.199", "@arcforge/cognet": "2.0.199", "@arcforge/engines": "2.0.199", "@arcforge/types": "2.0.199", "h3": "^1.13.0" } }, "sha512-5BvhhR6DceTCmDesi/C0r/RWaYRt7qVSPUJFEWK1J5Hbr38+oDEyemPI/A5s1YNS/eXtIFNN9yuED6/tufVIKg=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
-    "@huggingface/jinja": ["@huggingface/jinja@0.5.9", "", {}, "sha512-uWTG+l3VJRsl7EXxYizuL3P+cCPoc3cRqbWWRcQN0FhejRfbdq0RNhCmbY/YDtnTcz9icdLYuLDjsnz4d8JMuw=="],
+    "@huggingface/jinja": ["@huggingface/jinja@0.5.10", "", {}, "sha512-SgS1D1bglQ94ceD4ZCL6eayUDy9uV1xuyk61OjgSxU5GJh7upqZCKII0JoTYMc6wWsg3JUgaPRX0ElQzXPk3Cw=="],
 
     "@huggingface/tokenizers": ["@huggingface/tokenizers@0.1.3", "", {}, "sha512-8rF/RRT10u+kn7YuUbUg0OF30K8rjTc78aHpxT+qJ1uWSqxT1MHi8+9ltwYfkFYJzT/oS+qw3JVfHtNMGAdqyA=="],
 
@@ -100,11 +110,15 @@
 
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.2", "", {}, "sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug=="],
 
-    "@types/node": ["@types/node@26.1.2", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg=="],
+    "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@types/node": ["@types/node@26.5.1", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g=="],
 
     "adm-zip": ["adm-zip@0.5.18", "", {}, "sha512-ufJnssQGbxzLNS1Ho9bCtX4rQKCCvoVuDLHoJyc3F9dOGDB4BkWs2Ci0kv53lqocAEQ/Cbi+I2XCsNYGqVYqng=="],
 
     "boolean": ["boolean@3.2.0", "", {}, "sha512-d0II/GO9uf9lfUHH2BQsjxzRJZBdsjgsBiW4BvhWk/3qoKwQFjIDVN19PfX8F2D/r9PCMTtLWjYVCFrpeYUzsw=="],
+
+    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "cookie-es": ["cookie-es@1.2.3", "", {}, "sha512-lXVyvUvrNXblMqzIRrxHb57UUVmqsSWlxqt3XIjCkUP0wDAf6uicO6KMbEgYrMNtEvWgWHwe42CKxPu9MYAnWw=="],
 
@@ -144,6 +158,8 @@
 
     "has-property-descriptors": ["has-property-descriptors@1.0.2", "", { "dependencies": { "es-define-property": "^1.0.0" } }, "sha512-55JNKuIW+vq4Ke1BjOTjM2YctQIvCT7GFzHwmfZPGo5wnrgkid0YQtnAleFSqumZm4az3n2BS+erby5ipJdgrg=="],
 
+    "hookable": ["hookable@5.5.3", "", {}, "sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ=="],
+
     "iron-webcrypto": ["iron-webcrypto@1.2.1", "", {}, "sha512-feOM6FaSr6rEABp/eDfVseKyTMDt+KGpeB35SkVn9Tyn0CqvVsY3EwI0v5i8nMHyJnzCIQf7nsy3p41TPkJZhg=="],
 
     "json-stringify-safe": ["json-stringify-safe@5.0.1", "", {}, "sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA=="],
@@ -168,7 +184,7 @@
 
     "platform": ["platform@1.3.6", "", {}, "sha512-fnWVljUchTro6RiCFvCXBbNhJc2NijN7oIQxbwsyL0buWJPG85v81ehlHI9fXrJsMNgTofEoWIQeClKpgxFLrg=="],
 
-    "protobufjs": ["protobufjs@7.6.5", "", { "dependencies": { "@protobufjs/aspromise": "^1.1.2", "@protobufjs/base64": "^1.1.2", "@protobufjs/codegen": "^2.0.5", "@protobufjs/eventemitter": "^1.1.1", "@protobufjs/fetch": "^1.1.1", "@protobufjs/float": "^1.0.2", "@protobufjs/path": "^1.1.2", "@protobufjs/pool": "^1.1.0", "@protobufjs/utf8": "^1.1.1", "@types/node": ">=13.7.0", "long": "^5.3.2" } }, "sha512-/FPD0nUc9jH6rfFjji9IBqOz4pcSE3CsT1m7Ep6Mdb0LxSUMj8hgl6GomOvZzpNpAqqGaXA0P3VSrZLFzIhQrw=="],
+    "protobufjs": ["protobufjs@7.6.6", "", { "dependencies": { "@protobufjs/aspromise": "^1.1.2", "@protobufjs/base64": "^1.1.2", "@protobufjs/codegen": "^2.0.5", "@protobufjs/eventemitter": "^1.1.1", "@protobufjs/fetch": "^1.1.1", "@protobufjs/float": "^1.0.2", "@protobufjs/path": "^1.1.2", "@protobufjs/pool": "^1.1.0", "@protobufjs/utf8": "^1.1.1", "@types/node": ">=13.7.0", "long": "^5.3.2" } }, "sha512-dYDWdjSl5RNb7SgPxGQcRU+GtvP7s2fpkrY0r432PcOIaZ0/rBcxEZnQN67iJhFuQiVw754JDoPruPCNdGsbjg=="],
 
     "radix3": ["radix3@1.1.2", "", {}, "sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA=="],
 
@@ -192,8 +208,26 @@
 
     "uncrypto": ["uncrypto@0.1.3", "", {}, "sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q=="],
 
-    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+    "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
+
+    "@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.199", "", { "dependencies": { "@arcforge/types": "2.0.199" } }, "sha512-VKcQxjyYWFLsq2FFv+9jfQiTFWdGxM2ICT2LWLD5pyjPA5G03BDl84+s9IVB4dU3Xyt4Ej5M31v+cQWzuDtCfw=="],
+
+    "@arcforge/cognet/@arcforge/types": ["@arcforge/types@2.0.199", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-op9hsabHmfIxfC0SqBbQwcy9HKfdXqZ7qr9bvmcY55NvvWmWEqhjYnot9GxCh5bmsELf7kmNn0aQm9C5JDv+1w=="],
+
+    "@arcforge/engines/@arcforge/types": ["@arcforge/types@2.0.199", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-op9hsabHmfIxfC0SqBbQwcy9HKfdXqZ7qr9bvmcY55NvvWmWEqhjYnot9GxCh5bmsELf7kmNn0aQm9C5JDv+1w=="],
+
+    "@axon/microphone/@arcforge/air": ["@arcforge/air@2.0.199", "", { "dependencies": { "@arcforge/err": "2.0.199", "@arcforge/types": "2.0.199" } }, "sha512-HWsxaTJYsTRtciDwGh58/2FhjnBU2QG9PThUYnQnJTPbSyDHG0XZN0rWpp3rxTXGuQf/vVOD3n2ykuhG/pymNg=="],
+
+    "@axon/microphone/@arcforge/types": ["@arcforge/types@2.0.199", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-op9hsabHmfIxfC0SqBbQwcy9HKfdXqZ7qr9bvmcY55NvvWmWEqhjYnot9GxCh5bmsELf7kmNn0aQm9C5JDv+1w=="],
+
+    "@axon/speaker/@arcforge/air": ["@arcforge/air@2.0.199", "", { "dependencies": { "@arcforge/err": "2.0.199", "@arcforge/types": "2.0.199" } }, "sha512-HWsxaTJYsTRtciDwGh58/2FhjnBU2QG9PThUYnQnJTPbSyDHG0XZN0rWpp3rxTXGuQf/vVOD3n2ykuhG/pymNg=="],
+
+    "@axon/speaker/@arcforge/types": ["@arcforge/types@2.0.199", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-op9hsabHmfIxfC0SqBbQwcy9HKfdXqZ7qr9bvmcY55NvvWmWEqhjYnot9GxCh5bmsELf7kmNn0aQm9C5JDv+1w=="],
 
     "onnxruntime-web/onnxruntime-common": ["onnxruntime-common@1.24.0-dev.20251116-b39e144322", "", {}, "sha512-BOoomdHYmNRL5r4iQ4bMvsl2t0/hzVQ3OM3PHD0gxeXu1PmggqBv3puZicEUVOA3AtHHYmqZtjMj9FOfGrATTw=="],
+
+    "@axon/microphone/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.199", "", { "dependencies": { "@arcforge/types": "2.0.199" } }, "sha512-VKcQxjyYWFLsq2FFv+9jfQiTFWdGxM2ICT2LWLD5pyjPA5G03BDl84+s9IVB4dU3Xyt4Ej5M31v+cQWzuDtCfw=="],
+
+    "@axon/speaker/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.199", "", { "dependencies": { "@arcforge/types": "2.0.199" } }, "sha512-VKcQxjyYWFLsq2FFv+9jfQiTFWdGxM2ICT2LWLD5pyjPA5G03BDl84+s9IVB4dU3Xyt4Ej5M31v+cQWzuDtCfw=="],
   }
 }

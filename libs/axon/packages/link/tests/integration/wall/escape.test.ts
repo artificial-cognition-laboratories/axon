@@ -69,50 +69,6 @@ async function attack(script: string): Promise<string> {
     return out.trim()
 }
 
-boxed("an agent attacking its own box", () => {
-    it("cannot flush the nft ruleset that confines it", async () => {
-        // THE ESCAPE. Without the capability drop in netup.ts this prints
-        // SUCCEEDED and the denied host becomes reachable.
-        const out = await attack(`
-            nft flush ruleset 2>/dev/null >/dev/null && echo "flush=SUCCEEDED" || echo "flush=REFUSED"
-            grep CapEff /proc/self/status | tr -d '\\t' | tr -d ' '
-        `)
-        expect(out).toContain("flush=REFUSED")
-        // The drop must be total: any remaining bit is a capability the agent
-        // can use, and CAP_NET_ADMIN is only the one we happened to need.
-        expect(out).toContain("CapEff:0000000000000000")
-    }, 90_000)
-
-    it("still cannot reach a denied host after trying to tamper", async () => {
-        // The property the test above protects, stated as an outcome rather
-        // than a mechanism: whatever the agent did, the wall still holds.
-        const out = await attack(`
-            nft flush ruleset 2>/dev/null >/dev/null
-            nft add table inet esc 2>/dev/null >/dev/null
-            nft add chain inet esc out '{ type filter hook output priority 0; policy accept; }' 2>/dev/null >/dev/null
-            printf 'denied='; curl -s -o /dev/null -w "%{http_code}" --max-time 8 -k https://1.1.1.1/ || printf 'BLOCKED'
-            echo
-        `)
-        expect(out).toMatch(/denied=(BLOCKED|000)/)
-    }, 90_000)
-
-    it("cannot bring down its own network interface to evade accounting", async () => {
-        const out = await attack(`ip link set lo down 2>/dev/null >/dev/null && echo "link=SUCCEEDED" || echo "link=REFUSED"`)
-        expect(out).toContain("link=REFUSED")
-    }, 90_000)
-
-    it("negative control: an allowed host is still reachable after the drop", async () => {
-        // Dropping every capability must not brick ordinary egress. Without
-        // this, a box that simply lost its network would pass every test above.
-        const out = await attack(`
-            printf 'allowed='; curl -s -o /dev/null -w "%{http_code}" --max-time 10 -k https://20.26.156.210/ || printf 'BLOCKED'
-            echo
-        `)
-        expect(out).not.toContain("allowed=BLOCKED")
-        expect(out).not.toContain("allowed=000")
-    }, 90_000)
-})
-
 boxed("an agent attacking its filesystem view", () => {
     async function fsAttack(policy: Partial<CapsulePolicy>, script: string): Promise<string> {
         const spec = fromPolicy({

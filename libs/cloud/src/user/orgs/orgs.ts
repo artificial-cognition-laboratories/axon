@@ -1,7 +1,6 @@
 import type { HttpClient } from "../../platform/http"
 import { record, rows, str, strOrNull } from "../../platform/parse"
-import { Org } from "./org"
-import type { OrgHandle } from "./org"
+import { Org, type OrgHandle } from "./org"
 import type { OrgMembership, OrgRole } from "./types"
 
 type OrgsOpts = {

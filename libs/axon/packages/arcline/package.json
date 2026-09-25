@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/arcline",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "exports": {
         ".": {
@@ -25,5 +25,6 @@
     },
     "bin": {
         "@arcforge/arcline": "./bin/arcline.ts"
-    }
+    },
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

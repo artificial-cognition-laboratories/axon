@@ -85,17 +85,95 @@ export async function readCognetAbi(sourceDir: string): Promise<string | null> {
  * weights is a static fact about a brain, not something a config should be
  * computing.
  */
-export async function readCognetModels(sourceDir: string): Promise<Record<string, string>> {
+export async function readCognetModels(sourceDir: string): Promise<Record<string, import("@arcforge/types").ModelRef>> {
     const source = await fsx.readText(join(sourceDir, "cognet.config.ts"))
     if (source === null) return {}
 
-    const block = source.match(/\bmodels\s*:\s*\{([\s\S]*?)\}/)
-    if (!block?.[1]) return {}
+    const opener = source.match(/\bmodels\s*:\s*\{/)
+    if (!opener?.index) return {}
 
-    const models: Record<string, string> = {}
-    for (const entry of block[1].matchAll(/["'`]?([A-Za-z_$][\w$]*)["'`]?\s*:\s*["'`]([^"'`]+)["'`]/g)) {
-        models[entry[1]!] = entry[2]!
+    const from = opener.index + opener[0].length - 1
+    let depth = 0
+    let close = -1
+    for (let i = from; i < source.length; i++) {
+        if (source[i] === "{") depth++
+        else if (source[i] === "}") {
+            depth--
+            if (depth === 0) {
+                close = i
+                break
+            }
+        }
     }
+    if (close < 0) return {}
+
+    const body = source.slice(from + 1, close)
+    const models: Record<string, import("@arcforge/types").ModelRef> = {}
+
+    // Entries belong to the indentation level immediately inside the models map.
+    // Derive it from the authored source rather than assuming a formatter width.
+    const lineStart = source.lastIndexOf("\n", opener.index) + 1
+    const propertyIndent = source.slice(lineStart, opener.index).match(/^[ \\t]*/)?.[0].length ?? 0
+    const header = new RegExp(`^([ \\t]{${propertyIndent + 1},})([A-Za-z_$][\\w$]*)\\s*:\\s*`, "gm")
+
+    for (let match = header.exec(body); match; match = header.exec(body)) {
+        const key = match[2]!
+        const rest = body.slice(header.lastIndex).trimStart()
+
+        if (rest[0] === '"' || rest[0] === "'" || rest[0] === "`") {
+            const quote = rest[0]
+            const endQuote = rest.indexOf(quote, 1)
+            if (endQuote >= 0) models[key] = rest.slice(1, endQuote)
+            continue
+        }
+
+        if (rest[0] !== "{") continue
+        let nested = 0
+        let endObject = -1
+        for (let i = 0; i < rest.length; i++) {
+            if (rest[i] === "{") nested++
+            else if (rest[i] === "}") {
+                nested--
+                if (nested === 0) {
+                    endObject = i
+                    break
+                }
+            }
+        }
+        if (endObject < 0) continue
+
+        // Step the scan PAST this entry's object before looking for the next
+        // key. Without it the sweep resumes inside the braces and reads the
+        // entry's own fields as sibling entries — `hf:` became a model named
+        // "hf" whose specifier was a bare repo, and the object form has never
+        // parsed. The indentation guard cannot catch it: a nested field is
+        // indented further than the entries, not less.
+        const consumed = body.length - rest.length + endObject + 1
+        header.lastIndex = consumed
+
+        const object = rest.slice(0, endObject + 1)
+        const hf = object.match(/\bhf\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+        if (!hf) continue
+
+        const ref: Record<string, unknown> = { hf }
+        const file = object.match(/\bfile\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+        if (file) ref.file = file
+        if (/\bset\s*:\s*true\b/.test(object)) ref.set = true
+        const rev = object.match(/\brev\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+        if (rev) ref.rev = rev
+        const sha256 = object.match(/\bsha256\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+        if (sha256) ref.sha256 = sha256
+        const capability = object.match(/\bcapability\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+        if (capability) ref.capability = capability
+        const type = object.match(/\btype\s*:\s*["'`](generate|transform|stream)["'`]/)?.[1]
+        if (type) ref.type = type
+        for (const field of ["in", "out"] as const) {
+            const values = object.match(new RegExp("\\b" + field + "\\s*:\\s*\\[([^\\]]*)\\]"))?.[1]
+            if (values) ref[field] = [...values.matchAll(/["'`]([^"'`]+)["'`]/g)].map(item => item[1])
+        }
+        models[key] = ref as import("@arcforge/types").ModelRef
+    }
+
     return models
 }
 
@@ -187,6 +265,17 @@ function parseRequirement(block: string): EngineRequirement | null {
 
     const inputs = modality("in")
     const outputs = modality("out")
+
+    const preferred = balanced(block, /\bprefer\s*:\s*\{/)
+    const preferredModality = (field: "in" | "out"): Modality[] => {
+        if (preferred === null) return []
+        const list = preferred.match(new RegExp(`\\b${field}\\s*:\\s*\\[([^\\]]*)\\]`))
+        if (list?.[1]) return [...list[1].matchAll(/["'`]([a-z]+)["'`]/g)].map(m => m[1] as Modality)
+        const single = preferred.match(new RegExp(`\\b${field}\\s*:\\s*["'\`]([a-z]+)["'\`]`))
+        return single?.[1] ? [single[1] as Modality] : []
+    }
+    const preferIn = preferredModality("in")
+    const preferOut = preferredModality("out")
     if (inputs.length === 0 || outputs.length === 0) return null
 
     // Numeric separators are ordinary in a config (`100_000`), and a parse
@@ -198,6 +287,12 @@ function parseRequirement(block: string): EngineRequirement | null {
         type: type as EngineRequirement["type"],
         in: inputs,
         out: outputs,
+        ...(preferIn.length || preferOut.length
+            ? { prefer: {
+                ...(preferIn.length ? { in: preferIn } : {}),
+                ...(preferOut.length ? { out: preferOut } : {}),
+            } }
+            : {}),
         ...(context ? { context: Number(context.replaceAll("_", "")) } : {}),
         ...(flag("structured") ? { structured: true } : {}),
         ...(flag("parallel") ? { parallel: true } : {}),

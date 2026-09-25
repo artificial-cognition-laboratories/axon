@@ -34,20 +34,31 @@ export type DeclaredFile = {
     ambientTypes: string[]
 }
 
-const COMPILER_OPTIONS: ts.CompilerOptions = {
-    declaration: true,
-    emitDeclarationOnly: true,
-    target: tsc().ScriptTarget.ESNext,
-    module: tsc().ModuleKind.ESNext,
-    moduleResolution: tsc().ModuleResolutionKind.Bundler,
-    strict: true,
-    skipLibCheck: true,
-    // Declaration emit fails loudly on an implicit any parameter otherwise —
-    // tool authors write plain, unannotated JS-shaped TS; forcing strict
-    // parameter typing here would make the SCANNER reject code the runtime
-    // happily executes. Emission still infers real return types either way.
-    noImplicitAny: false,
-    allowImportingTsExtensions: true,
+/*
+ * Built on demand, not at module scope.
+ *
+ * `tsc()` is a lazy accessor, and calling it in a module-scope initializer
+ * defeated it entirely: importing this file loaded the 17MB TypeScript
+ * compiler, whether or not anything ever declared a tool. Same defect as
+ * air/output.ts's COMPILER_OPTIONS — a lazy loader is only lazy if every
+ * caller is inside a function.
+ */
+function compilerOptions(): ts.CompilerOptions {
+    return {
+        declaration: true,
+        emitDeclarationOnly: true,
+        target: tsc().ScriptTarget.ESNext,
+        module: tsc().ModuleKind.ESNext,
+        moduleResolution: tsc().ModuleResolutionKind.Bundler,
+        strict: true,
+        skipLibCheck: true,
+        // Declaration emit fails loudly on an implicit any parameter otherwise —
+        // tool authors write plain, unannotated JS-shaped TS; forcing strict
+        // parameter typing here would make the SCANNER reject code the runtime
+        // happily executes. Emission still infers real return types either way.
+        noImplicitAny: false,
+        allowImportingTsExtensions: true,
+    }
 }
 
 /**
@@ -97,12 +108,23 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
  */
 const libFiles = new Map<string, ts.SourceFile | undefined>()
 
-/** The directory TypeScript's own lib.*.d.ts files ship in. */
-const libDir = normalize(tsc().getDefaultLibFilePath(COMPILER_OPTIONS).replace(/[^/\\]+$/, ""))
+/**
+ * The directory TypeScript's own lib.*.d.ts files ship in.
+ *
+ * Resolved on first use, not at module scope — asking the compiler where its
+ * libs live requires loading the compiler, which is the 17MB this file exists
+ * to defer. Cached because it cannot change within a process.
+ */
+let _libDir: string | null = null
+
+function libDir(): string {
+    _libDir ??= normalize(tsc().getDefaultLibFilePath(compilerOptions()).replace(/[^/\\]+$/, ""))
+    return _libDir
+}
 
 /** True for a path inside TypeScript's own lib directory. */
 function isLibFile(fileName: string): boolean {
-    return fileName.startsWith(libDir)
+    return fileName.startsWith(libDir())
 }
 
 /**
@@ -142,7 +164,7 @@ function unshadow(path: string): string {
 export function declareTools(fileNames: string[]): Map<string, DeclaredFile> {
     const emitted = new Map<string, string>()
 
-    const host = tsc().createCompilerHost(COMPILER_OPTIONS)
+    const host = tsc().createCompilerHost(compilerOptions())
 
     // Reads follow the shadow back to the real file on disk. Everything above
     // this line thinks in shadowed paths; everything below it, and the whole
@@ -199,7 +221,7 @@ export function declareTools(fileNames: string[]): Map<string, DeclaredFile> {
     // Emitted paths are mapped back, so every caller sees real locations.
     host.writeFile = (fileName, text) => emitted.set(normalize(unshadow(fileName)), text)
 
-    const program = tsc().createProgram(fileNames.map(shadow), COMPILER_OPTIONS, host)
+    const program = tsc().createProgram(fileNames.map(shadow), compilerOptions(), host)
     program.emit()
     const result = new Map<string, DeclaredFile>()
 

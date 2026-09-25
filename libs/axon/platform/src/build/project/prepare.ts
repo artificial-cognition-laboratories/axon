@@ -4,7 +4,7 @@ import { err } from "@arcforge/err"
 import type { ProviderEntry } from "@arcforge/types"
 import { resolveDefaultBaseUrl } from "@arcforge/cloud"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
-import { Blueprint, Config, cognetAbi, cognetName, cognetSourceOf, readCognetModels, flatten, DEFAULT_COGNET, type CognetSource, type ScanWarning } from "../blueprint"
+import { Blueprint, Config, invalidateConfig, cognetAbi, cognetName, cognetSourceOf, readCognetModels, flatten, DEFAULT_COGNET, type CognetSource, type ScanWarning } from "../blueprint"
 import { reconcile } from "./reconcile"
 import { describeFaults } from "./verify"
 import { Models } from "./models"
@@ -18,6 +18,7 @@ import { fsx } from "../../utils/fs"
 import { migrateFrame } from "../frame"
 import { migrateEngineField } from "./manifest/engine-migrate"
 import { KINDS, type ProjectKind } from "./kinds"
+import type { WatcherT } from "./watcher"
 
 export type PrepareResult = {
     modules: InstallResult[]
@@ -28,6 +29,8 @@ export type PrepareResult = {
 
 type PrepareOpts = {
     root: string
+    /** Invocation directory used for workspace discovery. */
+    cwd?: string
     kind: ProjectKind
     installer: InstallerT
     manifest: ManifestT
@@ -65,6 +68,8 @@ type PrepareOpts = {
      * must not become an artifact's dependency.
      */
     profileProviders?: () => Promise<readonly ProviderEntry[] | undefined>
+    /** Owns invalidation for a reusable successful preparation. */
+    watcher: WatcherT
 }
 
 /**
@@ -79,7 +84,7 @@ type PrepareOpts = {
  */
 async function phase<T>(
     report: BuildReporter | undefined,
-    name: "build:framework" | "build:modules" | "build:cognet" | "build:tree" | "build:typegen",
+    name: "build:framework" | "build:modules" | "build:cognet" | "build:compile" | "build:tree" | "build:blueprint" | "build:typegen",
     start: Record<string, unknown>,
     run: () => Promise<T>,
     complete?: (value: T) => Record<string, unknown>,
@@ -122,9 +127,9 @@ export type BuildReporter = (type: string, data: unknown) => void
  * the caller decides severity.
  */
 export function Prepare(opts: PrepareOpts) {
-    const { root, kind, installer, manifest, modules, tree, typegen, frameworkVersion, frameworkSource, repoRoot, extend } = opts
+    const { root, kind, installer, manifest, modules, tree, typegen, frameworkVersion, frameworkSource, repoRoot, extend, cwd } = opts
 
-    const blueprint = Blueprint({ root: root })
+    const blueprint = Blueprint({ root: root, ...(cwd ? { cwd } : {}) })
     // Named `weights` locally: `modules` is already the source-module
     // manager here, and two different things called models/modules in one
     // function is exactly the kind of near-collision that reads fine and
@@ -237,7 +242,34 @@ export function Prepare(opts: PrepareOpts) {
      * for CI and deploy — where "the build quietly upgraded something" is a
      * worse outcome than "the build failed and told you what moved".
      */
-    return async function prepare(options: { frozen?: boolean; report?: BuildReporter } = {}): Promise<PrepareResult> {
+    let cached: PrepareResult | null = null
+    let releaseCache: (() => void) | null = null
+
+    opts.watcher.onChange(() => {
+        cached = null
+        invalidateConfig(root)
+        releaseCache?.()
+        releaseCache = null
+    })
+
+    return async function prepare(options: { frozen?: boolean; report?: BuildReporter; reuse?: boolean } = {}): Promise<PrepareResult> {
+        // Only agent boot opts into reuse. Commands such as `axon prepare`
+        // remain explicit reconciliation requests, and --frozen remains an
+        // assertion against disk rather than a cached answer.
+        if (options.reuse && cached) return cached
+
+        // A cache is trustworthy only while the watcher has continuously
+        // observed the project. Explicit prepare requests intentionally do
+        // not retain that watcher, so they must begin from disk rather than
+        // borrow an evaluation a former runtime left behind.
+        if (!options.reuse) invalidateConfig(root)
+
+        let acquiredCacheWatch = false
+        if (options.reuse && !releaseCache) {
+            releaseCache = await opts.watcher.retain()
+            acquiredCacheWatch = true
+        }
+        try {
         // Per call, not per construction: the project is opened long before
         // anything knows where its build should report. Agent() supplies a
         // session-backed sink at boot; `axon prepare` on its own supplies
@@ -616,16 +648,18 @@ export function Prepare(opts: PrepareOpts) {
             })
         }
 
-        if (
-            needsFrameworkInstall
-            || cognetNeedsInstall
-            || reconciled.changed
-            || verified.needsInstall
-            || pruned.length > 0
-            || installed.some(r => r.status === "installed")
-            || cognetInstall.some(r => r.status === "installed")
-            || sourceModules.some(r => r.dependenciesChanged)
-        ) {
+        const treeReasons = [
+            ...(needsFrameworkInstall ? ["framework"] : []),
+            ...(cognetNeedsInstall ? ["cognet"] : []),
+            ...(reconciled.changed ? ["manifest"] : []),
+            ...(verified.needsInstall ? ["verification"] : []),
+            ...(pruned.length > 0 ? ["pruned"] : []),
+            ...(installed.some(r => r.status === "installed") ? ["modules"] : []),
+            ...(cognetInstall.some(r => r.status === "installed") ? ["cognet-install"] : []),
+            ...(sourceModules.some(r => r.dependenciesChanged) ? ["source-module"] : []),
+        ]
+
+        if (treeReasons.length > 0) {
             // A stale package needs its range re-resolved, not merely
             // replayed: the lockfile pin is exactly what is holding it back.
             const refresh = verified.faults.filter(f => f.kind === "stale").map(f => f.name)
@@ -640,7 +674,7 @@ export function Prepare(opts: PrepareOpts) {
             await phase(
                 report,
                 "build:tree",
-                { reason: "reconcile" },
+                { reason: "reconcile", reasons: treeReasons },
                 () => tree.install({
                     ...(refresh.length ? { refresh } : {}),
                     onPropagationRetry: notePropagation,
@@ -682,17 +716,34 @@ export function Prepare(opts: PrepareOpts) {
             }),
         )
 
-        // compile: true — load() compiles the brain before scanning, because
-        // the scan reads the manifest compilation writes. A broken build throws:
-        // no brain, no agent.
-        const profileProviders = await opts.profileProviders?.()
-        const { blueprint: loaded, warnings } = await blueprint.load({
-            compile: true,
-            ...(Object.keys(resolvedModels.paths).length ? { models: resolvedModels.paths } : {}),
-            ...(profileProviders ? { profileProviders: [...profileProviders] } : {}),
-        })
+        // Compile before the scan that reads its manifest. This used to be
+        // hidden inside `blueprint.load({ compile: true })`, which made the
+        // reported "Compiling cognet" time include every surface scan. That
+        // was especially misleading on a cache hit: the bundle took a few
+        // milliseconds while the terminal blamed a few hundred on it.
+        //
+        // Keep the ordering here, in the one operation that needs both, so a
+        // scan can never read a previous brain.
+        await phase(
+            report,
+            "build:compile",
+            { specifier: cognetSpecifier },
+            () => blueprint.cognet.compile(cognetSource),
+        )
 
-        return {
+        const profileProviders = await opts.profileProviders?.()
+        const { blueprint: loaded, warnings } = await phase(
+            report,
+            "build:blueprint",
+            {},
+            () => blueprint.load({
+                ...(Object.keys(resolvedModels.paths).length ? { models: resolvedModels.paths } : {}),
+                ...(profileProviders ? { profileProviders: [...profileProviders] } : {}),
+            }),
+            result => ({ warnings: result.warnings.length }),
+        )
+
+        const result = {
             modules: installed,
             sourceModules,
             typegen: await phase(
@@ -725,6 +776,19 @@ export function Prepare(opts: PrepareOpts) {
                         + `Switching between registries rewrites this range each time.`,
                 })),
             ],
+        }
+
+        if (options.reuse) cached = result
+        return result
+        } catch (cause) {
+            // A failed preparation is never reusable. Release the watch this
+            // attempt acquired so an error cannot leave an inert project held
+            // alive for the rest of the terminal session.
+            if (acquiredCacheWatch) {
+                releaseCache?.()
+                releaseCache = null
+            }
+            throw cause
         }
     }
 }

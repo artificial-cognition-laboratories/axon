@@ -8,10 +8,10 @@ function scripted(code: string): AxonEngineDef {
         name: "scripted",
         create: () => ({
             async *stream(): AsyncGenerator<AxonEngineRawEvent> {
-                // The script on the first turn, then stop — the harness cognet
-                // loops until <done/> arrives with nothing to act on.
+                // The script on the first turn, then a real completion reply.
+                // A bare <done/> must not abandon the still-live request.
                 calls++
-                const text = calls === 1 ? `<script>${code}</script>` : "<done/>"
+                const text = calls === 1 ? `<script>${code}</script>` : "<text>done</text><done/>"
                 yield { type: "text:delta", content: text }
                 yield {
                     type: "done",

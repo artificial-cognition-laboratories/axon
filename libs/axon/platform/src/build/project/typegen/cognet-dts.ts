@@ -1,10 +1,12 @@
 import { join } from "node:path"
-import { writeFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { Frame, type ProjectKind } from "../../frame"
+import type { EngineType } from "@arcforge/types"
+import { writeIfChanged } from "./write"
 
 /**
  * The ambient authoring surface for cognet source — what the compile step's
- * host installs at runtime (defineCognet, loop, kernel, phase, system), typed
+ * host installs at runtime (defineCognet, loop, kernel, phase, system, ecs), typed
  * here for the editor. Written into the owning project's `types/` area by
  * `axon prepare`: a standalone cognet's own frame, or the AGENT's frame when
  * the brain is inline at `<agent>/cognet/`.
@@ -20,7 +22,9 @@ import type {
     CognetConfig,
     CognetPlugin,
     KernelAbi,
+    EngineType,
 } from "@arcforge/types"
+import type { EcsT } from "@arcforge/cognet/ecs"
 
 declare global {
     /** what this brain declares (mode, wakeOn, engines) — cognet.config.ts only.
@@ -50,7 +54,13 @@ declare global {
     }) => Promise<void> | void): void
 
     /** the syscall table — live from load() onward; do work inside loop(), not at module top level */
-    const kernel: KernelAbi
+    /** Engine role names and call shapes generated from cognet.config.ts. */
+    interface CognetEngineRequirements {
+        [role: string]: { type: EngineType }
+__COGNET_ENGINE_ROLES__
+    }
+
+    const kernel: KernelAbi<CognetEngineRequirements>
 
 
     /** a named stage within a tick — cognet:phase:* telemetry */
@@ -58,6 +68,20 @@ declare global {
 
     /** a unit of work within a phase — timed for the flame graph */
     function system<T>(name: string, fn: () => Promise<T>): Promise<T>
+
+    /**
+     * The world — entities, components, and queries over both.
+     *
+     * The brain's short-term memory: it lives as long as the cognet does, not
+     * as long as a wake, so a decaying drive or a remembered place survives
+     * from one tick to the next. Every write commits to the session log with
+     * its value, which is what makes the world reconstructible afterwards.
+     *
+     * Built on first touch — a cognet that never reaches for it carries no
+     * entity store. Declare a component's shape once with \`ecs.declare()\` so
+     * readers can render it honestly.
+     */
+    const ecs: EcsT
 }
 
 export {}
@@ -82,10 +106,59 @@ export const COGNET_GLOBALS = "cognet-globals.d.ts"
  * declarations into `.agent/types/` — one brain's authoring surface, reached
  * from whichever frame the source happens to live in.
  */
+function readCognetEngineTypes(root: string): Array<[string, EngineType, string]> {
+    const candidates = [
+        join(root, "cognet.config.ts"),
+        join(root, "cognet", "cognet.config.ts"),
+    ]
+    const source = candidates.map(path => {
+        try { return readFileSync(path, "utf-8") } catch { return null }
+    }).find(value => value !== null)
+
+    if (!source) return []
+
+    const opener = source.indexOf("engines")
+    if (opener < 0) return []
+    const open = source.indexOf("{", opener)
+    let depth = 0
+    let close = -1
+    let quote: string | null = null
+    for (let i = open; i < source.length; i++) {
+        const char = source[i]
+        if (quote) {
+            if (char === quote && source[i - 1] !== "\\") quote = null
+            continue
+        }
+        if (char === "\"" || char === "'" || char === "`") quote = char
+        else if (char === "{") depth++
+        else if (char === "}" && --depth === 0) {
+            close = i
+            break
+        }
+    }
+    if (close < 0) return []
+    const block = source.slice(open + 1, close)
+
+    const roles: Array<[string, EngineType, string]> = []
+    const rolePattern = new RegExp("(?:^|\\n)\\s*([A-Za-z_$][\\w$]*)\\s*:\\s*\\{([\\s\\S]*?)(?=\\n\\s*[A-Za-z_$][\\w$]*\\s*:\\s*\\{|$)", "g")
+    const typePattern = new RegExp("\\btype\\s*:\\s*[\\\"'](generate|transform|stream)[\\\"']")
+    for (const match of block.matchAll(rolePattern)) {
+        const body = match[2] ?? ""
+        const type = typePattern.exec(body)?.[1] as EngineType | undefined
+        const output = body.match(/\bout\s*:\s*["'`](text|image|audio|video|vector|score|depth)["'`]/)?.[1]
+        if (type && output) roles.push([match[1]!, type, output])
+    }
+    return roles
+}
+
 export function generateCognetDts(root: string, kind: ProjectKind = "cognet"): void {
-    writeFileSync(
+    const declarations = readCognetEngineTypes(root)
+        .map(([name, type, output]) => `        ${name}: { type: "${type}"; out: "${output}" }`)
+        .join("\n")
+    const generated = COGNET_DTS.replace("__COGNET_ENGINE_ROLES__", declarations)
+
+    writeIfChanged(
         join(Frame({ root: root, kind: kind }).ensure("types"), COGNET_GLOBALS),
-        COGNET_DTS,
-        "utf-8",
+        generated,
     )
 }

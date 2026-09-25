@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { cpus, totalmem } from "node:os"
 import type { MachineCapacity, VramSource } from "./types"
+import { ask, pending } from "./ask"
 
 /**
  * Hardware — what this box HAS.
@@ -26,23 +27,82 @@ import type { MachineCapacity, VramSource } from "./types"
  * user needs to be told to reboot.
  */
 export function Hardware() {
-    const probed = probe()
+    /*
+     * Probed on FIRST USE, not at construction.
+     *
+     * Construction is wiring; this probe runs `nvidia-smi` in a subprocess.
+     * Doing it eagerly meant merely BUILDING the handle paid for a GPU query —
+     * and `Axond()` is constructed in-process by the TUI and by every CLI
+     * command (cli.ts, usePlatform.ts), so `axon --version` spawned nvidia-smi
+     * to answer a question about a string.
+     *
+     * It was also a hang. A synchronous spawn from inside a bun test worker
+     * can wedge: the child exits, the parent never resumes, and the suite sits
+     * for eleven minutes on a defunct `[nvidia-smi]` while the same binary
+     * answers instantly on the host. Every `apps/tui` test that touches the CLI
+     * constructs Axond(), so that landed on the release gate as an
+     * irreproducible red — green once, hung on the next run, no code change
+     * between them.
+     *
+     * Laziness fixes both at once and costs nothing: the value is still read at
+     * most once and still stable for the daemon's lifetime, it is simply not
+     * read by callers who never ask what this machine can do.
+     */
+    let probed: MachineCapacity | null = null
+    /** The stable 'not known yet' answer, so repeated reads agree. */
+    let provisional: MachineCapacity | null = null
 
     return {
-        /** This machine's capacity. Stable for the daemon's lifetime. */
+        /**
+         * This machine's capacity. Latched on the first SETTLED reading.
+         *
+         * `ask()` answers from a cache and refreshes in the background, so the
+         * very first call on a box with an NVIDIA card reports "not answered
+         * yet". Latching THAT would freeze "unknown GPU" for the life of the
+         * process — the probe correct, the cached answer permanently wrong —
+         * and on the daemon that means never enforcing a VRAM ceiling again,
+         * which is the one job the machine domain exists to do.
+         *
+         * So an unsettled probe is re-asked next call (a map lookup), and
+         * capacity makes exactly ONE transition: unknown → known. It never
+         * moves again, and never moves the other way.
+         *
+         * The provisional is built ONCE and returned by identity, not rebuilt
+         * per call. Two reads during the same unsettled window must not be able
+         * to differ — a caller comparing them would see hardware "change".
+         */
         current(): MachineCapacity {
-            return probed
+            if (probed !== null) return probed
+
+            const reading = probe()
+            if (reading !== null) {
+                probed = reading
+                return probed
+            }
+            provisional ??= {
+                cores: cpus().length,
+                ram: totalmem(),
+                vram: null,
+                vramDetail: null,
+                gpu: null,
+                vramSource: "unknown" as VramSource,
+            }
+            return provisional
         },
     }
 }
 
 export type HardwareT = ReturnType<typeof Hardware>
 
-function probe(): MachineCapacity {
+/** A settled reading, or null while a vendor tool has yet to answer. */
+function probe(): MachineCapacity | null {
     const base = { cores: cpus().length, ram: totalmem() }
     const none = { vram: null, vramDetail: null, gpu: null }
 
     const nvidia = nvidiaCapacity()
+    // The card is here and the probe has not come back yet. Not an answer, and
+    // must not be cached as one.
+    if (nvidia.kind === "pending") return null
     if (nvidia.kind === "ok") {
         return { ...base, vram: nvidia.vram, vramSource: "nvidia", vramDetail: null, gpu: nvidia.name }
     }
@@ -68,6 +128,8 @@ function probe(): MachineCapacity {
 type NvidiaProbe =
     | { kind: "ok"; vram: number; name: string }
     | { kind: "absent" }
+    /** The tool is present and has not answered yet — ask again, do not cache. */
+    | { kind: "pending" }
     | { kind: "error"; detail: string }
 
 /**
@@ -86,11 +148,12 @@ function nvidiaCapacity(): NvidiaProbe {
     if (!Bun.which("nvidia-smi")) return { kind: "absent" }
 
     try {
-        const probed = Bun.spawnSync([
+        const probed = ask([
             "nvidia-smi",
             "--query-gpu=name,memory.total",
             "--format=csv,noheader,nounits",
         ])
+        if (pending(probed)) return { kind: "pending" }
         if (probed.exitCode !== 0) {
             return { kind: "error", detail: firstLine(probed.stderr.toString()) || `nvidia-smi exited ${probed.exitCode}` }
         }

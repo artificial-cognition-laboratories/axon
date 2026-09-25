@@ -577,7 +577,7 @@ export type RenderedItem = TimelineItem & { runId?: string }
  * it from position, which is exactly the guess this removes.
  */
 type TimelineItem =
-    | { role: "user"; type: "message"; content: string; channel?: string; lang: string }
+    | { role: "user"; type: "message"; content: string; channel?: string; lang: string; image?: import("@arcforge/types").StimulusRef }
     | { role: "agent"; type: "message"; content: string; lang: string }
     | { role: "agent"; type: "execute"; id: string; lang: string; code: string }
     | { role: "agent"; type: "malformed"; content: string; code: string; attempt: number }
@@ -651,7 +651,14 @@ function timelineItem(entry: AxonEntry): TimelineItem | null {
             return { role: "user", type: "message", content: entry.data.transcript ?? "[audio]", channel: entry.data.channel, lang: "txt" }
 
         case "cognet:stimulus:visual":
-            return { role: "user", type: "message", content: entry.data.caption ?? `[${entry.data.kind}]`, channel: entry.data.channel, lang: "txt" }
+            return {
+                role: "user",
+                type: "message",
+                content: entry.data.caption ?? `[${entry.data.kind}]`,
+                channel: entry.data.channel,
+                lang: "txt",
+                ...(entry.data.kind === "image" ? { image: entry.data.ref } : {}),
+            }
 
         case "cognet:stimulus:vector":
             return { role: "system", type: "system", systemType: "field", lang: "txt", content: `${entry.data.channel}: ${renderVector(entry.data)}` }

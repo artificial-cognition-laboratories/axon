@@ -92,6 +92,10 @@ export const SENSORY_EVENTS = new Set<string>([
     "cognet:stimulus:visual",
     "cognet:output:audio",
     "cognet:output:visual",
+    // Instrument output: per-pixel or per-cell, at a sense's rate, read by
+    // nobody in the mind. Exactly the profile this tier exists for.
+    "cognet:probe:raster",
+    "cognet:probe:field",
 ])
 
 /**

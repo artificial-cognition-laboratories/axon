@@ -120,6 +120,13 @@ boxed("spawnConfined — the path production actually uses", () => {
             entrypoint: entry,
             onError: () => {},
         })
-        await expect(boot).rejects.toThrow(/resolve|unresolved/i)
+        if (!status.network) {
+            await expect(boot).rejects.toMatchObject({
+                code: "AX-CAPSULE-011",
+                context: { tier: "auto", missing: expect.arrayContaining(["slirp4netns"]) },
+            })
+        } else {
+            await expect(boot).rejects.toThrow(/resolve|unresolved/i)
+        }
     }, 60_000)
 })

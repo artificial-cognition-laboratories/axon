@@ -1,6 +1,8 @@
 import { openSync, readSync, closeSync, statSync } from "node:fs"
 import { err } from "@arcforge/err"
 import type { LoadedWeight, ModelAdapter } from "./adapter"
+import type { RuntimesT } from "./runtimes"
+import { optionalImport } from "./optional"
 
 /**
  * The llama.cpp adapter — GGUF generation.
@@ -31,7 +33,7 @@ import type { LoadedWeight, ModelAdapter } from "./adapter"
  * rather than trusting a suffix. Four bytes is cheap enough to pay per
  * candidate while routing.
  */
-export function LlamaAdapter(): ModelAdapter {
+export function LlamaAdapter(runtimes?: RuntimesT): ModelAdapter {
     /**
      * The loaded module, or null when it is not installed.
      *
@@ -41,15 +43,11 @@ export function LlamaAdapter(): ModelAdapter {
      */
     let runtime: Promise<LlamaModule | null> | null = null
 
-    function load(): Promise<LlamaModule | null> {
-        // Built rather than literal so the compiler does not resolve it: the
-        // package is OPTIONAL, and a static import would make the build require
-        // exactly what this adapter exists to work without.
-        const specifier = "node-" + "llama-cpp"
-        runtime ??= import(specifier)
-            .then(module => module as unknown as LlamaModule)
-            .catch(() => null)
-        return runtime
+    async function load(): Promise<LlamaModule | null> {
+        runtime ??= runtimes
+            ? runtimes.install("llama.cpp").then(() => runtimes.import("llama.cpp") as Promise<LlamaModule | null>)
+            : optionalImport("node-llama-cpp").then(module => module as LlamaModule | null).catch(() => null)
+        return await runtime
     }
 
     return {
@@ -63,7 +61,7 @@ export function LlamaAdapter(): ModelAdapter {
             const module = await load()
             if (!module) {
                 throw err("MODEL_RUNTIME_MISSING", {
-                    detail: "node-llama-cpp is not installed — add it to run GGUF weights locally",
+                    detail: "node-llama-cpp is not installed — run `axon daemon runtime install llama.cpp` to add it",
                     context: { runtime: "llama.cpp", path: path },
                 })
             }

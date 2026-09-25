@@ -43,11 +43,29 @@ function declare(raw: string): string {
  * spawned it.
  */
 if (process.argv[2] === "--serve") {
+    // Piped stdin normally closes with the parent, but Bun can keep the pipe
+    // alive while its process is exiting. Independently watch the spawning
+    // pid so a compiler worker cannot be reparented and survive the CLI.
+    const parentPid = Number(process.argv[3])
+    const initialPpid = process.ppid
+    const parentWatch = Number.isInteger(parentPid) && parentPid > 0
+        ? setInterval(() => {
+            // Reparenting is observable immediately, even while the old
+            // parent is briefly still a zombie for kill(pid, 0). Checking
+            // both closes that race and keeps the worker below the test's
+            // bounded reap window.
+            if (process.ppid !== initialPpid || process.ppid === 1) process.exit(0)
+            try { process.kill(parentPid, 0) }
+            catch { process.exit(0) }
+        }, 50)
+        : undefined
+
     for await (const line of console) {
         const request = line.trim()
         if (!request) continue
         console.log(declare(request))
     }
+    if (parentWatch) clearInterval(parentWatch)
     process.exit(0)
 }
 

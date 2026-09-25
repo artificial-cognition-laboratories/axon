@@ -14,15 +14,14 @@
  * must agree with.
  */
 
-import type { AxonEntry, AxonScope } from "@arcforge/types"
+import type { AxonEngineContent, AxonEntry, AxonScope } from "@arcforge/types"
 import type { PreflightTurn } from "./render/preflight"
 
 // ── Messages ─────────────────────────────────────────────────────────────────
 
-export type AirMessage = {
-    role: "system" | "user" | "assistant"
-    content: string
-}
+export type AirMessage =
+    | { role: "system"; content: string }
+    | { role: "user" | "assistant"; content: string | AxonEngineContent[] }
 
 // ── Protocols (output grammar) ───────────────────────────────────────────────
 

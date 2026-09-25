@@ -1,5 +1,5 @@
 import { err, errScope } from "@arcforge/err"
-import { isBuildEvent, isEntryEvent, isKernelEvent, STIMULUS_TRANSIENT_EVENTS } from "@arcforge/types"
+import { isBuildEvent, isEntryEvent, isKernelEvent, SENSORY_EVENTS, STIMULUS_TRANSIENT_EVENTS } from "@arcforge/types"
 import type {
     AxonBlueprint,
     AxonEntry,
@@ -210,7 +210,12 @@ async function SessionState(opts: SessionStateOpts) {
     // write chain, deliberately not the log's Writer: a 30Hz sensor must
     // never be able to delay a durable commit, and the two orderings are
     // independent (one file per tier, `seq` correlates them).
-    const sensory = SensoryRing({ root: opts.root, sessionId: opts.sessionId })
+    //
+    // A NON-PERSISTING session keeps no window either. It is a projection of
+    // a record the supervisor owns, and the supervisor receives every event it
+    // announces — so a projection that also wrote the ring would put each
+    // sensation on disk twice, into the same segment files.
+    const sensory = SensoryRing({ root: opts.root, sessionId: opts.sessionId, ...(persist ? {} : { maxBytes: 0 }) })
     const log: AxonSessionEvent[] = []
     const kernelLog: AxonKernelEvent[] = []
     const entries: AxonEntry[] = []
@@ -258,6 +263,32 @@ async function SessionState(opts: SessionStateOpts) {
     // ── the write pipeline ───────────────────────────────────────────────────
 
     /**
+     * The sensory tier: a bounded window on disk, plus the live announce.
+     * Dense media never reaches the log, from ANY path.
+     *
+     * The rule used to live only in `ingest()`, and the log has three doors.
+     * An agent in a subprocess relays every event it announces to its
+     * supervisor, which receives them through `commit()` — so each frame went
+     * to the child's ring AND the supervisor's log, and a camera-fed agent
+     * wrote 7GB of base64 in an hour. Enforced here, where every door leads,
+     * no relay can route around it.
+     *
+     * Not cached in memory either: the in-memory views mirror the log, and a
+     * frame held there would be the same leak moved from disk to RAM.
+     *
+     * The ring write is not awaited against the caller — a wake must never
+     * wait on the debugger's window. A failure is reported, never swallowed:
+     * an unwritable ring is a real fault, and a silently empty window is the
+     * kind of lie that costs an hour when you finally need it.
+     */
+    async function retainSensory(event: unknown, type: string): Promise<void> {
+        sensory.record(event).catch((cause: unknown) => {
+            commitError({ error: err("SENSORY_WRITE_FAILED", { cause, context: { type } }) })
+        })
+        await opts.bus.forward(event as { type: string })
+    }
+
+    /**
      * Session-level commit: stamp → cache → durable → announce. Disk is one
      * file regardless; the type's own namespace only decides which in-memory
      * view caches it (kernel telemetry vs runtime/continuity facts).
@@ -268,6 +299,10 @@ async function SessionState(opts: SessionStateOpts) {
         ctx?: CommitContext,
     ): Promise<AxonSessionEvent | AxonKernelEvent> {
         const event = envelope(type, data, ctx)
+        if (SENSORY_EVENTS.has(type as string)) {
+            await retainSensory(event, type as string)
+            return event as AxonSessionEvent
+        }
 
         if (isKernelEvent(type as string)) kernelLog.push(event as AxonKernelEvent)
         else log.push(event as AxonSessionEvent)
@@ -312,6 +347,10 @@ async function SessionState(opts: SessionStateOpts) {
         ctx?: CommitContext,
     ): Promise<AxonEntry> {
         const entry = envelope(type, data, ctx) as AxonEntry
+        if (SENSORY_EVENTS.has(type as string)) {
+            await retainSensory(entry, type as string)
+            return entry
+        }
         entries.push(entry)
         await writer.push(() => home.data.sessions.append(opts.root, opts.sessionId, entry))
         await opts.bus.forward(entry)
@@ -360,21 +399,7 @@ async function SessionState(opts: SessionStateOpts) {
         let entry: AxonEntry
         if (STIMULUS_TRANSIENT_EVENTS.has(type)) {
             entry = envelope(type, data, ctx) as AxonEntry
-            // The sensory tier: a bounded window on disk, plus the live
-            // announce. Not awaited against the delivery path — a wake must
-            // never wait on the debugger's window to be updated, and the
-            // ring serializes its own appends internally.
-            //
-            // A failure here is reported, never swallowed: the ring not
-            // being writable is a real fault (a full or read-only disk) and
-            // a silently empty debug window is exactly the kind of lie that
-            // costs an hour when you finally need it. It does not propagate
-            // to the sensation itself, because delivery already succeeded —
-            // the cognet's input must not fail because observation did.
-            sensory.record(entry).catch((cause: unknown) => {
-                commitError({ error: err("SENSORY_WRITE_FAILED", { cause, context: { type } }) })
-            })
-            await opts.bus.forward(entry)
+            await retainSensory(entry, type)
         } else {
             entry = await commitEntry(type, data as AxonEntryEvent[K], ctx)
         }

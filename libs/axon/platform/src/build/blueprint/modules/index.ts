@@ -11,7 +11,7 @@ import { Scripts } from "../scan/scripts"
 import { Tools } from "../scan/tools"
 import type { ScanWarning } from "../types"
 import { flatten, sourceRoot } from "./entries"
-import { readMeta } from "./meta"
+import { ModuleMetaCache, type ModuleMetaCacheT } from "./meta"
 
 /**
  * Modules — the one composite scanner. Resolves declared + installed modules
@@ -60,6 +60,7 @@ export async function Modules(opts: {
     /** Statically-resolved source paths, positional to `declared`. */
     modulePaths: ResolvedModulePath[]
 }): Promise<ModulesResult> {
+    const metadata = ModuleMetaCache({ root: opts.root })
     const entries = await flatten(opts.declared, opts.modulePaths)
     const modules: AxonModule[] = []
     const surfaces: ModuleSurface[] = []
@@ -81,7 +82,7 @@ export async function Modules(opts: {
         const root = sourceRoot(entry)
         const name = await moduleName(root)
         claimed.add(name)
-        await scanModule({ root, name, configPath: entry.configPath, options: entry.options, modules, surfaces, warnings })
+        await scanModule({ root, name, configPath: entry.configPath, options: entry.options, modules, surfaces, warnings, metadata })
     }
 
     // ── 2. Unimported local modules (modules/ directory) ────────────────────
@@ -99,6 +100,7 @@ export async function Modules(opts: {
             modules,
             surfaces,
             warnings,
+            metadata,
         })
     }
 
@@ -128,7 +130,7 @@ export async function Modules(opts: {
             continue
         }
         claimed.add(name)
-        await scanModule({ root, name, configPath: join(root, "module.config.ts"), options: entry.options, modules, surfaces, warnings })
+        await scanModule({ root, name, configPath: join(root, "module.config.ts"), options: entry.options, modules, surfaces, warnings, metadata })
     }
 
     return { modules, surfaces, warnings }
@@ -145,6 +147,7 @@ async function scanModule(opts: {
     modules: AxonModule[]
     surfaces: ModuleSurface[]
     warnings: ScanWarning[]
+    metadata: ModuleMetaCacheT
 }): Promise<void> {
     const { root, name, configPath } = opts
 
@@ -167,7 +170,7 @@ async function scanModule(opts: {
      */
     const alreadyScanned = opts.surfaces.some(surface => surface.name === name)
 
-    const meta = await readMeta(configPath)
+    const meta = await opts.metadata.read(configPath)
 
     const [prompts, scripts, tools, routes, plugins, middleware, knowledge] = await Promise.all([
         // Every scanner degrades for a MODULE — see each scanner's `required`.
@@ -296,5 +299,4 @@ async function modulePackage(root: string): Promise<{ name?: string; version?: s
         return {}
     }
 }
-
 

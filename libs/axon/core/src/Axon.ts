@@ -1,13 +1,8 @@
-import { AxonCloud } from "@arcforge/cloud"
-import type { AxonCloudClient } from "@arcforge/cloud"
+import { AxonCloud, type AxonCloudClient } from "@arcforge/cloud"
 import type { AxonEngineDriver, AxonEscalate, AxonHost, AxonPartialBlueprint } from "@arcforge/types"
 import { err } from "@arcforge/err"
-import { AxonBlueprint } from "./platform"
-import { Inject } from "./platform"
-import { AxonBus } from "./platform"
-import { Hooks } from "./platform"
+import { AxonBlueprint, AxonBus, Boot, Hooks, Inject } from "./platform"
 import { Kernel } from "@arcforge/kernel"
-import { Boot } from "./platform"
 import { AxonSession, home } from "@arcforge/session"
 
 import { AxonHandle } from "./runtime"
@@ -16,7 +11,7 @@ import { Inference } from "./runtime/inference"
 import { Cognet } from "./cognet"
 import { Modules } from "./modules"
 import { Tools } from "./tools"
-import { dirname, join, resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
 type AxonOpts = {
     blueprint: AxonPartialBlueprint

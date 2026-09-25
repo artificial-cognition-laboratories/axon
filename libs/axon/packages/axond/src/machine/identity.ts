@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { arch, hostname, platform } from "node:os"
 import type { MachineIdentity } from "./types"
+import { ask } from "./ask"
 
 /**
  * Identity — who this machine is.
@@ -20,15 +21,24 @@ import type { MachineIdentity } from "./types"
  * stable, comparable, and says nothing about the machine it names.
  */
 export function Identity() {
-    // Read once. It cannot change without a reboot, and re-reading per call
-    // would put a file read on the path of every status query.
-    const id = probeId()
+    /*
+     * Read once, on first ask — not at construction.
+     *
+     * It cannot change without a reboot, so once is right; re-reading per call
+     * would put a file read (and on macOS an `ioreg` subprocess) on the path of
+     * every status query. But eager reading put that same subprocess on the
+     * path of CONSTRUCTION, which is wiring, and `Axond()` is constructed by
+     * every CLI command. Same reasoning as Hardware() — see the note there for
+     * the test-worker hang this also removes.
+     */
+    let id: string | null | undefined
+    const machineId = (): string | null => (id === undefined ? (id = probeId()) : id)
 
     return {
         /** This machine, as a record. */
         current(): MachineIdentity {
             return {
-                id: id,
+                id: machineId(),
                 hostname: hostname(),
                 platform: platform(),
                 arch: arch(),
@@ -71,7 +81,7 @@ function linuxId(): string | null {
 
 function darwinId(): string | null {
     try {
-        const probe = Bun.spawnSync(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"])
+        const probe = ask(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"])
         if (probe.exitCode !== 0) return null
 
         const match = probe.stdout.toString().match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/)

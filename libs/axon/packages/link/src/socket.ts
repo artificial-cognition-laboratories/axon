@@ -161,6 +161,8 @@ export async function serve(opts: ServeOpts): Promise<LinkChannels> {
                                     write: d => writer!.write(d),
                                     get pending() { return writer!.pending },
                                     whenDrained: below => writer!.whenDrained(below),
+                                    pause: () => sock.pause(),
+                                    resume: () => sock.resume(),
                                     close: () => writer!.close(),
                                 },
                                 handlers,
@@ -170,7 +172,7 @@ export async function serve(opts: ServeOpts): Promise<LinkChannels> {
                         },
                         data(_sock, chunk) { channel?.receive(chunk) },
                         drain() { writer?.drain() },
-                        close() { channel?.fail(err("LINK_PEER_CLOSED")) },
+                        close() { channel?.fail(() => err("LINK_PEER_CLOSED")) },
                         error(_sock, error) { channel?.fail(error) },
                     },
                 })
@@ -190,8 +192,10 @@ export async function serve(opts: ServeOpts): Promise<LinkChannels> {
         control,
         data,
         close() {
-            control.fail(err("LINK_CLOSED"))
-            data.fail(err("LINK_CLOSED"))
+            // Thunks: closing a channel nobody was using is not a failure, and
+            // constructing the error would report one. See Channel.fail().
+            control.fail(() => err("LINK_CLOSED"))
+            data.fail(() => err("LINK_CLOSED"))
             for (const server of made) server.stop()
             rmSync(opts.paths.control, { force: true })
             rmSync(opts.paths.data, { force: true })
@@ -216,7 +220,7 @@ export async function connect(opts: ConnectOpts): Promise<LinkChannels> {
             socket: {
                 data(_s, chunk) { channel?.receive(chunk) },
                 drain() { writer?.drain() },
-                close() { channel?.fail(err("LINK_PEER_CLOSED")) },
+                close() { channel?.fail(() => err("LINK_PEER_CLOSED")) },
                 error(_s, error) { channel?.fail(error) },
             },
         })
@@ -226,6 +230,8 @@ export async function connect(opts: ConnectOpts): Promise<LinkChannels> {
                 write: d => writer!.write(d),
                 get pending() { return writer!.pending },
                 whenDrained: below => writer!.whenDrained(below),
+                pause: () => sock.pause(),
+                resume: () => sock.resume(),
                 close: () => writer!.close(),
             },
             handlers,
@@ -243,8 +249,10 @@ export async function connect(opts: ConnectOpts): Promise<LinkChannels> {
         control,
         data,
         close() {
-            control.fail(err("LINK_CLOSED"))
-            data.fail(err("LINK_CLOSED"))
+            // Thunks: closing a channel nobody was using is not a failure, and
+            // constructing the error would report one. See Channel.fail().
+            control.fail(() => err("LINK_CLOSED"))
+            data.fail(() => err("LINK_CLOSED"))
         },
     }
 }

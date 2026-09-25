@@ -19,6 +19,14 @@ type CloudOpts = {
     distribution: Distribution
     /** Shipped host version stamped onto every crash report. */
     release: string
+    /**
+     * Transport override — see HttpOpts.fetch.
+     *
+     * Present so a test can isolate the network to ONE Platform instead of
+     * assigning over `globalThis.fetch`, which every concurrently-running test
+     * file shares. Production passes nothing.
+     */
+    fetch?: typeof fetch
 }
 
 export type Distribution = "production" | "development"
@@ -142,6 +150,7 @@ export function Cloud(opts: CloudOpts) {
             environmentCredentials: policy.environmentCredentials,
             release: opts.release,
             onUnauthorized: () => { void onSessionExpired() },
+            ...(opts.fetch !== undefined ? { fetch: opts.fetch } : {}),
         })
     }
 
@@ -319,6 +328,32 @@ export function Cloud(opts: CloudOpts) {
                 ...(input.signal !== undefined ? { signal: input.signal } : {}),
             })
             persist(session)
+
+            /*
+             * Claim the install that produced this signup.
+             *
+             * The install script wrote an anonymous machine id long before any
+             * of this code existed on the machine, and reports install
+             * successes and failures against it. Nothing else connects that id
+             * to an account, so without this the backend holds two counters it
+             * cannot relate — and "how many installs become accounts" is the
+             * question install telemetry mainly exists to answer.
+             *
+             * Here rather than in AxonCloud because it needs BOTH halves: the
+             * id comes off disk (Store owns ~/.axon) and the claim goes over
+             * the wire (client owns the session). This wrapper is the only
+             * layer holding both, which is exactly what it is for.
+             *
+             * Awaited, but structurally incapable of failing a login: `attribute`
+             * swallows its own errors and the backend's write does too. It is
+             * awaited rather than fired-and-forgotten so a CLI process that
+             * exits immediately after login does not kill the request in
+             * flight — the same mistake that lost every failure event in the
+             * install script's first telemetry pass.
+             */
+            const installId = store.installId()
+            if (installId) await client.user.installs.attribute(installId)
+
             return session.user
         },
 

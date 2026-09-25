@@ -1,3 +1,4 @@
+import { workerPath } from "../../../utils/packaged"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync } from "node:fs"
 import { rename, rm } from "node:fs/promises"
@@ -14,27 +15,26 @@ import { publishedTools } from "./published"
  * The subprocess entry that actually runs declareTools() — see its own doc
  * comment for why this isn't inline.
  *
- * The published CLI is a single bundled app.js, so `import.meta.dir` is the
- * package root there, not this source directory. Like the capsule process
- * and the update helper, the worker is bundled beside it and preferred when
- * present; the .ts source is the workspace/development path.
+ * Resolved through `workerPath()`, which knows both shipped layouts: the
+ * worker sits beside the app entry, and the code asking for it may be in the
+ * entry itself or in `chunks/` one level down (the app bundle is built with
+ * `splitting: true`). The .ts source is the workspace/development path.
+ *
+ * This comment previously read "the published CLI is a single bundled app.js,
+ * so import.meta.dir is the package root" — true when written, and the exact
+ * assumption splitting invalidated. Six call sites each held their own copy of
+ * it, which is why none of them was checked when it changed.
  *
  * Getting this wrong is silent in development and total in production —
  * every tool declaration in every installed agent fails, which is exactly
  * what happened before the worker was added to packageFiles.
  */
-const packagedWorker = resolve(import.meta.dir, "declare-worker.js")
-const DECLARE_WORKER_PATH = existsSync(packagedWorker)
-    ? packagedWorker
-    : resolve(import.meta.dir, "declare-worker.ts")
+const DECLARE_WORKER_PATH = workerPath(import.meta.dir, "declare-worker.js", "declare-worker.ts")
 
-// Same packaged-vs-source resolution as the declare worker: in the published
-// single-file CLI the worker is bundled beside app.js; in the workspace it is
+// Same packaged-vs-source resolution as the declare worker: in a published
+// install the worker is bundled beside app.js; in the workspace it is
 // the .ts source. Getting this wrong is silent in dev and total in production.
-const packagedToolBundleWorker = resolve(import.meta.dir, "tool-bundle-worker.js")
-const TOOL_BUNDLE_WORKER_PATH = existsSync(packagedToolBundleWorker)
-    ? packagedToolBundleWorker
-    : resolve(import.meta.dir, "tool-bundle-worker.ts")
+const TOOL_BUNDLE_WORKER_PATH = workerPath(import.meta.dir, "tool-bundle-worker.js", "tool-bundle-worker.ts")
 
 type DeclareWorkerResult =
     | { ok: true; files: [string, DeclaredFile][] }
@@ -121,7 +121,7 @@ function DeclareServer() {
     }
 
     function spawn(): void {
-        proc = Bun.spawn(["bun", "run", DECLARE_WORKER_PATH, "--serve"], {
+        proc = Bun.spawn(["bun", "run", DECLARE_WORKER_PATH, "--serve", String(process.pid)], {
             stdin: "pipe",
             stdout: "pipe",
             stderr: "pipe",
@@ -177,10 +177,21 @@ function DeclareServer() {
         return JSON.parse(next.value) as DeclareWorkerResult
     }
 
+    const REQUEST_TIMEOUT_MS = 30_000
+
     return {
-        /** Queue a request behind any in flight, so two callers never share a line. */
         request(payload: string): Promise<DeclareWorkerResult> {
-            const result = queue.then(() => send(payload))
+            const result = queue.then(() =>
+                Promise.race([
+                    send(payload),
+                    new Promise<DeclareWorkerResult>(resolve =>
+                        setTimeout(() => {
+                            stop()
+                            resolve({ ok: false, message: `declare-worker timed out after ${REQUEST_TIMEOUT_MS}ms` })
+                        }, REQUEST_TIMEOUT_MS),
+                    ),
+                ]),
+            )
             // The chain must survive a rejection, or one failure wedges every
             // later request behind it forever.
             queue = result.catch(() => { })

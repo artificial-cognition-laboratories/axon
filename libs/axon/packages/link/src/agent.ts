@@ -6,6 +6,7 @@ import type {
     AxonEngineRawEvent,
     AxonEngineRequest,
     AxonStimulusEntry,
+    AxonStimulusInput,
     SupervisorToAgent,
 } from "@arcforge/types"
 import { VERB } from "./supervisor"
@@ -18,7 +19,7 @@ import type { LinkChannels } from "./socket"
 
 export type AgentServices = {
     /** Deliver a stimulus and resolve when the wake it caused settles. */
-    request(entry: AxonStimulusEntry): Promise<{ ok: boolean; interrupted?: boolean }>
+    request(input: AxonStimulusEntry | { content?: string | string[]; stimuli?: AxonStimulusInput[]; channel?: string }): Promise<{ ok: boolean; interrupted?: boolean }>
     /** Execute code in the agent's scope — the console/devtools eval. */
     run(code: string): Promise<unknown>
     /** The agent's prompt surface: list, get one, render an entry. */
@@ -54,7 +55,7 @@ export function agentHandlers(services: AgentServices) {
                     case VERB.ingest: return services.ingest(arg as AxonStimulusEntry)
                     case VERB.update: return services.update(arg as AxonBlueprint)
                     case VERB.shutdown: return services.shutdown()
-                    case VERB.request: return services.request(arg as AxonStimulusEntry)
+                    case VERB.request: return services.request(arg as Parameters<AgentServices["request"]>[0])
                     case VERB.run: return services.run(arg as string)
                     case VERB.prompts: return services.prompts(arg as { action: string })
                     case VERB.serve: return services.serve(arg as number)

@@ -1,7 +1,7 @@
 import { join } from "node:path"
-import { writeFileSync } from "node:fs"
 import { Frame, type ProjectKind } from "../../frame"
 import { emptyRegistrations, mergeRegistrations, scanSource, type Registration, type Registrations } from "../../extensions/registrations"
+import { writeIfChanged } from "./write"
 
 /**
  * `.axon/types/registry.d.ts` — what a config actually registered, as types.
@@ -105,5 +105,5 @@ export function generateRegistryDts(
         "",
     ]
 
-    writeFileSync(join(Frame({ root, kind }).ensure("types"), "registry.d.ts"), lines.join("\n"), "utf-8")
+    writeIfChanged(join(Frame({ root: root, kind: kind }).ensure("types"), "registry.d.ts"), lines.join("\n"))
 }

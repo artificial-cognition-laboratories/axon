@@ -93,6 +93,7 @@ export function Watcher(opts: WatcherOpts) {
     let fsWatcher: FSWatcher | null = null
     let timer: ReturnType<typeof setTimeout> | null = null
     const listeners = new Set<(path: string) => void>()
+    let retained = 0
 
     /**
      * Nesting depth of suspend() calls, and the one change seen while
@@ -171,6 +172,32 @@ export function Watcher(opts: WatcherOpts) {
                 notify(path)
             })
             await Bun.sleep(75)
+        },
+
+        /**
+         * Keep the watcher alive until the returned release is called.
+         *
+         * A prepared build cache is only valid while its inputs have been
+         * continuously watched. A live runtime is another owner. Ref-counting
+         * keeps either from stopping the other and makes that lifetime an
+         * explicit contract rather than an accident of call order.
+         */
+        async retain(): Promise<() => void> {
+            retained++
+            try {
+                await this.start()
+            } catch (cause) {
+                retained--
+                throw cause
+            }
+
+            let released = false
+            return () => {
+                if (released) return
+                released = true
+                retained--
+                if (retained === 0) this.stop()
+            }
         },
 
         /** Stop watching. Idempotent. */

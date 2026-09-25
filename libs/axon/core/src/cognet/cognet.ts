@@ -3,8 +3,7 @@ import { mkdir, readdir, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonEventMap, AxonSpanName, CognetBlueprint, CognetDefinition, CognetWake, KernelAbi } from "@arcforge/types"
-import { KERNEL_ABI_VERSION } from "@arcforge/types"
+import { KERNEL_ABI_VERSION, type AxonBlueprint, type AxonEventMap, type AxonSpanName, type CognetBlueprint, type CognetDefinition, type CognetWake, type KernelAbi } from "@arcforge/types"
 
 type CognetOpts = {
     blueprint: AxonBlueprint
@@ -48,7 +47,7 @@ type CognetOpts = {
 export async function Cognet(opts: CognetOpts) {
     let blueprint = opts.blueprint
     const slot = blueprint.cognet
-    let resolved = opts.session
+    const resolved = opts.session
         ? await opts.session.span(
             "axon:cognet",
             { specifier: "path" in slot ? slot.path : null } as never,

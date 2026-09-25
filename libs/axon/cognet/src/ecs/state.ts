@@ -5,12 +5,16 @@ import type {
     ComponentWatcher,
     EntityId,
     QueryDescriptor,
+    Read,
+    Stamp,
     WorldQueryResult,
 } from "./types"
 
 export type StateOpts = {
-    /** The clock's stamp — world mutations are attributed to a tick and phase. */
-    stamp(): { tick: number; phase: string | null }
+    /** The clock's stamp — world mutations are attributed to a tick, phase and system. */
+    stamp(): Stamp
+    /** Wall clock, for the write time carried with every component. */
+    now(): number
 }
 
 /**
@@ -27,13 +31,52 @@ export function State(opts: StateOpts) {
     const entities = new Set<EntityId>()
     const components = new Map<ComponentType, ComponentStore>()
     const watchers = new Map<ComponentType, Set<ComponentWatcher>>()
+    let revs = 0
+    /** Reads seen during the current observation, keyed so each value is recorded once. Null when nobody is observing. */
+    let observed: Map<string, Read> | null = null
+
+    function record(type: ComponentType, entity: EntityId, rev: number): void {
+        if (!observed) return
+        observed.set(`${entity}\0${type}`, { entity: entity, component: type, rev: rev })
+    }
 
     return {
         entities,
         components,
 
+        /** The next change id. World-monotonic, so a rev names one change uniquely. */
+        nextRev(): number {
+            revs += 1
+            return revs
+        },
+
+        /** Note that a value was read, if a run is being observed. */
+        record: record,
+
+        /**
+         * Runs `fn` and returns every value it read, with the change each one was.
+         *
+         * Synchronous on purpose: a system run is, and an observation that
+         * spanned an await would attribute another caller's reads to this one.
+         * Not re-entrant for the same reason — nesting throws rather than
+         * silently merging two runs' causes.
+         */
+        observe<T>(fn: () => T): { result: T; reads: Read[] } {
+            if (observed) throw new Error("ecs.observe() is already recording — a nested observation would mix two runs' reads")
+            observed = new Map()
+            try {
+                const result = fn()
+                return { result: result, reads: [...observed.values()] }
+            } finally {
+                observed = null
+            }
+        },
+
         /** tick/phase stamp merged into every world event payload. */
         stamp: opts.stamp,
+
+        /** Wall clock at the moment of a write. */
+        now: opts.now,
 
         /**
          * Subscribe to writes on a specific component type.
@@ -69,7 +112,7 @@ export function State(opts: StateOpts) {
             where,
             filter,
         }: QueryDescriptor<W, WO, Reg>): WorldQueryResult<W, Reg> {
-            const stores = components as Map<string, Map<EntityId, any>>
+            const stores = components as Map<string, ComponentStore>
 
             const withStores: Map<EntityId, any>[] = []
             for (const c of withComponents) {
@@ -104,7 +147,7 @@ export function State(opts: StateOpts) {
                     Object.entries(where).every(([component, expected]) => {
                         const store = stores.get(component)
                         if (!store?.has(e)) return false
-                        return store.get(e) === expected
+                        return sameValue(store.get(e)!.data, expected)
                     })
                 )
             }
@@ -112,7 +155,7 @@ export function State(opts: StateOpts) {
             let results: WorldQueryResult<W, Reg> = candidates.map(e => {
                 const comps: Record<string, any> = {}
                 for (const c of withComponents) {
-                    comps[c] = stores.get(c)!.get(e)
+                    comps[c] = stores.get(c)!.get(e)!.data
                 }
                 return { entity: e, components: comps as any }
             })
@@ -121,9 +164,39 @@ export function State(opts: StateOpts) {
                 results = results.filter(entry => filter(entry as any))
             }
 
+            // What the caller was handed is what it read — recorded after the
+            // filter, because a filtered-out entity influenced nothing.
+            for (const entry of results) {
+                for (const c of withComponents) record(c as ComponentType, entry.entity, stores.get(c)!.get(entry.entity)!.rev)
+            }
+
             return results
         },
     }
 }
 
 export type StateT = ReturnType<typeof State>
+
+/**
+ * Structural equality for `where`.
+ *
+ * Reference equality was the original implementation and silently matched
+ * nothing for any component holding an object — which is most of them. A
+ * filter that can never match and never complains is worse than one that
+ * throws, so it compares by value.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+    if (Object.is(a, b)) return true
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false
+
+    if (Array.isArray(a) || Array.isArray(b)) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+        return a.every((item, index) => sameValue(item, b[index]))
+    }
+
+    const left = a as Record<string, unknown>
+    const right = b as Record<string, unknown>
+    const keys = Object.keys(left)
+    if (keys.length !== Object.keys(right).length) return false
+    return keys.every(key => Object.hasOwn(right, key) && sameValue(left[key], right[key]))
+}

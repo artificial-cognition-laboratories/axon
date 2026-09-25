@@ -77,6 +77,40 @@ export function authenticated(store: string): PlatformT {
 }
 
 /**
+ * The same platform, logged in AND with a decider on its daemon.
+ *
+ * What a TUI builds. `authenticated()` mirrors the CLI, which has no
+ * interactive surface and so passes no decider — correct there, and exactly
+ * why the escalation path could be broken for a year without a test noticing:
+ * every harness built the unattended shape.
+ *
+ * The decider is bound per spawn by Supervise, so it receives the agent name
+ * and session id alongside the call.
+ */
+export function attended(
+    store: string,
+    decide: (input: { agent: string; sessionId: string }, call: unknown) => Promise<boolean>,
+): PlatformT {
+    const seed = supervised(store)
+    seed.store.profiles.save(TEST_USER.id, {
+        user: { id: TEST_USER.id, email: TEST_USER.email },
+        auth: { apiKey: TEST_USER.apiKey },
+    })
+
+    let platform: PlatformT
+    // eslint-disable-next-line prefer-const -- read through the thunks below,
+    // which cannot run before the assignment completes.
+    platform = Platform({
+        version: TEST_VERSION,
+        ...TEST_FRAMEWORK,
+        store,
+        daemon: Axond({ cloud: () => platform.cloud.client, decide }).agents,
+    })
+    seedMockProvider(store)
+    return platform
+}
+
+/**
  * Make every test profile's inference pool a MOCK.
  *
  * A scaffolded agent is `defineAgent({})` — it declares no inference at all

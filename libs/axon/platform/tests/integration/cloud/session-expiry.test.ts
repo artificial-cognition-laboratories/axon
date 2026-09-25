@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
 import { describe, it, expect } from "bun:test"
-import { stubFetch } from "../../setup/fetch"
+import { stubFetch, Transport } from "../../setup/fetch"
 
 /**
  * A credential can die WHILE the app is running.
@@ -38,16 +38,6 @@ async function withStore(body: (dir: string) => Promise<void>): Promise<void> {
     }
 }
 
-async function withFetch(stub: typeof fetch, body: () => Promise<void>): Promise<void> {
-    const original = globalThis.fetch
-    globalThis.fetch = stub
-    try {
-        await body()
-    } finally {
-        globalThis.fetch = original
-    }
-}
-
 const ok = (id: string, email: string) => new Response(JSON.stringify({
     user: { id, email, username: email, createdAt: new Date().toISOString() },
 }), { status: 200, headers: { "content-type": "application/json" } })
@@ -65,17 +55,18 @@ describe("a credential that dies mid-session", () => {
             const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             seed.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_live_key" } })
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             let fired = 0
             platform.cloud.onSessionExpired(() => { fired++ })
 
             // Boot is fine — this is the state the old code never left.
-            await withFetch(stubFetch(async () => ok(id, email)), async () => {
+            await net.with(stubFetch(async () => ok(id, email)), async () => {
                 expect(await platform.cloud.validate()).toBe("valid")
             })
 
             // ...then the credential is revoked from the web.
-            await withFetch(stubFetch(async () => unauthorized()), async () => {
+            await net.with(stubFetch(async () => unauthorized()), async () => {
                 await platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {})
                 await settle()
             })
@@ -95,10 +86,11 @@ describe("a credential that dies mid-session", () => {
             const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             seed.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_live_key" } })
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             platform.cloud.onSessionExpired(() => {})
 
-            await withFetch(stubFetch(async () => unauthorized()), async () => {
+            await net.with(stubFetch(async () => unauthorized()), async () => {
                 await expect(platform.cloud.client.user.billing.ledger.list({ limit: 1 })).rejects.toThrow()
             })
         })
@@ -113,12 +105,13 @@ describe("a credential that dies mid-session", () => {
             const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             seed.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_live_key" } })
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             let reached = false
             platform.cloud.onSessionExpired(() => { throw new Error("subscriber exploded") })
             platform.cloud.onSessionExpired(() => { reached = true })
 
-            await withFetch(stubFetch(async () => unauthorized()), async () => {
+            await net.with(stubFetch(async () => unauthorized()), async () => {
                 await platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {})
                 await settle()
             })
@@ -136,11 +129,12 @@ describe("a credential that dies mid-session", () => {
             const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             seed.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_live_key" } })
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             let fired = 0
             platform.cloud.onSessionExpired(() => { fired++ })
 
-            await withFetch(stubFetch(async () => unauthorized()), async () => {
+            await net.with(stubFetch(async () => unauthorized()), async () => {
                 await Promise.all([
                     platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {}),
                     platform.cloud.client.user.keys.list().catch(() => {}),
@@ -160,12 +154,13 @@ describe("a credential that dies mid-session", () => {
             const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             seed.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_live_key" } })
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             let fired = 0
             const off = platform.cloud.onSessionExpired(() => { fired++ })
             off()
 
-            await withFetch(stubFetch(async () => unauthorized()), async () => {
+            await net.with(stubFetch(async () => unauthorized()), async () => {
                 await platform.cloud.client.user.billing.ledger.list({ limit: 1 }).catch(() => {})
                 await settle()
             })
@@ -186,11 +181,12 @@ describe("the auth ladder does not re-enter the observer", () => {
             const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
             seed.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_dead_key" } })
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             let fired = 0
             platform.cloud.onSessionExpired(() => { fired++ })
 
-            await withFetch(stubFetch(async () => unauthorized()), async () => {
+            await net.with(stubFetch(async () => unauthorized()), async () => {
                 expect(await platform.cloud.validate()).toBe("rejected")
                 await settle()
             })

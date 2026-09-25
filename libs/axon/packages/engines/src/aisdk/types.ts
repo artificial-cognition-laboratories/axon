@@ -51,7 +51,10 @@ export type SdkCallOptions = {
  */
 export type SdkMessage =
     | { role: "system"; content: string }
-    | { role: "user"; content: Array<{ type: "text"; text: string }> }
+    | { role: "user"; content: Array<
+        | { type: "text"; text: string }
+        | { type: "file"; data: { type: "url"; url: URL } | { type: "data"; data: Uint8Array | string }; mediaType: string }
+    > }
     | { role: "assistant"; content: Array<{ type: "text"; text: string }> }
 
 export type SdkStreamResult = {

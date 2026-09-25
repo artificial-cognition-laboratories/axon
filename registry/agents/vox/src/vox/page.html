@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vox / voice pipeline</title>
+<style>
+:root{color-scheme:dark;--bg:#101214;--panel:#171a1e;--line:#292e35;--text:#d7dde5;--muted:#7d8794;--blue:#52b7d9;--amber:#e8b86b;--green:#86d49b;--red:#e27d88}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#1d2930 0,#101214 55%);color:var(--text);font:13px ui-monospace,SFMono-Regular,Menlo,monospace}main{max-width:1020px;margin:0 auto;padding:38px 24px 54px}
+header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:32px}h1{font-size:19px;font-weight:500;margin:0 0 8px;color:#eef3f7}h1 span{color:var(--blue)}.sub{color:var(--muted);font-size:11px}.live{display:flex;align-items:center;gap:8px;color:var(--green);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}.live.off{color:var(--amber)}.live.off .dot{background:var(--amber);box-shadow:none}
+.phase{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:22px}.chip{border:1px solid var(--line);border-radius:99px;padding:7px 12px;color:var(--muted);font-size:11px}.chip.active{border-color:var(--blue);color:var(--blue);background:#152832}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:rgba(23,26,30,.8);border:1px solid var(--line);border-radius:7px;padding:17px}.wide{grid-column:1/-1}.label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:12px}.wave{width:100%;height:108px;display:block;background:#121518;border-radius:4px}.waveLabel{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;margin-top:8px}.waveLabel b{font-weight:400}.blue{color:var(--blue)}.amber{color:var(--amber)}
+.quote{min-height:70px;color:#eef3f7;font:16px/1.5 system-ui,sans-serif}.quote.empty{color:var(--muted);font:13px ui-monospace,monospace}.who{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:5px;overflow:hidden}.metric{background:var(--panel);padding:14px}.metric b{display:block;font-size:18px;font-weight:400;color:#eef3f7;margin-bottom:4px}.metric span{font-size:10px;color:var(--muted)}footer{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;margin-top:18px}
+@media(max-width:700px){main{padding:25px 14px}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.metrics{grid-template-columns:repeat(2,1fr)}header{margin-bottom:24px}}
+</style>
+</head>
+<body><main>
+<header><div><h1><span>»</span> vox / voice pipeline</h1><div class="sub">semantic prediction experiment · 16 kHz mono · 30 Hz cognition</div></div><div id="connection" class="live off"><i class="dot"></i><span>connecting</span></div></header>
+<div id="phases" class="phase"></div>
+<div class="grid">
+<section class="card"><div class="label blue">input / microphone</div><canvas id="input" class="wave"></canvas><div class="waveLabel"><b>live waveform</b><span id="vad">vad 0.00</span></div></section>
+<section class="card"><div class="label amber">output / speaker</div><canvas id="output" class="wave"></canvas><div class="waveLabel"><b>latest response</b><span id="outputLevel">level 0.00</span></div></section>
+<section class="card"><div class="who">you</div><div id="user" class="quote empty">Waiting for speech…</div></section>
+<section class="card"><div class="who">vox</div><div id="assistant" class="quote empty">Nothing spoken yet.</div></section>
+<section class="card wide"><div class="label">latency / latest exchange</div><div class="metrics"><div class="metric"><b id="asr">—</b><span>ASR</span></div><div class="metric"><b id="llm">—</b><span>LLM</span></div><div class="metric"><b id="tts">—</b><span>TTS</span></div><div class="metric"><b id="total">—</b><span>TOTAL</span></div></div></section>
+</div>
+<footer><span id="heard">heard 0.0s</span><span id="updated">awaiting telemetry</span><span id="interruptions">interruptions 0</span></footer>
+</main>
+<script>
+const names=["listening","speech detected","transcribing","thinking","speaking","interrupted","error"]
+const ids={input:document.querySelector("#input"),output:document.querySelector("#output")}
+function ms(v){return v==null?"—":Math.round(v)+"ms"}
+function canvas(id,values,color){const c=ids[id],d=c.getBoundingClientRect(),ratio=devicePixelRatio||1,w=Math.max(1,Math.floor(d.width)),h=Math.max(1,Math.floor(d.height));if(c.width!==w*ratio){c.width=w*ratio;c.height=h*ratio}const x=c.getContext("2d");x.setTransform(ratio,0,0,ratio,0,0);x.clearRect(0,0,w,h);x.strokeStyle="#242a30";x.lineWidth=1;x.beginPath();x.moveTo(0,h/2+.5);x.lineTo(w,h/2+.5);x.stroke();if(!values.length)return;x.strokeStyle=color;x.lineWidth=1.5;x.beginPath();values.forEach((v,i)=>{const px=i/(Math.max(1,values.length-1))*w,amp=Math.min(1,v)*h*.43;i?x.lineTo(px,h/2-amp):x.moveTo(px,h/2-amp)});values.slice().reverse().forEach((v,i)=>{const px=(values.length-1-i)/(Math.max(1,values.length-1))*w,amp=Math.min(1,v)*h*.43;x.lineTo(px,h/2+amp)});x.closePath();x.globalAlpha=.8;x.fillStyle=color;x.fill();x.globalAlpha=1}
+function render(s){document.querySelector("#phases").innerHTML=names.map(n=>'<span class="chip '+(n===s.phase?"active":"")+'">'+n+"</span>").join("");document.querySelector("#vad").textContent="vad "+Number(s.vad||0).toFixed(2);document.querySelector("#outputLevel").textContent="level "+Number(s.outputLevel||0).toFixed(2);canvas("input",s.inputWave||[],"#52b7d9");canvas("output",s.outputWave||[],"#e8b86b");for(const [id,value] of [["user",s.userTranscript],["assistant",s.assistantTranscript]]){const el=document.querySelector("#"+id);el.textContent=value||({user:"Waiting for speech…",assistant:"Nothing spoken yet."}[id]);el.classList.toggle("empty",!value)}document.querySelector("#asr").textContent=ms(s.timings.asrMs);document.querySelector("#llm").textContent=ms(s.timings.llmMs);document.querySelector("#tts").textContent=ms(s.timings.ttsMs);document.querySelector("#total").textContent=ms(s.timings.totalMs);document.querySelector("#heard").textContent="heard "+(Number(s.counts.heardMs||0)/1000).toFixed(1)+"s";document.querySelector("#interruptions").textContent="interruptions "+(s.counts.interruptions||0);document.querySelector("#updated").textContent="updated "+new Date(s.updatedAt).toLocaleTimeString()}
+function connect(){const es=new EventSource("/api/vox/stream"),el=document.querySelector("#connection");es.onopen=()=>{el.className="live";el.querySelector("span").textContent="live"};es.onmessage=e=>{try{render(JSON.parse(e.data))}catch{}};es.onerror=()=>{el.className="live off";el.querySelector("span").textContent="reconnecting";es.close();setTimeout(connect,1000)}}connect();addEventListener("resize",()=>{const s={inputWave:[],outputWave:[]};canvas("input",s.inputWave,"#52b7d9");canvas("output",s.outputWave,"#e8b86b")})
+</script></body></html>

@@ -159,11 +159,23 @@ async function* read<T>(stream: ReadableStream<T>): AsyncGenerator<T> {
  * which arrive through a different path.
  */
 function toPrompt(messages: AxonEngineRequest["messages"]): SdkMessage[] {
-    return messages.map(message =>
-        message.role === "system"
-            ? { role: "system" as const, content: message.content }
-            : { role: message.role, content: [{ type: "text" as const, text: message.content }] },
-    )
+    return messages.map(message => {
+        if (message.role === "system") return { role: "system", content: message.content }
+        const parts = typeof message.content === "string"
+            ? [{ type: "text" as const, text: message.content }]
+            : message.content.map(part => part.type === "text"
+                ? { type: "text" as const, text: part.text }
+                : {
+                    type: "file" as const,
+                    data: part.ref.uri.startsWith("data:")
+                        ? { type: "data" as const, data: part.ref.uri.slice(part.ref.uri.indexOf(",") + 1) }
+                        : { type: "url" as const, url: new URL(part.ref.uri) },
+                    mediaType: part.ref.mime,
+                })
+        return message.role === "user"
+            ? { role: "user", content: parts }
+            : { role: "assistant", content: parts.filter((part): part is { type: "text"; text: string } => part.type === "text") }
+    })
 }
 
 /**

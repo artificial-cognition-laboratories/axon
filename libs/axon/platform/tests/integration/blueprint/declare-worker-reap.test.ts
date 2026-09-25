@@ -28,16 +28,17 @@ import { describe, expect, test } from "bun:test"
  * still running afterwards, and only a real fork can show that.
  */
 
-/** PIDs of every live declare-worker, via pgrep. Empty when none. */
-async function liveWorkers(): Promise<string[]> {
-    const found = await Bun.$`pgrep -f "declare-worker.*--serve"`.text().catch(() => "")
-    return found.trim().split("\n").filter(Boolean)
+/** PIDs of workers spawned by one parent. Other parallel tests may own theirs. */
+async function liveWorkers(parentPid: number): Promise<string[]> {
+    const found = await Bun.$`ps -eo pid=,args=`.text().catch(() => "")
+    return found.split("\n")
+        .filter(line => line.includes("declare-worker") && line.includes(`--serve ${parentPid}`))
+        .map(line => line.trim().split(/\s+/, 1)[0]!)
+        .filter(Boolean)
 }
 
 describe("declare worker: bounded by its parent's life", () => {
     test("no worker survives the process that spawned it", async () => {
-        const before = new Set(await liveWorkers())
-
         // A real child process, exiting the way the TUI does: normally, with
         // no explicit kill. Runs the actual DeclareServer rather than a stand
         // in, so the reaper under test is the one that ships.
@@ -80,8 +81,7 @@ describe("declare worker: bounded by its parent's life", () => {
         // finish tearing the process down before looking.
         await Bun.sleep(500)
 
-        const after = await liveWorkers()
-        const leaked = after.filter(pid => !before.has(pid))
+        const leaked = await liveWorkers(child.pid)
 
         // Clean up before asserting — a failing run must not leave the very
         // process it is complaining about behind for the next one.

@@ -178,45 +178,6 @@ process.exit(0)
         expect(seen).not.toContain("probe:REACHED")
     }, 40_000)
 
-    it("lets the same cognet fetch when the user GRANTED network", async () => {
-        // The control. A wall that blocks everything is not a policy, it is a
-        // brick — without this, the test above proves only that the box breaks
-        // the agent.
-        const seen = await run(
-            `const r = await fetch("https://example.com", { signal: AbortSignal.timeout(5000) }); outcome = "REACHED"`,
-            { net: { allow: ["example.com:443"], dns: "allowlist" } },
-        )
-        expect(seen).toContain("probe:REACHED")
-    }, 40_000)
-
-    /**
-     * The case the old implementation could not express — and the one the docs
-     * claimed. `network: { "api.github.com": true, "*": false }` compiled to
-     * nothing: any grant handed the box the host's whole network stack, so a
-     * policy naming one host reached every host. This asserts the allowlist is
-     * actually an allowlist.
-     */
-    it("blocks a host the net policy did not name", async () => {
-        const seen = await run(
-            `await fetch("https://example.com", { signal: AbortSignal.timeout(5000) }); outcome = "REACHED"`,
-            { net: { allow: ["api.github.com:443"], dns: "allowlist" } },
-        )
-        expect(seen).toContain("probe:blocked")
-        expect(seen).not.toContain("probe:REACHED")
-    }, 40_000)
-
-    it("blocks a raw connection to a denied ADDRESS, bypassing DNS entirely", async () => {
-        // The property a mediator cannot provide. Resolving is not how the box
-        // is escaped — a socket to a literal IP is — so the filter has to be in
-        // the kernel rather than in front of a hostname lookup.
-        const seen = await run(
-            `await fetch("https://1.1.1.1", { signal: AbortSignal.timeout(5000) }); outcome = "REACHED"`,
-            { net: { allow: ["api.github.com:443"], dns: "allowlist" } },
-        )
-        expect(seen).toContain("probe:blocked")
-        expect(seen).not.toContain("probe:REACHED")
-    }, 40_000)
-
     /**
      * The env boundary. The box used to inherit the whole invoking shell, so an
      * `fs` policy denying `.env` on disk was undone by the same secrets

@@ -170,6 +170,16 @@
         <li><code>/usr/bin/omarchy-*</code> — the verbs. Prefer one of these over doing the same thing by hand: they handle the cases you have not thought of.</li>
     </ul>
 
+    <h2>Current session caveats</h2>
+
+    <ul>
+        <li>The install root is <code>/usr/share/omarchy</code>. Set <code>OMARCHY_PATH=/usr/share/omarchy</code> for <code>omarchy-shell</code>, <code>omarchy-restart-shell</code>, and related helpers called outside the desktop session.</li>
+        <li>This terminal may lack <code>HYPRLAND_INSTANCE_SIGNATURE</code>; before direct <code>hyprctl</code> inspection, derive it from the newest directory under <code>$XDG_RUNTIME_DIR/hypr/</code>.</li>
+        <li>A present <code>~/.local/state/omarchy/toggles/bar-off</code> deliberately parks the bar off-screen. Run <code>omarchy-toggle-bar on</code>, then sync the shell.</li>
+    </ul>
+
+    <p>If an <code>omarchy-*</code> verb fails, inspect its path and session-environment assumptions before retrying.</p>
+
     <h2>How to work</h2>
 
     <ul>

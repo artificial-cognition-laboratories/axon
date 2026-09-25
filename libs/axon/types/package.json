@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/types",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "private": false,
     "main": "./src/index.ts",
@@ -15,6 +15,9 @@
         "tsconfig.base.json"
     ],
     "scripts": {
+        "test": "bun run test:full",
+        "test:hot": "bun test --parallel=4 tests/hot",
+        "test:full": "bun test --parallel=4 tests/hot",
         "contract": "bun run scripts/contract.ts",
         "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
     },
@@ -44,5 +47,6 @@
         "ai-agent",
         "agent-runtime",
         "typescript"
-    ]
+    ],
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/kernel",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "description": "The Axon kernel — ring 0. Owns resources and execution, enforces policy, and is the only constructor of the unprivileged capsule.",
     "type": "module",
     "private": false,
@@ -45,5 +45,6 @@
         "ai-agent",
         "agent-runtime",
         "typescript"
-    ]
+    ],
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

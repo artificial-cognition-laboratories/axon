@@ -11,7 +11,11 @@ export async function* readNdjson(response: Response, signal?: AbortSignal): Asy
     const decoder = new TextDecoder()
     let buffer = ""
 
-    const onAbort = () => { void reader.cancel() }
+    // See sse.ts: `cancel()` rejects when the transport has already errored the
+    // stream, and this listener runs synchronously inside `abort()`. A bare
+    // `void` sent that rejection to the process's fatal boundary — the crash a
+    // user saw as "The operation was aborted." on pressing Escape.
+    const onAbort = () => { void reader.cancel().catch(() => undefined) }
     signal?.addEventListener("abort", onAbort, { once: true })
 
     try {

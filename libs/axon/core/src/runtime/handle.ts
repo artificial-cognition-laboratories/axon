@@ -1,13 +1,12 @@
+import { createRequire } from "node:module"
 import { err } from "@arcforge/err"
 import type { AxonCloudClient } from "@arcforge/cloud"
-import { foldChunks, type AxonBlueprint, type AxonRequestInput, type AxonResult, type AxonToolNamespaces } from "@arcforge/types"
-import { AxonHooksT, Inject } from "../platform"
-import type { AxonBusT } from "../platform"
-import type { AxonOutputEvent } from "@arcforge/types"
+import { foldChunks, type AxonBlueprint, type AxonOutputEvent, type AxonRequestInput, type AxonResult, type AxonToolNamespaces } from "@arcforge/types"
+import { Inject, type AxonBusT, type AxonHooksT } from "../platform"
 import { Prompt } from "./source/render"
 import { Scripts } from "./source/scripts"
 import { AxonKernelT } from "@arcforge/kernel"
-import { Output } from "@arcforge/air/output"
+import type { Output as OutputFactory } from "@arcforge/air/output"
 import type { AxonSessionT } from "@arcforge/session"
 
 type AxonHandleOpts = {
@@ -58,11 +57,32 @@ type AxonHandleOpts = {
 function Invoke(opts: { kernel: AxonKernelT }) {
     const { kernel } = opts
 
-    // The typechecker behind `output`. Built once and reused: it holds a
-    // warm TypeScript program, so the per-request cost is an incremental
-    // check rather than a compiler spin-up. Construction is wiring only —
-    // no program is created until the first output type is compiled.
-    const output = Output({ scope: () => kernel.scope() })
+    /*
+     * The typechecker behind `output`. Built once and reused: it holds a warm
+     * TypeScript program, so the per-request cost is an incremental check
+     * rather than a compiler spin-up.
+     *
+     * Reached through a lazy `require` rather than a static import, because
+     * `@arcforge/air/output` pulls the 17MB TypeScript compiler and this
+     * module is on the boot path of every CLI command and the TUI. A static
+     * import here meant `axon --version` loaded a typechecker.
+     *
+     * Synchronous by necessity: `toKernelInput` compiles an output type inline
+     * so an invalid one throws at the caller's own line. `typescript` and this
+     * package are both CJS-resolvable, so `require` defers the cost without
+     * making the surface async.
+     */
+    let output: ReturnType<typeof OutputFactory> | null = null
+
+    function typechecker(): ReturnType<typeof OutputFactory> {
+        if (!output) {
+            const { Output } = createRequire(import.meta.url)("@arcforge/air/output") as {
+                Output: typeof OutputFactory
+            }
+            output = Output({ scope: () => kernel.scope() })
+        }
+        return output
+    }
 
     /**
      * The public surface takes a prompt; the kernel takes content.
@@ -77,11 +97,12 @@ function Invoke(opts: { kernel: AxonKernelT }) {
         // The surface travels with the message whether or not a shape was
         // asked for — it is the reply's address, not part of the contract.
         const channel = normalized.channel === undefined ? {} : { channel: normalized.channel }
-        if (!normalized.output) return { content: normalized.prompt, ...channel }
+        if (!normalized.output) return { content: normalized.prompt, stimuli: normalized.stimuli, ...channel }
 
-        const compiled = output.compile(normalized.output)
+        const compiled = typechecker().compile(normalized.output)
         return {
             content: normalized.prompt,
+            stimuli: normalized.stimuli,
             ...channel,
             output: { declaration: compiled.declaration, check: compiled.check },
             ...(normalized.retries === undefined ? {} : { retries: normalized.retries }),
@@ -268,15 +289,7 @@ export function AxonHandle(opts: AxonHandleOpts) {
                 // The bus carries whole envelopes; a handler wants the fact,
                 // not the correlation metadata around it.
                 const data = (payload as { data?: unknown })?.data ?? payload
-                try {
-                    await handler(data as AxonOutputEvent[K])
-                } catch (cause) {
-                    // Swallowed on purpose. The emission already committed and
-                    // cannot be un-emitted, and a broken speaker is not the
-                    // mind's problem — a body that throws must not take the
-                    // brain down with it. Logged, never propagated.
-                    console.error(`[axon] handler for ${type} failed:`, cause)
-                }
+                await handler(data as AxonOutputEvent[K])
             })
         },
 

@@ -1,6 +1,8 @@
+import { workerPath } from "../../../utils/packaged"
 import { createHash } from "node:crypto"
+import { existsSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { err } from "@arcforge/err"
 import type { BenchMeasurementDefinition } from "@arcforge/types"
 import { Frame } from "../../frame"
@@ -36,7 +38,7 @@ export function BenchSchema(opts: { root: string }) {
     }
 
     async function extract(): Promise<BenchMeasurementDefinition[]> {
-        const worker = new URL("./worker.ts", import.meta.url).pathname
+        const worker = workerPath(import.meta.dir, "bench-schema-worker.js", "worker.ts")
         const proc = Bun.spawn(["bun", "run", worker, configPath], { stdout: "pipe", stderr: "pipe" })
         const [stdout, stderr, code] = await Promise.all([
             new Response(proc.stdout).text(),

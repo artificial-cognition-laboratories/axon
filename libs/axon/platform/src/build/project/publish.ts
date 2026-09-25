@@ -98,7 +98,7 @@ export function Publish(opts: PublishOpts) {
         if (!isPublishable(kind)) throw err("PUBLISH_UNSUPPORTED_KIND", { context: { kind } })
 
         report({ step: "bundling" })
-        const session = bundle.session(kind)
+        const session = bundle.session(kind, "publish")
         let artifact = await session.current()
 
         // Before ANY registry mutation. A published version is immutable, so

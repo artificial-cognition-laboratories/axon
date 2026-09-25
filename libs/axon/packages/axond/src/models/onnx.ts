@@ -1,6 +1,8 @@
 import { statSync } from "node:fs"
 import { err } from "@arcforge/err"
 import type { LoadedWeight, ModelAdapter } from "./adapter"
+import type { RuntimesT } from "./runtimes"
+import { optionalImport } from "./optional"
 
 /**
  * The ONNX runtime adapter.
@@ -25,7 +27,7 @@ import type { LoadedWeight, ModelAdapter } from "./adapter"
  * plugin host. Generation stays with Ollama and LM Studio, which are already
  * providers, so the adapter that lands first is the one nothing else covers.
  */
-export function OnnxAdapter(): ModelAdapter {
+export function OnnxAdapter(runtimes?: RuntimesT): ModelAdapter {
     /**
      * The loaded module, or null when it is not installed.
      *
@@ -36,16 +38,11 @@ export function OnnxAdapter(): ModelAdapter {
      */
     let runtime: Promise<OnnxModule | null> | null = null
 
-    function load(): Promise<OnnxModule | null> {
-        // The specifier is built rather than literal so the compiler does not
-        // resolve it: the package is OPTIONAL, and a static import would make
-        // the build require exactly what this adapter exists to work without.
-        // Bun and Node both resolve it at runtime when it is installed.
-        const specifier = "onnxruntime" + "-node"
-        runtime ??= import(specifier)
-            .then(module => module as unknown as OnnxModule)
-            .catch(() => null)
-        return runtime
+    async function load(): Promise<OnnxModule | null> {
+        runtime ??= runtimes
+            ? runtimes.install("onnx").then(() => runtimes.import("onnx") as Promise<OnnxModule | null>)
+            : optionalImport("onnxruntime-node").then(module => module as OnnxModule | null).catch(() => null)
+        return await runtime
     }
 
     return {
@@ -69,7 +66,7 @@ export function OnnxAdapter(): ModelAdapter {
             const onnx = await load()
             if (!onnx) {
                 throw err("MODEL_RUNTIME_MISSING", {
-                    detail: "onnxruntime-node is not installed — run `axon models runtime onnx` to add it",
+                    detail: "onnxruntime-node is not installed — run `axon daemon runtime install onnx` to add it",
                     context: { runtime: "onnx", path: path },
                 })
             }

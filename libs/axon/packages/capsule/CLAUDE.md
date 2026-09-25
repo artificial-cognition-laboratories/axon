@@ -71,6 +71,39 @@ Six things, each found by an existing test rather than by inspection:
   incarnation up first ("overlap, not gap"); in one heap that would mean two
   mediators owning `process.run` at once.
 
+## Policy: silence asks
+
+**An explicit allow allows. An explicit deny denies. Silence asks.** One rule,
+applied at every leaf of `decideShell` and to the surface as a whole.
+
+This replaced a `fallback` parameter whose two callers passed opposite values —
+the capsule "deny" (it runs foreign, model-emitted code and must never grant by
+omission) and Axon "allow" ("I set no policy" meaning a personal tool with the
+user's privileges). Both stances are now produced by escalation plus its
+degradation, with no knob: a bare `Capsule()` has no decider, so `Escalation`
+answers false immediately and it still runs nothing, while a user at a TUI is
+asked and answering "always" writes the grant.
+
+**The cost of the old shape was the first five minutes.** An agent with no
+policy — which is every agent before anyone writes one — got
+`shell.run:axon denied · no rule permits it`, a sentence with no next step in it
+short of reading the docs.
+
+**The subtle half was DELIVERY, not the decision.** `decideShell` returned
+"escalate" correctly the whole time; `shell()` then handed it to `check()`,
+which started over against the TOOLS map, found no rule for an address like
+`shell.run:axon` (a program is not a tool and never has one), and denied by
+omission. Every unit test over `decideShell` passed throughout. `escalate()` is
+now factored out of `check()` so an already-made decision goes straight to the
+ask, and `tests/policy/omission-asks.test.ts` exercises it through a real
+capsule — which is the only level at which that class of bug is visible.
+
+**A refusal says which kind it was.** `escalation-headless` (nobody to ask —
+a script, CI, a deployment) is a different fact from `escalation-denied` (a
+person said no), and only one of them has a fix. The response command carries
+the distinction so the record can state it rather than implying a decision
+nobody made.
+
 ## Where Confinement Went
 
 `platform/src/confine/` — bwrap, cgroups, the policy→spec narrowing. It boxes
@@ -96,11 +129,11 @@ Capsule(config?)          // run/exec/interrupt/process/scope/on/boot/shutdown
 
 ## Known Debt
 
-- 8 of 133 tests still fail against the in-process implementation: the escalate
-  no-callback default hangs, two tool tests, the scope size budget, the host
-  bridge (`axon.request()` from tool code is stubbed `NOT_WIRED`), the
-  process-globals passthrough, and the `process.run` mirror. Each is a
-  behaviour gap in the port, not a test that stopped being true.
+- ~~8 of 133 tests still fail against the in-process implementation~~ — stale as
+  of 2026-09-08: the suite is 180/180. The `escalate` no-callback default no
+  longer hangs (`Escalation` answers false immediately when no decider is
+  wired), which was the entry most likely to be mistaken for a live issue while
+  reading this file.
 - Core's suite drops 417 → 400 in a FULL run while the same server tests pass
   103/103 in isolation — cross-test interference from process-global state (the
   cwd restore or the scope install). Worth chasing before the remaining eight:

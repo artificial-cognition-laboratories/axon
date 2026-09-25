@@ -163,6 +163,50 @@ as more audio arrives, which is why incremental dictation usually means
 backspacing over your own output; the pause-boundary design was chosen for
 accuracy and this is the second thing it buys.
 
+**Machine probes are LAZY — building the handle runs no subprocess.**
+`Hardware()` and `Identity()` used to probe at construction (`nvidia-smi` for video memory,
+`ioreg` for the macOS id). `Axond()` is constructed in-process by the TUI and by every CLI
+command, so `axon --version` spawned a GPU query to answer a question about a string.
+
+It was also the thing that blocked a release. A synchronous spawn from inside a bun test
+worker can wedge — the child exits, the parent never resumes — and every `apps/tui` test that
+touches the CLI constructs `Axond()`. On the `axon` gate that surfaced as an eleven-minute
+hang on a defunct `[nvidia-smi]`, green on one run and hung on the next with no code change
+between them, while the same binary answered instantly on the host. An irreproducible red is
+worse than a consistent one: it cannot gate a permanent npm publish.
+
+The value is still read at most once and is still stable for the daemon's lifetime — it is
+simply not read by callers who never ask what this machine can do. `tests/unit/lazy-probe.test.ts`
+pins it by counting spawns during construction.
+
+**Every external probe goes through `ask()`, and `ask()` never spawns
+synchronously.** `machine/` asks vendor tools questions — `nvidia-smi` for GPU
+memory and utilisation, `ioreg` for the macOS platform UUID. All four sites
+originally used a bare `Bun.spawnSync`, which makes the calling thread hostage
+to a third-party binary.
+
+A 2s timeout on that spawn was tried first and was NOT sufficient. A worker was
+later caught alive for 4h57m with `nvidia-smi <defunct>` as its child, spinning
+on CPU rather than blocked: the child had exited, was never reaped, and the
+parent never resumed. `spawnSync`'s `timeout` does not bound that. The blast
+radius went well past the wedged suite — load average past 12, and every other
+suite on the box then failing at its exact declared ceiling, which reads as a
+family of unrelated flakes and blocked several release attempts.
+
+So `ask()` answers from a per-command cache and refreshes it in the BACKGROUND
+via `Bun.spawn` with an AbortSignal. A hung vendor tool now costs one stale
+metric and one abandoned subprocess, never a stalled thread. The first ask for
+a command reports "not answered yet" — a shape every call site already handles,
+since they all read `exitCode !== 0` as "we do not know", the same answer they
+give for a missing binary. A metric therefore arrives one tick late rather than
+wrongly.
+
+Two consequences worth knowing. `read()` stays SYNCHRONOUS, which is what kept
+this from cascading into the admission path that must answer at an instant. And
+`pending()` exists to separate "not answered yet" from "answered badly",
+because `Hardware` latches its reading — caching "no GPU" from a refresh that
+had not landed would be permanently wrong on a machine that has one.
+
 **`wtype` is paced, and spawned rather than spawnSync'd.** Its keystroke delay
 defaults to ZERO, which reads as a corruption bug: a window doing work per
 keystroke drops and reorders them, and "Hello. Can you hear me?" arrived as

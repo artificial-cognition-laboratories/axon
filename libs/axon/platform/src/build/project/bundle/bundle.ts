@@ -7,7 +7,7 @@ import { Source } from "./source"
 import { Stage } from "./stage"
 import type { ManifestT } from "../manifest"
 import type { SourceModulesT } from "../modules"
-import type { BundleArtifact, BundleIdentity, BundleImage, SourceImage } from "./types"
+import type { BundleArtifact, BundleIdentity, BundleImage, BundleTarget, SourceImage } from "./types"
 
 type BundleOpts = {
     root: string
@@ -60,7 +60,7 @@ export function Bundle(opts: BundleOpts) {
     const module = Module({ root: root, artifacts: artifacts, stage: stage })
     const source = Source({ root: root, artifacts: artifacts, stage: stage })
 
-    async function run(kind: ProjectKind): Promise<BundleArtifact> {
+    async function run(kind: ProjectKind, target: BundleTarget): Promise<BundleArtifact> {
         // Prepare first, unconditionally.
         //
         // `build`, `publish` and `deploy` all arrive here, and none of them
@@ -77,7 +77,7 @@ export function Bundle(opts: BundleOpts) {
         const dir = Frame({ root: root, kind: kind }).path("build")
 
         const result = via === "agent"
-            ? await agent.build()
+            ? await agent.build(target)
             : via === "module"
                 ? await module.build()
                 : await source.build(kind as SourceImage["kind"])
@@ -122,19 +122,19 @@ export function Bundle(opts: BundleOpts) {
          * bundle mid-operation is a caller that just rewrote package.json and
          * knows it.
          */
-        session(kind: ProjectKind) {
+        session(kind: ProjectKind, target: BundleTarget) {
             let artifact: BundleArtifact | null = null
 
             return {
                 /** The artifact, built on first call and reused thereafter. */
                 async current(): Promise<BundleArtifact> {
-                    artifact ??= await run(kind)
+                    artifact ??= await run(kind, target)
                     return artifact
                 },
 
                 /** Discard and rebuild — call after mutating package.json. */
                 async rebuild(): Promise<BundleArtifact> {
-                    artifact = await run(kind)
+                    artifact = await run(kind, target)
                     return artifact
                 },
             }

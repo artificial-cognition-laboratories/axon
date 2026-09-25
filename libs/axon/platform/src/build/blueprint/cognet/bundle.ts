@@ -1,3 +1,4 @@
+import { workerPath } from "../../../utils/packaged"
 import { createHash } from "node:crypto"
 import { readdir, rename, rm } from "node:fs/promises"
 import { existsSync, lstatSync, realpathSync } from "node:fs"
@@ -19,10 +20,7 @@ import { readCognetAbi } from "./abi"
 // resolution pattern as declare-worker/tool-bundle-worker — without it the
 // installed CLI looks for a .ts that was never published and every agent
 // fails to compile its brain.
-const packagedWorker = resolve(import.meta.dir, "bundle-worker.js")
-const BUNDLE_WORKER_PATH = existsSync(packagedWorker)
-    ? packagedWorker
-    : resolve(import.meta.dir, "bundle-worker.ts")
+const BUNDLE_WORKER_PATH = workerPath(import.meta.dir, "bundle-worker.js", "bundle-worker.ts")
 
 type BundleWorkerResult =
     | { ok: true; code: string; mapCode?: string }
@@ -444,6 +442,7 @@ export async function bundleCognet(opts: {
         version: definition.version,
         abi: definition.abi,
         ...(definition.wakeOn ? { wakeOn: definition.wakeOn } : {}),
+        ...(definition.stimuli ? { stimuli: definition.stimuli } : {}),
         path: outFile,
         hash,
     }

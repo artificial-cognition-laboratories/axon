@@ -2,7 +2,7 @@ import { err } from "@arcforge/err"
 import { writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import type { AxonBlueprint, CapsulePolicy } from "@arcforge/types"
-import { Confinement, entrypoint as resolveEntrypoint, probe, tierReady } from "./confine"
+import { Confinement, entrypoint as resolveEntrypoint, probe, tierReady, type ProbeStatus } from "./confine"
 import { resolveEnv } from "./confine/env"
 import { boxedPid } from "./confine/netns"
 import type { NetworkSpec } from "./confine/spec"
@@ -31,14 +31,44 @@ type ConfinedOpts = {
 }
 
 /**
- * How long a connected agent is watched before it is declared up.
+ * Refuse a policy whose egress promise this runtime cannot keep.
  *
- * The gap between "the socket came up" and "the runtime booted". Long enough
- * for a synchronous boot failure to be reported and land, short enough not to
- * be felt — a real boot is far slower than this and the wait ends the moment
- * the failure arrives.
+ * This belongs before `prepare()`: failing after sockets and a blueprint file
+ * exist leaves a failed boot with resources it can never return to a caller.
+ * `container` is intentionally exempt. Its contract is that an enclosing,
+ * declared runtime owns OS isolation; Link cannot probe or configure that
+ * runtime from inside it.
  */
-const BOOT_GRACE_MS = 250
+export function assertNetworkConfinement(
+    policy: CapsulePolicy,
+    tier: "none" | "auto" | "container" | "hardened",
+    status: ProbeStatus = probe(),
+): void {
+    if (!policy.net || tier === "container") return
+
+    const missing: string[] = []
+    if (!status.isLinux) missing.push("Linux")
+    if (!status.bwrap) missing.push("bubblewrap (bwrap)")
+    if (!status.systemd) missing.push("systemd-run")
+    if (!status.nft) missing.push("nftables (nft)")
+    if (!status.slirp) missing.push("slirp4netns")
+    if (!status.capsh) missing.push("libcap (capsh)")
+    if (tier === "hardened" && !status.userExists) missing.push("the axon-agent user")
+
+    if (tier === "none") {
+        throw err("CAPSULE_NET_UNAVAILABLE", {
+            detail: 'a `net` policy cannot be enforced with isolation: "none"; use isolation: "auto" or "hardened"',
+            context: { tier, missing },
+        })
+    }
+
+    if (missing.length > 0) {
+        throw err("CAPSULE_NET_UNAVAILABLE", {
+            detail: `a \`net\` policy cannot be enforced because this host is missing: ${missing.join(", ")}`,
+            context: { tier, missing },
+        })
+    }
+}
 
 export type ConfinedAgent = SpawnedAgent & {
     /** The child process. Killed by dispose(). */
@@ -58,8 +88,15 @@ export type ConfinedAgent = SpawnedAgent & {
 export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> {
     const tier = opts.policy.isolation ?? "none"
 
+    // Validate the user-visible security contract before creating any boot
+    // resources. There is no safe fallback from an allowlist to host egress.
+    assertNetworkConfinement(opts.policy, tier)
+
     // Arm the listeners BEFORE the child exists: a child that dials before
     // anyone is listening gets ECONNREFUSED and dies at startup.
+    let markBooted!: () => void
+    const booted = new Promise<void>(resolve => { markBooted = resolve })
+
     const link = prepare({
         sessionId: opts.sessionId,
         services: {
@@ -75,6 +112,7 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
                         context: { sessionId: opts.sessionId },
                     }))
                 }
+                if (type === "axon:boot:complete") markBooted()
                 opts.services.commit(type, data, ctx)
             },
         },
@@ -146,16 +184,6 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
 
     if (buildsBox) {
         const status = probe()
-
-        // A `net` allowlist that cannot be enforced is a boot error, never a
-        // downgrade to unfiltered egress. The whole reason this layer exists is
-        // that a policy naming one host used to reach every host.
-        if (opts.policy.net && !status.network) {
-            link.connected.catch(() => {})
-            throw err("CAPSULE_NET_UNAVAILABLE", {
-                context: { nft: status.nft, slirp: status.slirp },
-            })
-        }
 
         if (!tierReady(tier, status)) {
             link.connected.catch(() => {})
@@ -387,15 +415,11 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
      */
     const spawned = await Promise.race([
         // Connected is NOT booted: the agent dials before it constructs its
-        // runtime, so this arm resolves while the boot may still be in flight.
-        // Waiting a beat lets a boot failure — which the agent reports through
-        // the link a moment later — win the race instead of losing to a socket
-        // that came up fine.
+        // runtime so it can report a boot failure. Axon's existing completion
+        // event is the exact readiness fact; the former 250ms grace was both
+        // a fixed startup cost and still only a guess.
         link.connected.then(async agent => {
-            await Promise.race([
-                bootFailure.promise,
-                new Promise(resolve => setTimeout(resolve, BOOT_GRACE_MS)),
-            ])
+            await Promise.race([booted, bootFailure.promise])
             return agent
         }),
         bootFailure.promise,
@@ -515,7 +539,23 @@ function wrapperEnv(): Record<string, string> {
  * that nothing ever writes.
  */
 export function agentEntrypoints(dir: string): string[] {
-    return [join(dir, "agent-main.js"), join(dir, "agent-main.ts")]
+    return [
+        join(dir, "agent-main.js"),
+        join(dir, "agent-main.ts"),
+        /*
+         * The split-bundle layout: the caller resolved `dir` from its own
+         * `import.meta.dir`, and under `splitting: true` that code lives in
+         * `chunks/` while the entrypoint sits beside the app one level up.
+         *
+         * Listed as extra CANDIDATES rather than by rewriting the directory,
+         * because both layouts are real — a single-file build still puts it
+         * beside the caller — and this function's whole contract is "the paths
+         * a build may have produced". Ordered after the direct hits so a local
+         * entrypoint always wins over one found by walking up.
+         */
+        join(dir, "..", "agent-main.js"),
+        join(dir, "..", "agent-main.ts"),
+    ]
 }
 
 /** Resolve the agent entrypoint from the candidates a build may have produced. */

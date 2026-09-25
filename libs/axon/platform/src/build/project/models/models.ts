@@ -79,12 +79,14 @@ export function Models(opts: ModelsOpts = {}) {
             resolveOpts: {
                 onDownload?: (model: ParsedModel) => void
                 onProgress?: (progress: { model: ParsedModel; received: number; total: number | null }) => void
+                traits?: ParsedModel["traits"]
             } = {},
         ): Promise<StoredModel> {
             return await fetchManifest(repo, files, primary, {
                 store,
                 ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
                 ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
+                ...(resolveOpts.traits ? { traits: resolveOpts.traits } : {}),
             })
         },
 
@@ -127,6 +129,40 @@ export function Models(opts: ModelsOpts = {}) {
             const fetched: string[] = []
 
             for (const model of parsed) {
+                if (model.set) {
+                    const stored = await fetchManifest(
+                        { host: model.host, repo: model.repo, rev: model.rev, key: model.key },
+                        [],
+                        "",
+                        {
+                            store,
+                            ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
+                            ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
+                        },
+                        model.traits,
+                    )
+                    paths[model.key] = stored.path
+                    if (stored.path) fetched.push(model.key)
+                    continue
+                }
+
+                if (model.set) {
+                    const stored = await fetchManifest(
+                        { host: model.host, repo: model.repo, rev: model.rev, key: model.key },
+                        [],
+                        "",
+                        {
+                            store,
+                            ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
+                            ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
+                        },
+                        model.traits,
+                    )
+                    paths[model.key] = stored.path
+                    fetched.push(model.key)
+                    continue
+                }
+
                 const stored = await fetchModel(model, {
                     store,
                     onDownload: m => {
@@ -137,6 +173,8 @@ export function Models(opts: ModelsOpts = {}) {
                     // they land, and a caller that cannot see them can only show
                     // a spinner for a five-gigabyte transfer.
                     ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
+                    ...(model.traits ? { traits: model.traits } : {}),
+
                 })
                 paths[model.key] = stored.path
             }

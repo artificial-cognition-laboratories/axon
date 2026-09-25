@@ -1,7 +1,7 @@
 import { join } from "node:path"
-import { writeFileSync } from "node:fs"
 import { TUI_CONTRACT } from "@arcforge/types/tui-contract"
 import { Frame, type ProjectKind } from "../../frame"
+import { writeIfChanged } from "./write"
 
 /**
  * The ambient authoring surface for a PROFILE and for EXTENSIONS — the ten
@@ -114,9 +114,8 @@ export {}
  * writer rather than a privileged internal surface and a reduced public one.
  */
 export function generateTuiDts(root: string, kind: ProjectKind): void {
-    writeFileSync(
-        join(Frame({ root, kind }).ensure("types"), "globals.d.ts"),
+    writeIfChanged(
+        join(Frame({ root: root, kind: kind }).ensure("types"), "globals.d.ts"),
         tuiDts(),
-        "utf-8",
     )
 }

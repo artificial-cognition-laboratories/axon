@@ -393,12 +393,20 @@ function LocalProvider(local: LocalRuntime | undefined, slots: number | undefine
             return (await catalogue()).find(capability => capability.id === ref) ?? null
         },
         create(capability) {
+            if (capability.type === "transform") {
+                return {
+                    kind: "transform" as const,
+                    transform: async (input: unknown) => await runtime.run(capability.id, input),
+                }
+            }
+
             return {
                 async *stream(request) {
                     const { Collect } = await import("../shared")
                     const { extractUserText } = await import("../mock")
                     const collect = Collect({ provider: "local", model: capability.id })
-                    const text = await runtime.run(capability.id, extractUserText(request))
+                    const result = await runtime.run(capability.id, extractUserText(request))
+                    const text = typeof result === "string" ? result : JSON.stringify(result)
                     const event = collect.feed({ type: "text:delta", content: text })
                     if (event) yield event
                     yield collect.done({ ...(request.signal ? { signal: request.signal } : {}) })
@@ -502,7 +510,13 @@ function MockProvider(script?: unknown): AxonProvider {
              * migration paid by every caller for a spelling — so the old name
              * keeps working and points at the model it always meant.
              */
-            if (ref === "mock" || ref === "default") return standard
+            // `mock:mock` is the legacy spelling used by published agents,
+            // fixtures, and documentation. When this provider carries a
+            // user script it must retain its historical meaning: that script.
+            // A bare/implicit provider has no custom capability, so the same
+            // spelling naturally falls back to the standard command set.
+            if (ref === "mock") return custom ?? standard
+            if (ref === "default") return standard
             if (ref === "custom") return custom
             return models.find(model => model.id === ref) ?? null
         },

@@ -27,8 +27,7 @@ type BootOpts = {
     session: AxonSessionT
 }
 
-const LOG_LEVELS = ["info", "warning", "error"] as const
-type LogLevel = (typeof LOG_LEVELS)[number]
+type LogLevel = "info" | "warning" | "error"
 
 /**
  * Boot — the agent's base context. Static `boot.md` is a plain string,

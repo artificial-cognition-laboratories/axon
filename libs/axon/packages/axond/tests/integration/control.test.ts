@@ -77,11 +77,11 @@ describe("the control socket", () => {
         const { axond, client } = await served()
         try {
             // A client that got a 200 with no value could not tell "returned
-            // nothing" from "threw" — so an unwired domain is the case worth
-            // proving, and agents is still one.
+            // nothing" from "threw". Exercise an error raised by a real
+            // domain so this proves domain failures survive the transport.
             await expect(
-                (client as unknown as { schedule: { list: () => Promise<unknown> } }).schedule.list(),
-            ).rejects.toThrow(/not wired/i)
+                client.models.run({ model: "hf:missing/model", input: {} }),
+            ).rejects.toThrow(/not on this machine|not loaded/i)
         } finally {
             await axond.shutdown()
         }

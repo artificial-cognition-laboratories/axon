@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import type { EngineType, Modality } from "@arcforge/types"
+import { shapeOfPipelineTag, type EngineType, type Modality } from "@arcforge/types"
 import { parseSpecifier } from "./specifier"
 import { estimateBytes } from "./fit"
 import type { ModelCapability, ModelRecord, ModelRuntime } from "./types"
@@ -78,7 +78,7 @@ export function Catalog(opts: CatalogOpts = {}) {
      * evicting least-recently-read, is the obvious next move. Recorded in
      * debt.md rather than guessed at here.
      */
-    let details: Record<string, RepoDetail> = readDetails()
+    const details: Record<string, RepoDetail> = readDetails()
 
     /**
      * Cursors for the next page, per cache key.
@@ -94,7 +94,7 @@ export function Catalog(opts: CatalogOpts = {}) {
      * function declarations around it hoist quite happily — so `refresh` threw
      * a ReferenceError its own catch swallowed into "the network failed".
      */
-    let cursors: Record<string, (string | null)[]> = readCursors()
+    const cursors: Record<string, (string | null)[]> = readCursors()
 
     function readCursors(): Record<string, (string | null)[]> {
         try {
@@ -611,10 +611,8 @@ async function searchOllama(
  * what an ONNX export is: embeddings, classifiers, detection, ASR.
  */
 function engineType(tag: string | undefined): EngineType {
-    if (!tag) return "transform"
-    if (tag.includes("text-generation") || tag.includes("text2text")) return "generate"
-    if (tag.includes("voice-activity")) return "stream"
-    return "transform"
+    // An undescribed task is still callable as a plain input → output.
+    return shapeOfPipelineTag(tag)?.type ?? "transform"
 }
 
 /**
@@ -635,30 +633,8 @@ function engineType(tag: string | undefined): EngineType {
  * confident lie about what a model does.
  */
 export function modalitiesOf(tag: string | undefined): { in: Modality[]; out: Modality[] } {
-    if (!tag) return { in: [], out: [] }
-    const t = tag.toLowerCase()
-
-    if (t.includes("automatic-speech-recognition") || t.includes("speech-to-text")) {
-        return { in: ["audio"], out: ["text"] }
-    }
-    if (t.includes("text-to-speech") || t.includes("text-to-audio")) {
-        return { in: ["text"], out: ["audio"] }
-    }
-    if (t.includes("audio-classification") || t.includes("voice-activity")) {
-        return { in: ["audio"], out: ["text"] }
-    }
-    if (t.includes("image-text-to-text")) return { in: ["image", "text"], out: ["text"] }
-    if (t.includes("image-classification") || t.includes("object-detection")) {
-        return { in: ["image"], out: ["text"] }
-    }
-    if (t.includes("text-to-image")) return { in: ["text"], out: ["image"] }
-    if (t.includes("sentence-similarity") || t.includes("feature-extraction") || t.includes("embedding")) {
-        return { in: ["text"], out: ["vector"] }
-    }
-    if (t.includes("text-generation") || t.includes("text2text") || t.includes("conversational")) {
-        return { in: ["text"], out: ["text"] }
-    }
-    return { in: [], out: [] }
+    const shape = shapeOfPipelineTag(tag)
+    return shape ? { in: shape.in, out: shape.out } : { in: [], out: [] }
 }
 
 /**

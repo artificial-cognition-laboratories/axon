@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/theme",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {
@@ -9,11 +9,17 @@
     "files": [
         "src"
     ],
+    "scripts": {
+        "test": "bun run test:full",
+        "test:hot": "bun test tests/hot",
+        "test:full": "bun test tests/hot"
+    },
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
     },
     "dependencies": {
         "@arcforge/types": "workspace:*"
-    }
+    },
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

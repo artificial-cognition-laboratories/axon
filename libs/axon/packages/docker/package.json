@@ -16,6 +16,9 @@
         "@types/bun": "latest"
     },
     "scripts": {
+        "test": "bun run test:full",
+        "test:hot": "bun test tests/hot",
+        "test:full": "bun run test:hot && bun test tests/full",
         "deploy": "bun run deploy.ts",
         "deploy:bump:patch": "bun run deploy.ts --bump patch",
         "deploy:bump:minor": "bun run deploy.ts --bump minor",

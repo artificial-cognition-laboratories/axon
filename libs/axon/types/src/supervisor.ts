@@ -3,7 +3,7 @@ import type { AxonRunResult } from "./kernel/abi"
 import type { AxonBlueprint } from "./blueprint"
 import type { AxonEventMap } from "./session/session"
 import type { AxonCommitContext } from "./session/envelope"
-import type { AxonStimulusEntry } from "./session/events/stdio/stimuli"
+import type { AxonStimulusEntry, AxonStimulusInput } from "./session/events/stdio/stimuli"
 import type { EscalationCall } from "./policy"
 
 /**
@@ -129,7 +129,7 @@ export type SupervisorToAgent = {
      * "the wake this stimulus caused" names nothing. Such a caller wants
      * `stimulus` and the commit stream.
      */
-    request(entry: AxonStimulusEntry): Promise<{ ok: boolean; interrupted?: boolean }>
+    request(input: AxonStimulusEntry | { content?: string | string[]; stimuli?: AxonStimulusInput[]; channel?: string }): Promise<{ ok: boolean; interrupted?: boolean }>
 
     /**
      * Bind the agent's HTTP surface, inside the box, and report the port.

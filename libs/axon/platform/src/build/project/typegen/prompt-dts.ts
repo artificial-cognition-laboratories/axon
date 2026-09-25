@@ -1,6 +1,6 @@
 import { join } from "node:path"
-import { writeFileSync } from "node:fs"
 import { Frame } from "../../frame"
+import { writeIfChanged } from "./write"
 
 /**
  * globals.d.ts for prompt packages — the ambient surface of
@@ -32,9 +32,8 @@ export {}
 `
 
 export function generatePromptDts(promptPath: string): void {
-    writeFileSync(
+    writeIfChanged(
         join(Frame({ root: promptPath, kind: "prompt" }).ensure("types"), "globals.d.ts"),
         PROMPT_DTS,
-        "utf-8",
     )
 }

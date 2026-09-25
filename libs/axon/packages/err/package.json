@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/err",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "description": "Structured Axon errors — the code map every user-facing failure is rendered from.",
     "type": "module",
     "private": false,
@@ -12,6 +12,9 @@
         "src"
     ],
     "scripts": {
+        "test": "bun run test:full",
+        "test:hot": "bun test --parallel=4 tests/hot",
+        "test:full": "bun test --parallel=4 tests/hot",
         "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
     },
     "dependencies": {
@@ -39,5 +42,6 @@
         "ai-agent",
         "agent-runtime",
         "typescript"
-    ]
+    ],
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

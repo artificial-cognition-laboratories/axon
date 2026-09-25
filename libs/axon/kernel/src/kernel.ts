@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonDriver, AxonEngineCall, AxonEngineDriver, CapsulePolicy, ResolvedCapsulePolicy, AxonEngineEvent, AxonEntry, AxonEntryEvent, AxonEventMap, AxonRunResult, CapsuleCommandOrigin, EngineSession, KernelAbi, TransformOptions } from "@arcforge/types"
+import type { AxonBlueprint, AxonDriver, AxonEngineCall, AxonEngineDriver, CapsulePolicy, ResolvedCapsulePolicy, AxonEngineEvent, AxonEntry, AxonEntryEvent, AxonEventMap, AxonRunResult, CapsuleCommandOrigin, EngineSession, KernelAbi, TransformOptions, AxonStimulusInput } from "@arcforge/types"
 import { EMPTY_CAPSULE_SCOPE } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 import type { KernelBus } from "./contracts"
@@ -83,6 +83,8 @@ type KernelOpts = {
 type KernelInput = {
     /** User message committed before the wake starts. */
     content?: string | string[]
+    /** Ordered non-text stimuli committed before this wake starts. */
+    stimuli?: AxonStimulusInput[]
     /**
      * The surface this message arrived on, and the address a reply goes back
      * to — `terminal`, `axon-cli`, `telegram:8199237521`.
@@ -626,7 +628,14 @@ export async function Kernel(opts: KernelOpts) {
      * one thing for a host to recognise and hide.
      */
     async function recordFault(
-        fault: { code: string; message: string; excerpt?: string; rejected?: string; attempt?: number },
+        fault: {
+            code: string
+            message: string
+            excerpt?: string
+            rejected?: string
+            attempt?: number
+            details?: Record<string, string | number | boolean>
+        },
         run: { runId: string } | undefined,
     ): Promise<unknown> {
         // The rejected reply first, so the timeline reads in the order it
@@ -653,7 +662,11 @@ export async function Kernel(opts: KernelOpts) {
             type: "format-violation",
             lang: "md",
             content: fault.message,
-            attributes: { code: fault.code, ...(fault.excerpt ? { excerpt: fault.excerpt } : {}) },
+            attributes: {
+                code: fault.code,
+                ...(fault.excerpt ? { excerpt: fault.excerpt } : {}),
+                ...(fault.details ? Object.fromEntries(Object.entries(fault.details).map(([key, value]) => [key, String(value)])) : {}),
+            },
         }, run)
     }
 
@@ -731,13 +744,20 @@ export async function Kernel(opts: KernelOpts) {
             // otherwise. A confined agent reads what it asked for rather than
             // what it was given, which is the same indirection that keeps
             // cognition from learning which model is behind a role.
+            const resolved = live.cognet.resolvedEngines?.[role]
             const facts = bound
                 ? {
                     get context() { return bound.capability.context },
                     get modalities() { return { in: bound.capability.in, out: bound.capability.out } },
                     get slots() { return bound.slots },
                 }
-                : factsFromDeclaration(declared!)
+                : resolved
+                    ? {
+                        get context() { return resolved.context },
+                        get modalities() { return resolved.modalities },
+                        get slots() { return resolved.slots },
+                    }
+                    : factsFromDeclaration(declared!)
             const kind = bound?.requirement.type ?? declared?.type
 
             // The handle follows the DECLARED type, because that is what the
@@ -1163,6 +1183,9 @@ export async function Kernel(opts: KernelOpts) {
                     channel: input.channel ?? "terminal",
                     content,
                 })
+            }
+            for (const stimulus of input.stimuli ?? []) {
+                await opts.session.stimuli.ingest(stimulus.type, stimulus.data as never)
             }
         },
 

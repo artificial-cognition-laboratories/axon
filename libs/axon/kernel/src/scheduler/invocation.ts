@@ -1,4 +1,4 @@
-import type { AxonEntry, AxonStimulusEntry } from "@arcforge/types"
+import type { AxonEntry, AxonStimulusEntry, AxonStimulusInput } from "@arcforge/types"
 import type { AxonSessionT } from "@arcforge/session"
 
 type InvocationOpts = {
@@ -20,6 +20,7 @@ const ABANDON_MS = 30_000
 
 type StreamInput = {
     content?: string | string[]
+    stimuli?: AxonStimulusInput[]
     /** The surface the message arrived on — see the ingest below. */
     channel?: string
 }
@@ -82,6 +83,13 @@ export function Invocation(opts: InvocationOpts) {
                         channel: input.channel ?? "terminal",
                         content,
                     })
+                    yield entry
+                }
+
+                // The reservation was taken before any ingest, so bus-driven
+                // wake attempts are refused until this complete batch exists.
+                for (const stimulus of input.stimuli ?? []) {
+                    const entry = await opts.session.stimuli.ingest(stimulus.type, stimulus.data as never)
                     yield entry
                 }
 

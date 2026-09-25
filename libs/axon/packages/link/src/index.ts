@@ -40,7 +40,7 @@ export { agentHandlers, supervisorProxy, RemoteDriver, type AgentServices } from
 export { AgentRuntime, type RuntimeForAgent } from "./runtime"
 export { readLinkEnv, writeLinkEnv, AGENT_LINK_ENV, AGENT_BLUEPRINT_ENV, type AgentEntryEnv } from "./entry"
 export { prepare, socketRoot, socketPaths, type SpawnedAgent } from "./spawn"
-export { spawnConfined, agentEntrypoint, agentEntrypoints, type ConfinedAgent } from "./confined"
+export { spawnConfined, assertNetworkConfinement, agentEntrypoint, agentEntrypoints, type ConfinedAgent } from "./confined"
 /**
  * Whether this machine can actually box an agent.
  *

@@ -38,6 +38,7 @@ export async function cloneDemo(r: RendererHandle, which = "default"): Promise<v
         renderer: r,
         view: (r, state, frame) => clone(r, {
             source: "@axon/obsidian",
+            registryWeb: "https://axon.arclabs.it",
             ...(as ? { as } : {}),
             steps: state.steps,
             frame,

@@ -1,6 +1,5 @@
 import { join } from "node:path"
 import { err } from "@arcforge/err"
-import { KERNEL_ABI_VERSION } from "@arcforge/types"
 import { readCognetAbi } from "../../blueprint"
 import { fsx } from "../../../utils/fs"
 import { KINDS } from "../kinds"
@@ -59,20 +58,31 @@ export function Source(opts: SourceOpts) {
                 ".assets",
             ])
 
-            // A cognet's ABI is the kernel contract it targets, and it is the
-            // only thing that says which kernels can load it. Lifted out of
-            // cognet.config.ts HERE so the registry can record it: otherwise
-            // the value stays sealed in the tarball and the resolve path can
-            // only offer "latest" and hope.
+            // A cognet's ABI pin is the kernel contract it REFUSES to run
+            // outside of. Lifted out of cognet.config.ts here so the registry
+            // can record it: otherwise the value stays sealed in the tarball
+            // and the resolve path can only offer "latest" and hope.
             //
-            // Unpinned falls back to THIS CLI's kernel rather than throwing.
-            // Publish compiles the candidate from source with this CLI to
-            // prove a consumer could, so an unpinned cognet genuinely was
-            // validated against this ABI — recording it is a fact, and the
-            // row must carry one either way or the resolver cannot place it.
-            const abi = kind === "cognet"
-                ? (await readCognetAbi(root)) ?? KERNEL_ABI_VERSION
-                : undefined
+            // Unpinned stays NULL — it must not fall back to this CLI's kernel.
+            // What ships here is SOURCE (see `entries` below: the config, the
+            // src tree, package.json — no compiled bundle), and the consumer
+            // compiles it against THEIR kernel at prepare time. So the ABI this
+            // machine happens to run is not a property of the artifact, and
+            // stamping it writes a pin the author deliberately did not write:
+            // an assertion opted into, per cognetAbi(), turned into one every
+            // cognet is forced to restate.
+            //
+            // It was `?? KERNEL_ABI_VERSION`, and the cost was total. Publish
+            // compiling the candidate proves a consumer COULD build it on this
+            // ABI; it says nothing about the next one. So @axon/zero — which
+            // pins nothing and cares about nothing — went out stamped "11",
+            // the kernel moved to 12, and `axon init` broke for every new user
+            // against an artifact that would have compiled fine.
+            // null for both "not a cognet" and "a cognet that pins nothing" —
+            // neither declares a kernel contract, and the field is omitted for
+            // both, so the registry row stays NULL rather than carrying a
+            // number nobody asserted.
+            const abi = kind === "cognet" ? await readCognetAbi(root) : null
 
             const image: SourceImage = {
                 kind,
@@ -81,7 +91,7 @@ export function Source(opts: SourceOpts) {
                 public: pkg.public,
                 builtAt: new Date().toISOString(),
                 ...(pkg.description ? { description: pkg.description } : {}),
-                ...(abi !== undefined ? { abi } : {}),
+                ...(abi !== null ? { abi: abi } : {}),
             }
             await artifacts.image(bundleDir, image)
             // package.json rides along — publish reads name/version/visibility from it.

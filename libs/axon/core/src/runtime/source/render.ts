@@ -50,11 +50,11 @@ export function Prompt(opts: PromptOpts) {
      * come through here instead of being installed into the agent.
      */
     async function renderEntry(entry: AxonPrompt, props?: Record<string, unknown>) {
-        if (!entry.filePath) throw err("PROMPT_FILE_NOT_FOUND", { context: { path: entry.filePath ?? "" } })
+        if (!entry.filePath && !entry.source) throw err("PROMPT_FILE_NOT_FOUND", { context: { path: entry.filePath ?? "" } })
         const name = entry.name
 
         if (entry.kind === "static") {
-            return await readFile(entry.filePath, "utf-8")
+            return entry.source ?? await readFile(entry.filePath!, "utf-8")
         }
 
         // vstr is a generic tool (no @axon/err dependency) — it throws a plain
@@ -62,15 +62,15 @@ export function Prompt(opts: PromptOpts) {
         // boundary, into the structured code so it renders as a proper AxonError
         // in chat instead of a raw string.
         try {
-            return await (await loadVstr()).vstr(entry.filePath, {
+            const vstr = await loadVstr()
+            const options = {
                 context: promptContext(),
-                // Resolved at scan time and carried on the entry. Without
-                // these, a prompt composing <Identity /> cannot resolve the
-                // tag and the whole render throws — components are inlined
-                // fragments, so a prompt that uses one is unrenderable
-                // without them.
                 ...(entry.components ? { components: entry.components } : {}),
-            }).render(props)
+            }
+            const template = entry.source
+                ? vstr.vstr.source(entry.source, { ...options, filename: entry.filePath })
+                : vstr.vstr(entry.filePath!, options)
+            return await template.render(props)
         } catch (cause) {
             throw err("PROMPT_RENDER_FAILED", { cause, context: { name, path: entry.filePath } })
         }

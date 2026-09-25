@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
 import { describe, it, expect } from "bun:test"
-import { stubFetch } from "../../setup/fetch"
+import { stubFetch, Transport, type TransportT } from "../../setup/fetch"
 
 function disposableId(): string {
     return `test-user-${crypto.randomUUID()}`
@@ -30,14 +30,12 @@ function sessionAuth(userId: string) {
  * session the live client adopted — so they stub acceptance rather than
  * carrying real tokens. The rejection path has its own test above, with a 401.
  */
-function acceptingBackend(userId: string, email: string): () => void {
-    const original = globalThis.fetch
-    globalThis.fetch = stubFetch(async () => new Response(JSON.stringify({
+function acceptingBackend(net: TransportT, userId: string, email: string): () => void {
+    return net.use(stubFetch(async () => new Response(JSON.stringify({
         // /api/user/me/session's shape: the user sits at the top level, which
         // is what Auth.me()'s `record(raw, "session").user` reads.
         user: { id: userId, email, username: email, createdAt: new Date().toISOString() },
-    }), { status: 200, headers: { "content-type": "application/json" } }))
-    return () => { globalThis.fetch = original }
+    }), { status: 200, headers: { "content-type": "application/json" } })))
 }
 
 describe("cloud.switch", () => {
@@ -45,14 +43,14 @@ describe("cloud.switch", () => {
         const storeDir = await mkdtemp(join(tmpdir(), "axon-test-store-"))
         const id = disposableId()
         const email = disposableEmail()
-        const originalFetch = globalThis.fetch
-        globalThis.fetch = stubFetch(async () => new Response(JSON.stringify({
+        const net = Transport()
+        const restore401 = net.use(stubFetch(async () => new Response(JSON.stringify({
             statusCode: 401,
             statusMessage: "Unauthorized: invalid or expired token",
-        }), { status: 401 }))
+        }), { status: 401 })))
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, distribution: "production" })
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, distribution: "production", fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: sessionAuth(id) })
 
             await expect(platform.cloud.switch(email)).rejects.toThrow(/Profile Has No Session/)
@@ -60,7 +58,7 @@ describe("cloud.switch", () => {
             expect(platform.store.profiles.current()).toBeNull()
             expect(platform.cloud.client.user.auth.token).toBeUndefined()
         } finally {
-            globalThis.fetch = originalFetch
+            restore401()
             await rm(storeDir, { recursive: true, force: true })
         }
     })
@@ -73,11 +71,12 @@ describe("cloud.switch", () => {
         const secondEmail = disposableEmail()
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
             platform.store.profiles.save(firstId, { user: { id: firstId, email: firstEmail }, auth: sessionAuth(firstId) })
             platform.store.profiles.save(secondId, { user: { id: secondId, email: secondEmail }, auth: sessionAuth(secondId) })
 
-            const restore = acceptingBackend(firstId, firstEmail)
+            const restore = acceptingBackend(net, firstId, firstEmail)
             try {
                 await platform.cloud.switch(firstEmail)
             } finally {
@@ -96,7 +95,8 @@ describe("cloud.switch", () => {
         const knownEmail = disposableEmail()
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
             platform.store.profiles.save(knownId, { user: { id: knownId, email: knownEmail }, auth: sessionAuth(knownId) })
 
             await expect(platform.cloud.switch("totally-unknown@axon.dev")).rejects.toThrow(/unknown profile/)
@@ -109,7 +109,8 @@ describe("cloud.switch", () => {
         const storeDir = await mkdtemp(join(tmpdir(), "axon-test-store-"))
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
 
             await expect(platform.cloud.switch("totally-unknown@axon.dev")).rejects.toThrow(/unknown profile/)
         } finally {
@@ -123,7 +124,8 @@ describe("cloud.switch", () => {
         const email = disposableEmail()
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: {} })
 
             await expect(platform.cloud.switch(email)).rejects.toThrow(/Profile Has No Session/)
@@ -145,11 +147,12 @@ describe("cloud.switch", () => {
             seed.store.profiles.save(secondId, { user: { id: secondId, email: secondEmail }, auth: sessionAuth(secondId) })
             seed.store.profiles.activate(firstEmail)
 
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
             const clientBefore = platform.cloud.client
             expect(clientBefore.user.auth.user?.id).toBe(firstId)
 
-            const restore = acceptingBackend(secondId, secondEmail)
+            const restore = acceptingBackend(net, secondId, secondEmail)
             try {
                 await platform.cloud.switch(secondEmail)
             } finally {
@@ -175,18 +178,19 @@ describe("cloud.switch", () => {
         const secondEmail = disposableEmail()
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
             platform.store.profiles.save(firstId, { user: { id: firstId, email: firstEmail }, auth: sessionAuth(firstId) })
             platform.store.profiles.save(secondId, { user: { id: secondId, email: secondEmail }, auth: sessionAuth(secondId) })
 
-            const restore = acceptingBackend(secondId, secondEmail)
+            const restore = acceptingBackend(net, secondId, secondEmail)
             try {
                 await platform.cloud.switch(secondEmail)
             } finally {
                 restore()
             }
 
-            const reopened = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir })
+            const reopened = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: storeDir, fetch: net.fetch })
             expect(reopened.cloud.client.user.auth.token).toBe(`axon_fake_token_${secondId}`)
         } finally {
             await rm(storeDir, { recursive: true, force: true })

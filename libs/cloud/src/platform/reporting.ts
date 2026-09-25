@@ -204,9 +204,52 @@ export type ReportingHandle = ReturnType<typeof Reporting>
  * already thought of.
  */
 const SAFE_KEYS: ReadonlySet<string> = new Set([
+    // Request/transport shape — the original set, written when `cloud` was
+    // the only source feeding this channel.
     "path", "method", "status", "transport", "code", "kind", "name",
     "version", "abi", "engine", "model", "provider", "scope", "operation",
     "durationMs", "attempt", "reason", "phase", "agentId", "deploymentId",
+
+    /*
+     * Runtime identifiers and shapes.
+     *
+     * Added because the list above admitted almost nothing the RUNTIME
+     * actually puts in context: a survey of every `context: { … }` in the repo
+     * found 65% of key uses dropped across 111 distinct keys, including
+     * sessionId (35 call sites), runId, specifier, file and kernelAbi. Since
+     * this scrub runs client-side, that context never left the machine — so
+     * every runtime crash report in production carried no context at all, and
+     * the operator dashboard had nothing to show but a headline and a stack of
+     * minified frames.
+     *
+     * The bar for adding a key is unchanged and deliberately high: it must be
+     * an IDENTIFIER, an ENUM, a VERSION, or a COUNT. Anything that can carry
+     * user content — prompt text, file contents, tool output, a credential —
+     * stays out, which is why `key`, `value`, `input`, `output`, `message` and
+     * `body` are absent despite appearing in the survey. Paths are admitted
+     * only because scrubContext reduces them to a basename before they leave.
+     */
+    // Correlation ids — the single most useful thing for tracing one failure.
+    "sessionId", "runId", "spanId", "traceId", "commandId", "requestId", "instanceId", "valueId",
+    // What was being resolved or acted on.
+    "specifier", "ref", "namespace", "artifact", "cognet", "module", "target", "verb", "event", "hook",
+    // Which flavour of thing, and where in the lifecycle.
+    "runtime", "source", "type", "axis", "env", "mode", "state", "stage",
+    // Versions — mismatches are a large share of real failures.
+    "kernelAbi", "declaredAbi", "expectedAbi", "hostVersion",
+    // Counts and sizes. Never a value, always a magnitude.
+    "attempts", "limit", "found", "count", "bytes", "size", "index", "depth", "exitCode", "signal",
+    /*
+     * `expected` / `actual` are the diagnostic pair for every mismatch, and
+     * they are the one entry here that is not structurally safe: they carry
+     * whatever the comparison compared. They are admitted because a mismatch
+     * report without them is unactionable, and they are defended by the layers
+     * that already apply to every value — secret-shape redaction, path
+     * stripping, and a 500-character cap.
+     */
+    "expected", "actual",
+    // Paths. Safe only because scrubContext reduces them to a basename.
+    "file", "root", "dir", "sourceDir", "configPath", "url", "socket",
 ])
 
 /**

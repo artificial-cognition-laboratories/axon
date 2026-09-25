@@ -5,7 +5,7 @@ import type { AxonOutputEvent } from "../session/events/stdio/output"
 import type { AxonStimulusEntry } from "../session/events/stdio/stimuli"
 import type { CognetEventMap } from "../session/events/cognet"
 import type { AxonScope } from "../scope"
-import type { Modality } from "../inference"
+import type { EngineRequirements, EngineType, Modality } from "../inference"
 import type { CapsuleScope } from "../capsule-scope"
 
 /**
@@ -285,7 +285,7 @@ export type AxonRunResult = {
  * structured-output contract, attached from the invocation; a cognet has no
  * business knowing a shape was demanded.
  */
-export type CognetEngineCall = Omit<AxonEngineCall, "signal" | "output" | "retries">
+export type CognetEngineCall = Omit<AxonEngineCall, "output" | "retries">
 
 /**
  * One bound role, as the cognet holds it.
@@ -301,6 +301,23 @@ export type CognetEngineCall = Omit<AxonEngineCall, "signal" | "output" | "retri
  * zero — a fanned-out role always degrades to sequential rather than absent.
  */
 export type KernelEngine = GenerateEngine | TransformEngine | StreamEngine
+
+/** The engine handle implied by one declared requirement. */
+type EnginePayload<M> =
+    M extends "text" ? string
+    : M extends "audio" ? Int16Array
+    : M extends "score" ? number
+    : unknown
+
+export type EngineForRequirement<R> =
+    R extends { type: "generate"; out: infer M } ? GenerateEngine<EnginePayload<M>>
+    : R extends { type: "generate" } ? GenerateEngine
+    : R extends { type: "transform"; out: infer M } ? TransformEngine<EnginePayload<M>>
+    : R extends { type: "transform" } ? TransformEngine
+    : R extends { type: "stream"; out: infer M } ? StreamEngine<EnginePayload<M>>
+    : R extends { type: "stream" } ? StreamEngine
+    : R extends { type: EngineType } ? KernelEngine
+    : never
 
 /** What every engine handle reports about what it actually got. */
 type EngineFacts = {
@@ -321,12 +338,12 @@ type EngineFacts = {
  * model behind it generates token by token — it takes a string, not a
  * timeline, and nothing about the grammar applies.
  */
-export type GenerateEngine = EngineFacts & {
+export type GenerateEngine<Response = AxonEngineResponse> = EngineFacts & {
     readonly type: "generate"
     /** Stream block events in real time, terminated by a single engine:done. */
     stream(req: CognetEngineCall): AsyncGenerator<AxonEngineEvent>
     /** Single-shot completion. Same response shape as the stream's done event. */
-    request(req: CognetEngineCall): Promise<AxonEngineResponse>
+    request(req: CognetEngineCall): Promise<Response>
 }
 
 /**
@@ -343,9 +360,9 @@ export type GenerateEngine = EngineFacts & {
  * makes that indistinguishable from a hang. Absent for the many transforms
  * that finish in milliseconds and report nothing.
  */
-export type TransformEngine = EngineFacts & {
+export type TransformEngine<Output = unknown> = EngineFacts & {
     readonly type: "transform"
-    transform(input: unknown, opts?: TransformOptions): Promise<unknown>
+    transform(input: unknown, opts?: TransformOptions): Promise<Output>
 }
 
 export type TransformOptions = {
@@ -371,15 +388,15 @@ export type TransformOptions = {
  * The session is the cognet's to hold — it is resident memory of precisely
  * the kind a brain keeps.
  */
-export type StreamEngine = EngineFacts & {
+export type StreamEngine<Output = unknown> = EngineFacts & {
     readonly type: "stream"
     /** Begin one sequence. Every push into it shares the model's hidden state. */
-    open(): EngineSession
+    open(): EngineSession<Output>
 }
 
-export type EngineSession = {
+export type EngineSession<Output = unknown> = {
     /** Feed one item. Order is significant — that is what makes this not a transform. */
-    push(input: unknown): Promise<unknown>
+    push(input: unknown): Promise<Output>
     /**
      * Forget the sequence so far, keeping the session.
      *
@@ -399,7 +416,7 @@ export type EngineSession = {
  * (`kernel.engine("main")`) and the degradation check reads as a question
  * (`kernel.engine.has("percept")`).
  */
-export type KernelEngines = {
+export type KernelEngines<Requirements extends EngineRequirements = EngineRequirements> = {
     /**
      * The handle for a declared role.
      *
@@ -409,6 +426,7 @@ export type KernelEngines = {
      * cognet bug, and a null handle would only move the crash one frame
      * later with less to say about it.
      */
+    <Name extends keyof Requirements & string>(role: Name): EngineForRequirement<Requirements[Name]>
     (role: string): KernelEngine
 
     /**
@@ -422,7 +440,7 @@ export type KernelEngines = {
     has(role: string): boolean
 }
 
-export type KernelAbi = {
+export type KernelAbi<Requirements extends EngineRequirements = EngineRequirements> = {
     /**
      * Emit a fact to the world — text, audio, visual, or a declared field
      * reading. Unmediated: the kernel commits it durably to the session's
@@ -452,7 +470,7 @@ export type KernelAbi = {
      * reply is parsed with); what it no longer decides is WHICH model, and
      * the cognet still never learns.
      */
-    engine: KernelEngines
+    engine: KernelEngines<Requirements>
 
     /**
      * Execute code in the capsule — ring 3, policy-mediated. The only

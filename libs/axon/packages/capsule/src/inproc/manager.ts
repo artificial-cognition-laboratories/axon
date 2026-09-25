@@ -122,7 +122,7 @@ export function InProcCapsule(input?: CapsulePartialConfig) {
             const settle = (fn: () => void) => {
                 if (settled) return
                 settled = true
-                clearTimeout(timer)
+                if (timer) clearTimeout(timer)
                 for (const off of offs) off()
                 fn()
             }
@@ -141,8 +141,11 @@ export function InProcCapsule(input?: CapsulePartialConfig) {
                 denials.push({ fn: event.fn, module: event.module, rule: event.rule })
             }))
 
-            const timeout = runOpts.timeout ?? 300_000
-            const timer = setTimeout(() => {
+            // Execution has no ambient deadline. A caller that needs a bound
+            // supplies one explicitly; otherwise its AbortSignal or interrupt()
+            // owns cancellation.
+            const timeout = runOpts.timeout
+            const timer = timeout === undefined ? undefined : setTimeout(() => {
                 bus.emit("process:cmd:interrupt:requested", { id, reason: "timeout" })
                 sandbox.kill(id)
                 // A plain Error, matching the subprocess manager: the kernel's

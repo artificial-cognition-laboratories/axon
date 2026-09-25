@@ -4,6 +4,7 @@ import { AxonBus } from "@arcforge/core"
 import type { AxonBlueprint, AxonEngineRawEvent, EngineCapability, InferCall } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 import { Inference } from "@arcforge/core"
+import type { EnginesT } from "@arcforge/engines/catalogue"
 
 /**
  * What the SUPERVISOR holds on a confined agent's behalf.
@@ -49,62 +50,45 @@ export async function SupervisorSideServices(opts: ServicesOpts) {
     })
 
     /**
-     * Roles resolved ONCE, on this side.
+     * Role resolution belongs to this side of the boundary, but it does NOT
+     * belong on the readiness path. A provider catalogue can take a second to
+     * answer while routes, tools and the control surface are already usable.
      *
-     * The agent never resolves a role: resolution means reaching the user's
-     * providers over the network and building a driver from a credential,
-     * which is exactly the work the boundary exists to keep out of the box.
+     * One promise coalesces concurrent first requests. A failed resolution is
+     * deliberately not retained: the requesting inference receives the error
+     * loudly, and a later request may retry after the provider recovers.
      */
-    const engines = await Inference({
-        blueprint: opts.blueprint,
-        cloud: opts.cloud,
-        session,
-        ...(opts.local ? { local: opts.local } : {}),
-    })
+    let engines: EnginesT | undefined
+    let resolving: Promise<EnginesT | undefined> | null = null
+
+    async function resolve(): Promise<EnginesT | undefined> {
+        if (engines) return engines
+        if (!resolving) {
+            resolving = Inference({
+                blueprint: opts.blueprint,
+                cloud: opts.cloud,
+                session,
+                ...(opts.local ? { local: opts.local } : {}),
+            }).then(value => {
+                engines = value
+                return value
+            }).catch(cause => {
+                resolving = null
+                throw cause
+            })
+        }
+        return resolving
+    }
 
     return {
         session,
-
-        /**
-         * The resolved inference roles — the SUPERVISOR's, because it is the
-         * side that holds the credential and did the resolving.
-         *
-         * Exposed so a model switch can rebind the live binding. `setModel`
-         * reached for `runtime.kernel.engines`, which exists only for an
-         * in-heap agent: for a linked one it was null, the rebind silently did
-         * nothing, and the header had no resolved capability to render.
-         */
-        engines,
-
-        /**
-         * The primary role's resolved binding, flattened for the wire.
-         *
-         * The agent cannot compute this: resolving needs the credential,
-         * which is the one thing the boundary keeps on this side. So the
-         * answer is carried on the blueprint (see AxonBlueprint.engine) and
-         * `/_axon/health` reports it from there rather than from a kernel
-         * that, for a confined agent, has no engines at all.
-         *
-         * Null for a cognet with no roles or no primary — a pure control loop
-         * genuinely has no model.
-         */
-        get engine(): { provider: string; model: string | null } | null {
-            const bound = engines?.resolution.bound
-            if (!bound?.length) return null
-
-            const primary = bound.find(entry => entry.requirement.primary)
-                ?? bound.find(entry => entry.role === "main")
-            if (!primary) return null
-
-            return { provider: primary.capability.provider, model: primary.capability.id }
-        },
 
         /** Where a surface watches this agent — the linked counterpart of runtime.bus. */
         bus,
 
         /** One inference call, performed here, streamed back as raw deltas. */
         async *infer(call: InferCall, signal: AbortSignal): AsyncGenerator<AxonEngineRawEvent> {
-            const bound = engines?.get(call.role)
+            const bound = (await resolve())?.get(call.role)
             if (!bound) {
                 throw err("ENGINE_ROLE_UNBOUND_LINK", { detail: `no engine bound to "${call.role}"`, context: { role: call.role } })
             }

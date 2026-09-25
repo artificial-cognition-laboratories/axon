@@ -30,14 +30,34 @@ import type { RendererHandle } from "../core/index.ts"
 /** The steps a publish moves through, in order. Mirrors platform's PublishStep. */
 export const PUBLISH_STEPS = ["Bundling", "Verifying", "Registering", "Uploading"] as const
 
-/** Where a published artifact lives. One format for every kind. */
-export function registryUrl(name: string): string {
-    return `https://axon.arclabs.it/${name}`
+/**
+ * Where a published artifact lives. One format for every kind.
+ *
+ * `web` is REQUIRED, and that is the point. It used to hardcode the production
+ * site, so every surface that linked an artifact claimed axon.arclabs.it
+ * regardless of where the command had actually gone — a publish into local
+ * staging printed a working production link to a version that did not exist
+ * there. A view cannot know which stack it is rendering; making the caller say
+ * so means the link can no longer drift from the destination.
+ */
+export function registryUrl(name: string, web: string): string {
+    return `${web}/${name}`
 }
 
 export type PublishOpts = {
     /** What is being published, e.g. "@cody/zeno". Linked to its registry page. */
     name: string
+    /**
+     * Where this publish is going — the API base that was resolved, and the
+     * site that fronts it.
+     *
+     * Shown, not just linked. A publish is irreversible and the destination is
+     * a local `.env` away from being a stack the author did not mean; printing
+     * only the artifact id left "which registry now holds this" answerable only
+     * by querying a database. The row is the answer, on the success frame,
+     * where it is read before anyone thinks to doubt it.
+     */
+    registry: { api: string; web: string }
     /** The step list, in order. */
     steps: Step[]
     /** Spinner glyph for the active step — supplied by the live surface. */
@@ -82,7 +102,7 @@ export function publish(r: RendererHandle, opts: PublishOpts): string {
     const lines: string[] = []
 
     lines.push("")
-    lines.push(header(r, { title: "Publishing", subtitle: opts.name, href: registryUrl(opts.name) }))
+    lines.push(header(r, { title: "Publishing", subtitle: opts.name, href: registryUrl(opts.name, opts.registry.web) }))
     lines.push("")
     lines.push(...steps(r, opts.steps, opts.frame !== undefined ? { frame: opts.frame } : {}))
 
@@ -91,8 +111,12 @@ export function publish(r: RendererHandle, opts: PublishOpts): string {
         lines.push(...rows(r, [
             { label: "Version", value: opts.result.version, arrow: false },
             { label: "Access", value: opts.result.visibility, arrow: false },
+            { label: "Registry", value: opts.registry.api, arrow: false },
+            // "Registry" used to label this id, which is what made a staging
+            // publish unreadable: the one row that looked like a destination
+            // was a uuid, and the actual destination was not on screen at all.
             ...(opts.result.registeredId
-                ? [{ label: "Registry", value: opts.result.registeredId, arrow: false }]
+                ? [{ label: "Artifact", value: opts.result.registeredId, arrow: false }]
                 : []),
         ]))
 
@@ -112,7 +136,7 @@ export function publish(r: RendererHandle, opts: PublishOpts): string {
             r,
             "ok",
             r.links
-                ? `published ${hyperlink(registryUrl(opts.name), published)}`
+                ? `published ${hyperlink(registryUrl(opts.name, opts.registry.web), published)}`
                 : `published ${published}`,
             opts.result.ms !== undefined ? `${(opts.result.ms / 1000).toFixed(1)}s` : undefined,
         ))

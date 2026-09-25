@@ -1,4 +1,5 @@
-import ts from "typescript"
+import { createRequire } from "node:module"
+import type TsModule from "typescript"
 import type { AxonScope } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import { scopeToDts } from "./scope-dts"
@@ -36,6 +37,35 @@ import { scopeToDts } from "./scope-dts"
  * code claims this shape", not "the value has this shape".
  */
 
+/**
+ * The TypeScript compiler, loaded on FIRST USE rather than at import.
+ *
+ * `typescript` is 17MB and is the single largest thing in the published CLI —
+ * and it was reaching every command that did not need it. This module was the
+ * door: a static `import ts from "typescript"` plus a module-scope
+ * `COMPILER_OPTIONS` reading `ts.ScriptTarget`, so merely being in the import
+ * graph EXECUTED the compiler's module body. `axon --version` paid for it.
+ *
+ * `require` rather than `await import` because the contract above is
+ * synchronous on purpose: an invalid output type must throw at the caller's own
+ * line, before anything is scheduled. `typescript` is CJS, so a lazy require
+ * defers the load without making `compile()` async — which would have pushed
+ * the change through every caller of a verb that has no reason to be async.
+ *
+ * Everything below reads the module-level `ts` binding, so each entry point
+ * calls this first and the rest of the file is unchanged.
+ */
+let ts!: typeof TsModule
+let requireTs: ReturnType<typeof createRequire> | null = null
+
+function ensureTs(): typeof TsModule {
+    if (!ts) {
+        requireTs ??= createRequire(import.meta.url)
+        ts = requireTs("typescript") as typeof TsModule
+    }
+    return ts
+}
+
 /** The synthetic names the program uses. Never seen by a user or the model. */
 const OUTPUT_TYPE = "__AxonOutput"
 // A .ts module, not a .d.ts: an unresolved type reference inside an ambient
@@ -53,7 +83,9 @@ const CHECK_FILE = "__axon_check.ts"
  */
 export const OUTPUT_BINDING = "result"
 
-const COMPILER_OPTIONS: ts.CompilerOptions = {
+/** Built on demand: every value here reads the lazily-loaded compiler. */
+function compilerOptions(): TsModule.CompilerOptions {
+    return {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -68,6 +100,7 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
     allowJs: true,
     // A structured response is a value, not a program that runs here.
     noEmit: true,
+    }
 }
 
 /**
@@ -124,7 +157,7 @@ export function Output(opts: OutputOpts) {
         write(SCOPE_FILE, scopeToDts(opts.scope()))
     }
 
-    const host: ts.LanguageServiceHost = {
+    const host: TsModule.LanguageServiceHost = {
         getScriptFileNames: () => [...files.keys()],
         getScriptVersion: name => String(files.get(name)?.version ?? 0),
         getScriptSnapshot: name => {
@@ -135,13 +168,27 @@ export function Output(opts: OutputOpts) {
             return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text)
         },
         getCurrentDirectory: () => "/",
-        getCompilationSettings: () => COMPILER_OPTIONS,
+        getCompilationSettings: () => compilerOptions(),
         getDefaultLibFileName: options => ts.getDefaultLibFilePath(options),
         fileExists: name => files.has(name) || ts.sys.fileExists(name),
         readFile: name => files.get(name)?.text ?? ts.sys.readFile(name),
     }
 
-    const service = ts.createLanguageService(host, ts.createDocumentRegistry())
+    /*
+     * The language service, created on FIRST COMPILE rather than at construction.
+     *
+     * The comment above this factory already promised "construction is wiring
+     * only — no program is created until the first output type is compiled",
+     * and that was not true: `createLanguageService` ran here, so every
+     * `Invoke()` built a compiler whether or not a structured output was ever
+     * asked for. The claim is now enforced rather than asserted.
+     */
+    let _service: TsModule.LanguageService | null = null
+
+    function service(): TsModule.LanguageService {
+        _service ??= ts.createLanguageService(host, ts.createDocumentRegistry())
+        return _service
+    }
 
     /**
      * `any` reaching `result`, caught by asking the checker rather than by
@@ -158,16 +205,16 @@ export function Output(opts: OutputOpts) {
      * fields it needs, or annotate), which is work at the binding.
      */
     function unsoundBindingDiagnostics(scriptLines: number): OutputDiagnostic[] {
-        const program = service.getProgram()
+        const program = service().getProgram()
         const source = program?.getSourceFile(CHECK_FILE)
         if (!program || !source) return []
 
         const checker = program.getTypeChecker()
-        let binding: ts.VariableDeclaration | undefined
-        let reassignment: ts.Node | undefined
-        let ambient: ts.VariableStatement | undefined
+        let binding: TsModule.VariableDeclaration | undefined
+        let reassignment: TsModule.Node | undefined
+        let ambient: TsModule.VariableStatement | undefined
 
-        function visit(node: ts.Node): void {
+        function visit(node: TsModule.Node): void {
             if (
                 ts.isVariableDeclaration(node)
                 && ts.isIdentifier(node.name)
@@ -206,7 +253,7 @@ export function Output(opts: OutputOpts) {
         // No binding at all is already reported by the assignability check.
         if (!binding) return []
 
-        const at = (node: ts.Node) => Math.min(
+        const at = (node: TsModule.Node) => Math.min(
             source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
             scriptLines,
         )
@@ -245,8 +292,8 @@ export function Output(opts: OutputOpts) {
 
     function diagnosticsFor(file: string): OutputDiagnostic[] {
         const raw = [
-            ...service.getSyntacticDiagnostics(file),
-            ...service.getSemanticDiagnostics(file),
+            ...service().getSyntacticDiagnostics(file),
+            ...service().getSemanticDiagnostics(file),
         ].filter(d => !IGNORED_CODES.has(d.code))
         return raw.map(d => ({
             message: ts.flattenDiagnosticMessageText(d.messageText, " "),
@@ -265,6 +312,11 @@ export function Output(opts: OutputOpts) {
          * being a guarantee and being a hint.
          */
         compile(source: string): CompiledOutput {
+            // The one place the compiler is actually needed. Everything below
+            // (and `check()` on the returned handle) reads the module-level
+            // `ts` binding this populates.
+            ensureTs()
+
             const trimmed = source.trim()
             if (!trimmed) {
                 throw err("OUTPUT_INVALID", { detail: "the output type is empty" })
@@ -424,7 +476,7 @@ function assertionDiagnostics(source: string): OutputDiagnostic[] {
     const file = ts.createSourceFile(CHECK_FILE, source, ts.ScriptTarget.ES2022, true)
     const found: OutputDiagnostic[] = []
 
-    function visit(node: ts.Node): void {
+    function visit(node: TsModule.Node): void {
         if (isWideningAssertion(node)) {
             found.push({
                 message:
@@ -457,7 +509,7 @@ function assertionDiagnostics(source: string): OutputDiagnostic[] {
  * Depth- and cycle-guarded: a recursive type (`type Tree = { kids: Tree[] }`)
  * would otherwise walk forever.
  */
-function containsAny(type: ts.Type, checker: ts.TypeChecker, seen = new Set<ts.Type>(), depth = 0): boolean {
+function containsAny(type: TsModule.Type, checker: TsModule.TypeChecker, seen = new Set<TsModule.Type>(), depth = 0): boolean {
     if (depth > 8 || seen.has(type)) return false
     seen.add(type)
 
@@ -468,7 +520,7 @@ function containsAny(type: ts.Type, checker: ts.TypeChecker, seen = new Set<ts.T
     }
 
     // Arrays and tuples carry their element types as type arguments.
-    const reference = type as ts.TypeReference
+    const reference = type as TsModule.TypeReference
     if (reference.typeArguments?.length) {
         if (reference.typeArguments.some(t => containsAny(t, checker, seen, depth + 1))) return true
     }
@@ -484,25 +536,25 @@ function containsAny(type: ts.Type, checker: ts.TypeChecker, seen = new Set<ts.T
 }
 
 /** An assertion that tells the checker to believe something it did not verify. */
-function isWideningAssertion(node: ts.Node): boolean {
+function isWideningAssertion(node: TsModule.Node): boolean {
     if (ts.isAsExpression(node)) return !isConstAssertion(node)
     if (ts.isTypeAssertionExpression(node)) return true
     if (ts.isSatisfiesExpression(node)) return true
     return false
 }
 
-function assertionKeyword(node: ts.Node): string {
+function assertionKeyword(node: TsModule.Node): string {
     if (ts.isSatisfiesExpression(node)) return "`satisfies`"
     return "a type assertion"
 }
 
-function isConstAssertion(node: ts.AsExpression): boolean {
+function isConstAssertion(node: TsModule.AsExpression): boolean {
     return ts.isTypeReferenceNode(node.type)
         && ts.isIdentifier(node.type.typeName)
         && node.type.typeName.text === "const"
 }
 
-function lineOf(d: ts.Diagnostic): { line?: number } {
+function lineOf(d: TsModule.Diagnostic): { line?: number } {
     if (d.file === undefined || d.start === undefined) return {}
     return { line: d.file.getLineAndCharacterOfPosition(d.start).line + 1 }
 }

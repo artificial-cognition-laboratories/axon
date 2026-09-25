@@ -109,3 +109,21 @@ export type BundleArtifact = {
      */
     assetsTarball: string | null
 }
+
+/**
+ * Which artifact a bundle is producing.
+ *
+ * A published artifact and a deployable one are different things with opposite
+ * requirements, and this is what makes the caller say which:
+ *
+ *   "publish"  DECLARATIONS only. Dependencies are ranges the consumer resolves
+ *              on their own machine, against their own kernel ABI. No lockfile:
+ *              freezing a consumer's resolution to the publisher's is what
+ *              installed an ABI-10 cognet onto an ABI-11 CLI.
+ *   "deploy"   A RESOLUTION. Exact versions travel with the artifact, because
+ *              the image build must reproduce the tree that was tested.
+ *
+ * No default anywhere. The bug this exists to prevent was invisible precisely
+ * because one artifact silently served both.
+ */
+export type BundleTarget = "publish" | "deploy"

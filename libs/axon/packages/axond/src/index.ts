@@ -39,6 +39,11 @@ export type {
     MachineUsage,
 } from "./machine/index"
 export type { AgentRecord, AgentsState, AxonInstance } from "./agents/index"
+export { RepositoryJobs, RepositoryWork, Workspaces } from "./jobs/index"
+export { Credential } from "./agents/index"
+export type { CredentialT } from "./agents/index"
+export type { Actor, Attachment, ChangeSet, ChangedFile, JobCheck, Job, JobEvent, JobRun, JobRunOutcome, JobRunStatus, JobRunTrigger, JobSchedule, JobVerdict, RepositoryJobsT, RepositoryWorkT, WorkspacesT } from "./jobs/index"
 export type { ModelRecord, ModelRuntime, ModelsState } from "./models/index"
 export { parseSpecifier } from "./models/index"
+export type { BodyInfo, BodyState, Lease, LeaseGrant, ModState, Notice, RunningWorld, WorldFile, WorldsState } from "./worlds/index"
 export type { ParsedSpecifier } from "./models/index"

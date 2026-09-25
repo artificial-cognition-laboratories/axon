@@ -4,7 +4,7 @@
 export { Runtime, type RuntimeT } from "./runtime"
 export { Escalations, type EscalationsT, type EscalationHandler } from "./escalations"
 export { Resolve, type ResolveT, type ResolvedAgent, type RefKind } from "./resolve"
-export { isRemote, type InstanceT, type InstanceSource, type RemoteTarget, type SpawnOpts } from "./instances"
+export { isLinked, isRemote, type InstanceT, type InstanceSource, type RemoteTarget, type SpawnOpts } from "./instances"
 export type { AgentT } from "./agent"
 export { stageFor, unitFor, type BootStage, type BootProgress, type BuildUnit, type UnitTiming } from "./progress"
 export { sessionHasEntries, sessionHead, isListableSession, type SessionRecord, type SessionHead } from "./sessions"

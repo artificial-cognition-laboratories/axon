@@ -1,11 +1,12 @@
 import { join } from "node:path"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { err } from "@arcforge/err"
 import { Tree } from "../tree"
 import { Frame, FRAME } from "../../frame"
 import { INLINE_COGNET_DIR, inlineCognetDir } from "../../blueprint/cognet"
 import { COGNET_GLOBALS } from "./cognet-dts"
 import { KINDS, type ProjectKind } from "../kinds"
+import { writeIfChanged } from "./write"
 
 // ── Compiler options ──────────────────────────────────────────────────────────
 //
@@ -107,7 +108,7 @@ function writeStandaloneFrame(root: string, kind: ProjectKind, include: string[]
     const frame = Frame({ root: root, kind: kind })
     const typesDir = frame.ensure("types")
 
-    writeFileSync(
+    writeIfChanged(
         join(typesDir, "tsconfig.json"),
         JSON.stringify({
             compilerOptions: {
@@ -125,7 +126,6 @@ function writeStandaloneFrame(root: string, kind: ProjectKind, include: string[]
             },
             include: rebase(include),
         }, null, 2) + "\n",
-        "utf-8"
     )
 
     ensureRootPointer(join(root, "tsconfig.json"), `./${frame.name}/${FRAME.types}/tsconfig.json`)
@@ -143,7 +143,7 @@ function ensureRootPointer(rootPath: string, extendsTarget: string): void {
         }
     }
     if (needsWrite) {
-        writeFileSync(rootPath, JSON.stringify({ extends: extendsTarget }, null, 2) + "\n", "utf-8")
+        writeIfChanged(rootPath, JSON.stringify({ extends: extendsTarget }, null, 2) + "\n")
     }
 }
 
@@ -191,18 +191,16 @@ export function ensureProjectTsConfig(root: string, kind: ProjectKind): void {
         }
         : {}
 
-    writeFileSync(
+    writeIfChanged(
         join(typesDir, "tsconfig.json"),
         JSON.stringify({ extends: TSCONFIG_BASE, include: rebase(spec.include), ...exclude }, null, 2) + "\n",
-        "utf-8"
     )
 
     if (kind === "agent") {
         // tests/ scope — the flip side: sees axon-test.d.ts, never axon.d.ts.
-        writeFileSync(
+        writeIfChanged(
             join(typesDir, "axon-test.tsconfig.json"),
             JSON.stringify({ extends: TSCONFIG_BASE, include: rebase(TESTS_INCLUDE), exclude: ["./axon.d.ts"] }, null, 2) + "\n",
-            "utf-8"
         )
 
         const testsDir = join(root, "tests")
@@ -218,7 +216,7 @@ export function ensureProjectTsConfig(root: string, kind: ProjectKind): void {
     // Written only when the folder exists, so an agent without one carries no
     // config pointing at an empty directory.
     if (inlineCognet) {
-        writeFileSync(
+        writeIfChanged(
             join(typesDir, "cognet.tsconfig.json"),
             JSON.stringify({
                 extends: TSCONFIG_BASE,
@@ -231,7 +229,6 @@ export function ensureProjectTsConfig(root: string, kind: ProjectKind): void {
                     "./prompts.d.ts", "./scripts.d.ts", "./components.d.ts",
                     "./env.d.ts", "./hooks.d.ts"],
             }, null, 2) + "\n",
-            "utf-8"
         )
         ensureRootPointer(
             join(inlineCognet, "tsconfig.json"),

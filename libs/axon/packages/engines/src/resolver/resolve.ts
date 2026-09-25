@@ -8,6 +8,16 @@ import type {
 import { preference, reject, type ProviderOrder } from "./match"
 import { matchesPin, parsePin } from "./pin"
 
+/** How many preferred modalities one candidate supplies. Admission never reads this. */
+function preferredCoverage(requirement: EngineRequirements[string], capability: EngineCapability): number {
+    const preferred = requirement.prefer
+    if (!preferred) return 0
+    const list = <T>(value: T | T[] | undefined): T[] =>
+        value === undefined ? [] : Array.isArray(value) ? value : [value]
+    return list(preferred.in).filter(modality => capability.in.includes(modality)).length
+        + list(preferred.out).filter(modality => capability.out.includes(modality)).length
+}
+
 /**
  * Concurrency granted to a role the cognet did not fan out.
  *
@@ -86,7 +96,12 @@ export function resolveEngines(
         // (or that fails the role's own constraints) falls through to ranking
         // rather than failing the boot. That is what keeps a published agent
         // runnable by someone who does not share its author's providers.
-        const ranked = candidates.sort(rank)
+        // Preferred modalities rank only among otherwise admissible candidates.
+        // They never turn a missing enhancement into an unmet role.
+        const ranked = candidates.sort((a, b) =>
+            preferredCoverage(requirement, b) - preferredCoverage(requirement, a)
+            || rank(a, b),
+        )
         const preferred = pin && role === pinned
             ? ranked.find(candidate => matchesPin(pin, candidate))
             : undefined

@@ -460,23 +460,6 @@ export function Instances(opts: InstancesOpts) {
             store: opts.store,
             cwd: opts.cwd,
             host: opts.host,
-            // Bound to THIS agent's name, because a grant is written against
-            // one and the capsule only ever reports the fn and its arguments —
-            // it has no idea which agent it belongs to. Closed over here,
-            // where both the project and the decider are in scope.
-            ...(opts.escalations
-                ? {
-                    // The session id is read at CALL time, not closed over:
-                    // the agent that owns it does not exist yet at this point
-                    // in construction, and a reload can replace the runtime
-                    // underneath. Reading through the handle is what keeps a
-                    // request naming the session it was actually raised in.
-                    escalate: (call: EscalationCall) => opts.escalations!.decide(
-                        { agent: project.name, sessionId: agent.sessionId },
-                        call,
-                    ),
-                }
-                : {}),
             parentSessionId: lineage?.parentSessionId ?? null,
             ...(lineage ? { rootSessionId: lineage.rootSessionId } : {}),
             depth: lineage?.depth ?? 0,

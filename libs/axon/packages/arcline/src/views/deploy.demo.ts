@@ -28,6 +28,7 @@ function surface(r: RendererHandle) {
         renderer: r,
         view: (r, state, frame) => deploy(r, {
             name: "@cody/zeno",
+            registryWeb: "https://axon.arclabs.it",
             plan: PLAN,
             steps: state.steps,
             frame,

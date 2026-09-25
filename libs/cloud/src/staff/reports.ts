@@ -24,7 +24,30 @@ export type ReportGroup = {
     lastSeenAt: string
     /** One representative occurrence: stack, frames, scrubbed context, cause, platform. */
     sample: Record<string, unknown>
+    /** Current state. A recurrence clears this automatically. */
     resolvedAt: string | null
+    /**
+     * Ever marked fixed, RETAINED across a reopen.
+     *
+     * `resolvedAt` is the current state and a recurrence wipes it. This is what
+     * distinguishes "back after I fixed it" — urgent — from "nobody has looked
+     * at this yet". Carried on the list because that is where triage happens.
+     */
+    lastResolvedAt: string | null
+}
+
+/**
+ * One group plus the SHAPE of its occurrences over time.
+ *
+ * `days` is raw (day, release, count) buckets rather than a chart-ready series:
+ * two different charts are drawn from it — per day, and per release — and
+ * pre-shaping for one would mean sending it twice or teaching the backend which
+ * charts the page happens to render.
+ *
+ * Individual occurrences are still not retained. This is the shape, not a log.
+ */
+export type ReportGroupDetail = Omit<ReportGroup, "id"> & {
+    days: Array<{ day: string; release: string; count: number }>
 }
 
 /**
@@ -79,6 +102,7 @@ export function Reports(opts: ReportsOpts) {
                     lastSeenAt: str(row, "lastSeenAt"),
                     sample: (row.sample ?? {}) as Record<string, unknown>,
                     resolvedAt: strOrNull(row, "resolvedAt"),
+                    lastResolvedAt: strOrNull(row, "lastResolvedAt"),
                 })),
                 health: {
                     healthy: bool(health, "healthy"),
@@ -90,6 +114,39 @@ export function Reports(opts: ReportsOpts) {
                                   at: str(record(lastErrorRaw, "health.lastError"), "at"),
                               },
                 },
+            }
+        },
+
+        /**
+         * One group, with the buckets its charts are drawn from.
+         *
+         * Addressed by FINGERPRINT, which is the identity everywhere else in
+         * this system — so the URL is shareable and survives a re-report.
+         */
+        async group(fingerprint: string): Promise<ReportGroupDetail> {
+            const raw = await opts.http.get<Record<string, unknown>>(
+                `/api/staff/reports/${encodeURIComponent(fingerprint)}`,
+            )
+            const group = record(raw.group, "group")
+
+            return {
+                fingerprint: str(group, "fingerprint"),
+                source: str(group, "source"),
+                code: strOrNull(group, "code"),
+                severity: str(group, "severity"),
+                message: str(group, "message"),
+                release: strOrNull(group, "release"),
+                occurrences: num(group, "occurrences"),
+                firstSeenAt: str(group, "firstSeenAt"),
+                lastSeenAt: str(group, "lastSeenAt"),
+                sample: (group.sample ?? {}) as Record<string, unknown>,
+                resolvedAt: strOrNull(group, "resolvedAt"),
+                lastResolvedAt: strOrNull(group, "lastResolvedAt"),
+                days: rows(group.days, "group.days").map(bucket => ({
+                    day: str(bucket, "day"),
+                    release: str(bucket, "release"),
+                    count: num(bucket, "count"),
+                })),
             }
         },
 

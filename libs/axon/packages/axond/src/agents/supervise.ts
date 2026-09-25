@@ -1,8 +1,6 @@
-import { err } from "@arcforge/err"
-import { isEntryEvent, Policy } from "@arcforge/types"
 import { spawnConfined, agentEntrypoint } from "@arcforge/link"
 import { AGENT_ENTRYPOINTS, SupervisorSideServices } from "@arcforge/platform/link"
-import type { AxonBlueprint, EngineCapability } from "@arcforge/types"
+import { isEntryEvent, Policy, type AxonBlueprint, type EngineCapability } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 
 type SuperviseOpts = {
@@ -96,12 +94,6 @@ export function Supervise(opts: SuperviseOpts) {
                 tools: (input.blueprint.tools ?? []).map(tool => tool.name),
             })
 
-            // What the primary role resolved to, stamped on before the
-            // blueprint crosses: the agent has no credential and so cannot
-            // resolve this itself.
-            const engine = services.engine
-            if (engine) (input.blueprint as { engine?: unknown }).engine = engine
-
             const spawned = await spawnConfined({
                 sessionId: input.sessionId,
                 blueprint: input.blueprint,
@@ -159,8 +151,6 @@ export function Supervise(opts: SuperviseOpts) {
                 pid: spawned.process.pid,
                 /** Which containment tier actually built the box. Reported, never assumed. */
                 tier: spawned.tier,
-                /** The resolved inference roles, held supervisor-side. */
-                ...(services.engines ? { engines: services.engines } : {}),
                 /** The blueprint this agent booted with — the supervisor's copy. */
                 blueprint: input.blueprint,
                 /** Shut the agent down and close the log. */

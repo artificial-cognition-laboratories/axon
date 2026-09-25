@@ -1,0 +1,5 @@
+*.tmod
+bin/
+obj/
+# Runtime discovery/session records do not belong in mod source.
+terraria-bridge.json

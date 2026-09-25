@@ -24,8 +24,7 @@
  * the right file at bundle time, so the Node build never enters a browser
  * bundle graph.
  */
-import { createSpanStore } from "./span-store"
-import type { TraceSpan, TraceSpanEnd } from "./span-store"
+import { createSpanStore, type TraceSpan, type TraceSpanEnd } from "./span-store"
 
 export type { TraceSpan, TraceSpanEnd } from "./span-store"
 

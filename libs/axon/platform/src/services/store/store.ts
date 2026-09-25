@@ -70,6 +70,7 @@ function storeDir(id: string): string {
  *   profiles/<email>/store/             — everything the APP writes (see STORE_DIR)
  *   cache/running/<sessionId>.json      — liveness record for a local agent process
  *   cache/active-profile.json           — who is logged in
+ *   install-id                          — anonymous machine id, written by the install script
  *   cache/<name>.json                   — registry caches
  *
  * A profile root is now authored-vs-generated, not a flat bag: everything at
@@ -453,6 +454,33 @@ export function Store(opts: StoreOpts = {}) {
     return {
         root,
 
+        /**
+         * The anonymous machine id the INSTALL SCRIPT wrote, if there is one.
+         *
+         * Not written here — `curl … | bash` creates it long before any of this
+         * code exists on the machine, and re-running the installer must reuse
+         * the same id. This is a read-only view of a file another program owns,
+         * which is why it has no setter.
+         *
+         * It exists so a signup can be joined to the install that produced it.
+         * Without the join the backend has two counters — installs and users —
+         * that cannot be related, so "what fraction of installs become
+         * accounts" is unanswerable, which is the main thing install telemetry
+         * is for.
+         *
+         * Validated rather than trusted: the file is plain text in a directory
+         * a person is encouraged to navigate by hand, so it can be edited or
+         * truncated. The backend applies the same rule and would reject a bad
+         * value anyway; failing here keeps a pointless request off the wire.
+         * Returns null for absent, unreadable or malformed — all of which mean
+         * the same thing to every caller: nothing to attribute.
+         */
+        installId(): string | null {
+            const raw = disk.text("install-id").get()?.trim()
+            if (!raw) return null
+            return /^[a-z0-9]{8,64}$/i.test(raw) ? raw : null
+        },
+
         update: {
             state: disk.json<UpdateRecord>("update.json"),
             statePath: join(root, "update.json"),
@@ -684,9 +712,28 @@ export type ProfileT = ReturnType<StoreT["profiles"]["get"]>
  * Development uses a SEPARATE directory (.axon-dev): an installed production
  * app and a source checkout must never share credentials, or logging into
  * staging from source silently re-points the installed app.
+ *
+ * `AXON_STORE_ROOT` overrides both, and exists for ONE reason: test isolation.
+ * Most tests pass an explicit `store:` to `Platform()`, but the TUI composable
+ * tests go through `usePlatform()`, which constructs the platform the way the
+ * real app does — with no override. Those tests therefore read and WROTE the
+ * developer's actual profile: a theme unit test called `theme.set()` and
+ * persisted `theme: "test-reset-theme"` into a real `profile.config.ts`, which
+ * is the user's own file.
+ *
+ * An env var rather than another `Platform()` option because the escape has to
+ * close for code that never threads an option through — the whole failure was
+ * a call site that legitimately did not know it was in a test.
  */
 export function storeRoot(distribution: Distribution): string {
-    return join(homedir(), distribution === "production" ? ".axon" : ".axon-dev")
+    // The override RELOCATES the pair; it does not merge them. Returning it
+    // directly made production and development share one directory, which is
+    // the exact invariant the paragraph above exists to state — and
+    // `environment.test.ts` caught it immediately. An isolation seam that can
+    // switch off a safety property is a worse bug than the one it fixes.
+    const override = process.env.AXON_STORE_ROOT
+    const leaf = distribution === "production" ? ".axon" : ".axon-dev"
+    return join(override ?? homedir(), leaf)
 }
 
 /** Immediate subdirectory names of an absolute path outside ~/.axon. Missing/non-dir = []. */

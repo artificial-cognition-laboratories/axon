@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { cpus } from "node:os"
 import type { AxonShare } from "./types"
+import { ask } from "./ask"
 
 type ShareOpts = {
     /**
@@ -284,7 +285,7 @@ function nvidiaShare(pids: number[]): number | null {
     if (!Bun.which("nvidia-smi")) return null
 
     try {
-        const probed = Bun.spawnSync([
+        const probed = ask([
             "nvidia-smi",
             "--query-compute-apps=pid,used_memory",
             "--format=csv,noheader,nounits",

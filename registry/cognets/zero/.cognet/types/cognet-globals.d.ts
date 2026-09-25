@@ -6,7 +6,9 @@ import type {
     CognetConfig,
     CognetPlugin,
     KernelAbi,
+    EngineType,
 } from "@arcforge/types"
+import type { EcsT } from "@arcforge/cognet/ecs"
 
 declare global {
     /** what this brain declares (mode, wakeOn, engines) — cognet.config.ts only.
@@ -36,7 +38,13 @@ declare global {
     }) => Promise<void> | void): void
 
     /** the syscall table — live from load() onward; do work inside loop(), not at module top level */
-    const kernel: KernelAbi
+    /** Engine role names and call shapes generated from cognet.config.ts. */
+    interface CognetEngineRequirements {
+        [role: string]: { type: EngineType }
+
+    }
+
+    const kernel: KernelAbi<CognetEngineRequirements>
 
 
     /** a named stage within a tick — cognet:phase:* telemetry */
@@ -44,6 +52,20 @@ declare global {
 
     /** a unit of work within a phase — timed for the flame graph */
     function system<T>(name: string, fn: () => Promise<T>): Promise<T>
+
+    /**
+     * The world — entities, components, and queries over both.
+     *
+     * The brain's short-term memory: it lives as long as the cognet does, not
+     * as long as a wake, so a decaying drive or a remembered place survives
+     * from one tick to the next. Every write commits to the session log with
+     * its value, which is what makes the world reconstructible afterwards.
+     *
+     * Built on first touch — a cognet that never reaches for it carries no
+     * entity store. Declare a component's shape once with `ecs.declare()` so
+     * readers can render it honestly.
+     */
+    const ecs: EcsT
 }
 
 export {}

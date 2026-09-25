@@ -42,7 +42,9 @@ export type BuildStage =
     | "modules"
     | "cognet"
     | "tree"
+    | "blueprint"
     | "scan"
+    | "supervise"
     | "typegen"
 
 export type BuildEventMap =
@@ -90,13 +92,27 @@ export type BuildEventMap =
         { specifier: string | null },
         { name: string; version: string; abi: string; compiled: boolean }
     >
+    /** Bundle the cognet source, or validate and reuse its content-addressed artifact. */
+    & AxonSpan<
+        "build:compile",
+        { specifier: string | null },
+        {}
+    >
     /** `bun install` in the project. Usually the slowest span in the phase. */
     & AxonSpan<
         "build:tree",
-        { reason: "framework" | "modules" | "reconcile" },
+        {
+            reason: "framework" | "modules" | "reconcile"
+            /** Every independent condition that made reconciliation necessary. */
+            reasons?: string[]
+        },
         { durationMs: number }
     >
     & AxonSpan<"build:typegen", {}, { files: string[] }>
+    /** Scan a prepared project into the blueprint typegen and runtime consume. */
+    & AxonSpan<"build:blueprint", {}, { warnings: number }>
+    /** Supervisor-side services plus spawning the isolated agent to readiness. */
+    & AxonSpan<"build:supervise", { agent: string }, { pid: number }>
 
     // ── Stage 3: load ───────────────────────────────────────────────────────
     //    Scan the prepared project into a blueprint. The last thing before

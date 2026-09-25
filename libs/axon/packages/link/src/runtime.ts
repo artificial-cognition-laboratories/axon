@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonStimulusEntry } from "@arcforge/types"
+import type { AxonBlueprint, AxonStimulusEntry, AxonStimulusInput } from "@arcforge/types"
 import type { AgentServices } from "./agent"
 
 /**
@@ -20,7 +20,7 @@ import type { AgentServices } from "./agent"
 export type RuntimeForAgent = {
     kernel: {
         /** Deliver a stimulus. Throws RUN_IN_PROGRESS when the brain refuses one mid-wake. */
-        request(input: { content?: string | string[]; channel?: string }): Promise<unknown>
+        request(input: { content?: string | string[]; stimuli?: AxonStimulusInput[]; channel?: string }): Promise<unknown>
         /** Commit a stimulus into a wake already running — no reservation, no wake started. */
         ingest(input: { content?: string | string[]; channel?: string }): Promise<void>
         interrupt(reason: "user" | "shutdown"): void
@@ -152,11 +152,15 @@ export function AgentRuntime(runtime: RuntimeForAgent): AgentServices {
          * something the user did, and rendering it as an error would tell them
          * their agent broke when they are the one who stopped it.
          */
-        async request(entry: AxonStimulusEntry): Promise<{ ok: boolean; interrupted?: boolean }> {
-            const { content, channel } = toRequestInput(entry)
+        async request(input: AxonStimulusEntry | { content?: string | string[]; stimuli?: AxonStimulusInput[]; channel?: string }): Promise<{ ok: boolean; interrupted?: boolean }> {
+            const normalized = "type" in input
+                ? { stimuli: [{ type: input.type, data: input.data } as AxonStimulusInput] }
+                : input
+            const { content, stimuli, channel } = normalized
             try {
                 await runtime.kernel.request({
                     ...(content !== undefined ? { content } : {}),
+                    ...(stimuli !== undefined ? { stimuli } : {}),
                     ...(channel !== undefined ? { channel } : {}),
                 })
                 return { ok: true }

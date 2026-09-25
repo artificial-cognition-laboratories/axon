@@ -1,5 +1,4 @@
-import { toReportFrames } from "./reporting"
-import type { ReportingHandle } from "./reporting"
+import { toReportFrames, type ReportingHandle } from "./reporting"
 
 /**
  * The shape this bridge needs from an AxonError, without importing @axon/err.

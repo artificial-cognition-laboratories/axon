@@ -122,13 +122,36 @@ export function Mediation(opts: MediationOpts) {
             return false
         }
 
+        return await escalate(fn, subject, args, owner, String(rule))
+    }
+
+    /**
+     * Ask, record, and report the answer.
+     *
+     * Extracted from `check()` because two callers need it and only one of them
+     * should go through rule resolution first. `shell()` has ALREADY decided —
+     * `decideShell` weighed the shell policy and returned "escalate" — and
+     * routing that through `check()` re-resolved a TOOLS rule for an address
+     * like `shell.run:axon`, found nothing (there is no tools rule for a
+     * program), and denied by omission. The escalate verdict was computed,
+     * discarded, and turned into the very refusal it exists to avoid; the
+     * prompt was never reached.
+     */
+    async function escalate(
+        fn: string,
+        subject: string,
+        args: unknown[],
+        owner: string,
+        rule: string,
+    ): Promise<boolean> {
+        void subject
         // Escalate — a human decision, and the one thing the OS wall cannot
         // express. Fails CLOSED, and RECORDS the timeout: this layer's whole
         // remaining job is escalation and audit, so an escalation that expired
         // with nothing written is a hole in its only function.
         const id = randomUUID()
         await opts.session.commit("process:policy:escalation", {
-            id, commandId: commandId() || null, module: owner, fn, args, rule: String(rule),
+            id, commandId: commandId() || null, module: owner, fn, args, rule,
         }, span())
 
         const started = Date.now()
@@ -214,7 +237,7 @@ export function Mediation(opts: MediationOpts) {
         // it: a chain is invisible once split (a newline becomes whitespace, a
         // quote disappears), and deciding without it means deciding about the
         // first program while `/bin/sh -c` runs the rest.
-        const decision = decideShell(opts.policy().shell, argv, "allow", command)
+        const decision = decideShell(opts.policy().shell, argv, command)
         if (decision.verdict === "allow") return decision
 
         const fn = `shell.run:${decision.program}`
@@ -227,7 +250,10 @@ export function Mediation(opts: MediationOpts) {
             return decision
         }
 
-        const allowed = await check(fn, subject, argv, owner)
+        // Straight to the ask. `decideShell` already weighed the shell policy;
+        // `check()` would start over against the TOOLS map, where a program
+        // address has no rule by construction, and deny by omission.
+        const allowed = await escalate(fn, subject, argv, owner, decision.reason)
         return allowed ? { ...decision, verdict: "allow" } : { ...decision, verdict: "deny" }
     }
 

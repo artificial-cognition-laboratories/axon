@@ -24,13 +24,16 @@ export function Escalation(opts: EscalationOpts) {
     bus.on("process:policy:escalation", e => {
         const started = Date.now()
 
-        function answer(allow: boolean) {
-            send({ id: e.id, type: "policy:response", allow })
+        function answer(allow: boolean, reason?: "headless") {
+            send({ id: e.id, type: "policy:response", allow, ...(reason ? { reason } : {}) })
             bus.emit("process:policy:decision", { id: e.id, allow, durationMs: Date.now() - started })
         }
 
+        // Nobody to ask. Refused immediately rather than left to the timeout —
+        // and labelled, because "nobody was there" and "someone said no" are
+        // different facts to whoever is reading the log of a blocked agent.
         if (!decide) {
-            answer(false)
+            answer(false, "headless")
             return
         }
 

@@ -139,34 +139,45 @@ export type ShellDecision = {
 /**
  * Decide one execution against the resolved `shell` policy.
  *
+ * ── One rule ────────────────────────────────────────────────────────────────
+ *
+ * **An explicit allow allows. An explicit deny denies. Silence asks.**
+ *
+ * Every branch below is an application of that sentence, and the sentence is
+ * what makes the surface predictable: a user reading their own policy can
+ * answer "what happens to a program I have not mentioned?" without knowing
+ * which of four code paths their command takes.
+ *
  * Order is deliberate and each step is a different question:
  *   1. Is this a shell, and is `raw` off? A shell defeats every rule below it,
  *      so it is answered first and separately.
  *   2. Does `deny` name the program? Deny always beats allow.
- *   3. Does `allow` admit it? An allowlist that names nothing matching is a
- *      denial — the same "declared, matched nothing" rule the glob resolver uses.
+ *   3. Does `allow` admit it? An allowlist that names nothing matching has said
+ *      nothing about this program, so it asks.
  *   4. Do the argument patterns object? Advisory, and last.
+ *   5. Nothing spoke at all → ask.
+ *
+ * ── Why there is no `fallback` parameter any more ───────────────────────────
+ *
+ * There used to be one, because two callers wanted opposite answers for an
+ * undeclared surface: the capsule denied (it runs foreign, model-emitted code
+ * and must never grant by omission) and Axon allowed ("I did not set a policy"
+ * meaning a personal tool with the user's own privileges, not a brick).
+ *
+ * Both stances are now produced by ESCALATION plus its degradation, without a
+ * knob. A bare `Capsule()` has no decider, so `Escalation` answers false
+ * immediately and it still runs nothing. A user at a TUI is asked, and
+ * answering "always" writes the grant. The parameter was a second way to
+ * express something the escalation path already expresses correctly, and the
+ * two could drift.
+ *
+ * The cost of the old shape was concrete: an agent with no policy — which is
+ * every agent in its first minutes — got `shell.run:axon denied · no rule
+ * permits it` and had nowhere to go but the docs.
  */
 export function decideShell(
     shell: ResolvedCapsulePolicy["shell"],
     argv: string[],
-    /**
-     * What an UNDECLARED `shell` surface means.
-     *
-     * The two callers sit on opposite sides of a trust boundary and need
-     * opposite answers, which is why this is a parameter rather than a constant:
-     *
-     *   "deny"  — the CAPSULE. It runs foreign, model-emitted code and must
-     *             never grant capability by omission. A bare `Capsule()` with no
-     *             policy can run nothing.
-     *   "allow" — AXON. It is wiring a box for its own declared blueprint, and
-     *             "I did not set a security policy" means a personal tool with
-     *             the user's own privileges, not a brick.
-     *
-     * Getting this wrong in either direction is silent: one bricks every
-     * unconfigured capsule, the other hands an unconfigured sandbox a shell.
-     */
-    fallback: "allow" | "deny" = "deny",
     /**
      * The command as the caller received it, before splitting.
      *
@@ -177,10 +188,26 @@ export function decideShell(
      */
     command?: string,
 ): ShellDecision {
-    // No shell block at all: the caller's own default posture decides.
-    if (!shell) return { verdict: fallback, program: programName(argv[0] ?? ""), reason: "no-policy" }
+    // No shell block at all — nobody has spoken, so ask. Identical to a block
+    // that declares nothing (`shell: {}`), which is the point: whether a user
+    // omitted the key or wrote an empty object is not a security decision, and
+    // reading those two as different postures is how `{}` came to mean "allow
+    // everything" while omitting it meant "deny everything".
+    if (!shell) return { verdict: "escalate", program: programName(argv[0] ?? ""), reason: "no-policy" }
 
     const { program, shell: resolvedShell } = resolveProgram(argv)
+
+    /*
+     * Did any rule actually PERMIT this program, as opposed to merely failing
+     * to object to it?
+     *
+     * The function used to end with a bare `return allow`, which answered both
+     * questions the same way — an allowlist that named the program, and a
+     * policy that had never heard of it. The first is a grant somebody wrote;
+     * the second is silence. Collapsing them is what made an undeclared
+     * program run without anyone deciding it should.
+     */
+    let permitted = false
 
     // A chained/redirected/substituted command line is a SHELL PROGRAM, whatever
     // its first token is — see isShellCommand. Without this the decision was
@@ -199,9 +226,12 @@ export function decideShell(
      * author had never written. Asking is the honest answer to a question
      * nobody has answered, and the prompt can say what a shell actually is.
      */
-    if (isShell && shell.raw !== true) {
+    if (isShell) {
         if (shell.raw === false) return { verdict: "deny", program, reason: "raw-shell" }
-        return { verdict: "escalate", program, reason: "raw-shell" }
+        // `raw: true` is somebody writing "yes, shell lines are fine" — an
+        // explicit grant, so the program does not have to be named again below.
+        if (shell.raw !== true) return { verdict: "escalate", program, reason: "raw-shell" }
+        permitted = true
     }
 
     // Deny always beats allow, and always means DENY: this one is a rule
@@ -227,6 +257,7 @@ export function decideShell(
          */
         const admitted = shell.allow.some(pattern => policyGlobMatch(pattern, program))
         if (!admitted) return { verdict: "escalate", program, reason: "not-allowed" }
+        permitted = true
     }
 
     // Argument patterns — advisory, and only consulted once the program itself
@@ -252,6 +283,15 @@ export function decideShell(
             return { verdict: resolved.verdict, program, reason: "args", ...(resolved.source ? { source: resolved.source } : {}) }
         }
     }
+
+    // Nothing objected — but nothing permitted it either. Ask.
+    //
+    // This is the case that reaches a new user: an agent with no `policy` block
+    // at all, running its first command. Answering "allow" here is a grant
+    // nobody made; answering "deny" is a refusal nobody made and leaves them
+    // reading docs. The honest answer to a question no one has answered is to
+    // ask it, and "always" writes the rule they would have gone looking for.
+    if (!permitted) return { verdict: "escalate", program, reason: "no-policy" }
 
     return { verdict: "allow", program, reason: "allowed" }
 }

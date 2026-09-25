@@ -1,12 +1,8 @@
-import { HttpError, PROVISION_TIMEOUT_MS } from "../../platform/http"
-import type { HttpClient } from "../../platform/http"
+import { HttpError, PROVISION_TIMEOUT_MS, type HttpClient } from "../../platform/http"
 import { num, record, str } from "../../platform/parse"
-import { Artifact } from "../artifacts/artifact"
-import type { ArtifactHandle } from "../artifacts/artifact"
-import { Deployment } from "./deployment"
-import type { DeploymentHandle } from "./deployment"
-import { InsufficientFundsError } from "./types"
-import type { DeployOptions, DeployStep } from "./types"
+import { Artifact, type ArtifactHandle } from "../artifacts/artifact"
+import { Deployment, type DeploymentHandle } from "./deployment"
+import { InsufficientFundsError, type DeployOptions, type DeployStep } from "./types"
 
 type AgentsOpts = {
     http: HttpClient

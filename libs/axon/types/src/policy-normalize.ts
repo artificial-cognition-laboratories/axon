@@ -319,6 +319,22 @@ export function intersect(
 
 
 /**
+ * The raw-shell switch under a ceiling.
+ *
+ * Returns a `{ raw }` fragment or nothing at all, because the ABSENCE of the
+ * key is meaningful downstream: `decideShell` escalates on an undeclared `raw`
+ * and refuses only on an explicit `false`. Writing `raw: false` when nobody
+ * said so would turn "ask" into "refuse".
+ */
+function resolveRaw(profile: boolean | undefined, agent: boolean | undefined): { raw?: boolean } {
+    // Either layer's refusal stands — it is a decision somebody wrote.
+    if (profile === false || agent === false) return { raw: false }
+    if (profile === undefined && agent === undefined) return {}
+    // One side silent defers to the other; both present must agree.
+    return { raw: (profile ?? agent) === true && (agent ?? profile) === true }
+}
+
+/**
  * Two allowlists under a ceiling: what BOTH layers admit.
  *
  * `undefined` from a layer is "no opinion" and defers to the other — the same
@@ -392,9 +408,27 @@ function mergeShell(
         ...(profile?.args || agent?.args
             ? { args: pairRules(profile?.args, agent?.args) }
             : {}),
-        // Both must permit it. Absent means "no opinion", which for the one
-        // switch that disarms every other rule defaults CLOSED.
-        raw: (profile?.raw ?? false) && (agent?.raw ?? false),
+        /*
+         * Silence DEFERS; an explicit `false` refuses; two explicit `true`s agree.
+         *
+         * This read `(profile?.raw ?? false) && (agent?.raw ?? false)`, which
+         * treated an absent value as a written `false` — the one place in this
+         * file where silence is a verdict rather than "no opinion" (compare
+         * `intersectLists` directly below, and `pairRule`).
+         *
+         * The consequence was that a profile-level `raw: true` could not be
+         * expressed AT ALL. A user granting raw shell on their own machine had
+         * it ANDed away by every agent that simply had no `policy` block —
+         * which is every scaffolded agent — and the denial then said "raw shell
+         * is off" about a switch they had just turned on.
+         *
+         * Deferring matches how the ceiling treats every other surface: a
+         * profile that says nothing imposes no ceiling, and an agent that says
+         * nothing accepts the profile's. Both silent leaves `raw` ABSENT rather
+         * than false, so `decideShell` asks instead of refusing — the same rule
+         * the rest of the policy surface follows.
+         */
+        ...resolveRaw(profile?.raw, agent?.raw),
         spawn: {
             rule: pairRule(asRule(spawnRule(profile)), asRule(spawnRule(agent))),
             // The tighter cap wins; no cap on either side means unlimited.

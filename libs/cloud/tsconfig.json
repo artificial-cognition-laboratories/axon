@@ -21,7 +21,7 @@
         "tests/**/*.ts"
     ],
     "exclude": [
-        "tests/fixtures/agent-src",
-        "tests/fixtures/agent-bundle/src"
+        "tests/full/fixtures/agent-src",
+        "tests/full/fixtures/agent-bundle/src"
     ]
 }

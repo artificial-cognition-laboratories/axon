@@ -4,6 +4,8 @@ import { err } from "@arcforge/err"
 import type { AxonRunResult, CognetConfig, CognetIdentity, CognetDefinition, CognetHooks, CognetPlugin, CognetWake, KernelAbi } from "@arcforge/types"
 import type { AxonOutputEvent } from "@arcforge/types"
 import { Clock } from "./clock"
+import { Ticks } from "./ticks"
+import { Ecs, type EcsT } from "./ecs"
 
 /**
  * CognetHost — the runtime half of the cognet authoring surface.
@@ -100,6 +102,38 @@ function clockOrThrow(): ReturnType<typeof Clock> {
     const clock = ambientStorage.getStore()?.clock
     if (!clock) throw err("COGNET_ACCESSED_BEFORE_LOAD", { detail: "phase()/system() are wake-scoped — call them inside the loop body" })
     return clock
+}
+
+// ── the cognet's own lifetime state ─────────────────────────────────────────
+
+/**
+ * The tick counter, and the world.
+ *
+ * Both outlive every wake, for the same reason. A continuous cognet's wake IS
+ * one tick, so anything scoped to a wake is scoped to a single instant: the
+ * counter would never pass 1, and a world would be discarded twenty times a
+ * second, taking every decaying drive and remembered place with it.
+ *
+ * The world is built lazily, on first touch of the `ecs` global, so a cognet
+ * that never queries an entity carries no entity store — which is the opt-in
+ * property the subpath export was protecting.
+ */
+const ticks = Ticks()
+
+let world: EcsT | null = null
+
+function worldOrCreate(): EcsT {
+    return world ??= Ecs({
+        emit: (type, data) => kernelOrThrow().emit(type, data),
+        // A write outside a wake — boot-time spawning — has a real tick and no
+        // phase or system. Reading the clock at write time rather than
+        // capturing one is what lets one world serve overlapping wakes.
+        stamp: () => {
+            const clock = ambientStorage.getStore()?.clock
+            if (!clock) return { tick: ticks.current(), phase: null, system: null }
+            return clock.stamp()
+        },
+    })
 }
 
 // ── ambient globals ──────────────────────────────────────────────────────────
@@ -240,6 +274,20 @@ globals.kernel = {
 globals.phase = <T>(name: string, fn: () => Promise<T>) => ambientOrThrow().phase(name, fn)
 globals.system = <T>(name: string, fn: () => Promise<T>) => ambientOrThrow().system(name, fn)
 
+// The world. A facade rather than the handle itself, so the store is built on
+// first use and every operation reaches the one world this cognet owns.
+globals.ecs = {
+    get state() { return worldOrCreate().state },
+    get schema() { return worldOrCreate().schema },
+    get entity() { return worldOrCreate().entity },
+    get component() { return worldOrCreate().component },
+    declare: (...args: Parameters<EcsT["declare"]>) => worldOrCreate().declare(...args),
+    frame: (...args: Parameters<EcsT["frame"]>) => worldOrCreate().frame(...args),
+    query: ((descriptor: never) => worldOrCreate().query(descriptor)) as EcsT["query"],
+    watch: (...args: Parameters<EcsT["watch"]>) => worldOrCreate().watch(...args),
+    observe: <T>(fn: () => T) => worldOrCreate().observe(fn),
+} satisfies EcsT
+
 // ── composition (what the generated entry calls) ────────────────────────────
 
 /**
@@ -312,7 +360,11 @@ export function CognetHost(config: CognetIdentity, main: () => Promise<void>): C
             // interleave. `emit` is bound through kernelOrThrow(), which
             // reads module state that outlives every wake — safe to close
             // over here.
-            const clock = Clock({ emit: (type, data) => kernelOrThrow().emit(type, data), signal: wake.signal })
+            const clock = Clock({
+                emit: (type, data) => kernelOrThrow().emit(type, data),
+                signal: wake.signal,
+                ticks: ticks,
+            })
 
             return ambientStorage.run(scopeFor(clock), async () => {
                 await hooks.callHook("wake", wake)

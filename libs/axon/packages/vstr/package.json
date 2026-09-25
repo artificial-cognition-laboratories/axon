@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/vstr",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {
@@ -11,7 +11,9 @@
         "vstr.d.ts"
     ],
     "scripts": {
-        "test": "bun test",
+        "test": "bun run test:full",
+        "test:hot": "bun test --parallel=4 tests/hot",
+        "test:full": "bun test --parallel=4 tests/hot",
         "test:coverage": "bun test --coverage"
     },
     "dependencies": {
@@ -25,5 +27,6 @@
     "devDependencies": {
         "@types/bun": "latest",
         "@types/turndown": "^5.0.6"
-    }
+    },
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

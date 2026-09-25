@@ -103,7 +103,7 @@ export function unitFor(type: BuildEventName | string): BuildUnit | null {
     switch (type) {
         case "build:modules:complete": return "modules"
         case "build:tree:complete": return "dependencies"
-        case "build:cognet:complete": return "cognet"
+        case "build:compile:complete": return "cognet"
         default: return null
     }
 }
@@ -130,7 +130,11 @@ export function stageFor(type: BuildEventName | string): BootStage | null {
         case "build:typegen:start":
             return "preparing"
         case "build:tree:start": return "dependencies"
-        case "build:cognet:start": return "compiling"
+        // ABI/model checks can be slow (a model store may inspect local
+        // weights) but do not bundle source. Keep them under preparation so
+        // the visible compile phase names the actual bundle/cache operation.
+        case "build:cognet:start": return "preparing"
+        case "build:compile:start": return "compiling"
         // Scan is fast and unactionable — it holds whatever came before rather
         // than earning a name (see the note above).
         //

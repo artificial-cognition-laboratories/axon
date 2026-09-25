@@ -181,9 +181,11 @@ export type AxonConfig<EventMap extends Record<string, unknown> = Record<string,
     modules?: ModuleEntry[]
 
     /**
-     * Opt this agent into the repository workspace layer.
-     * When true, Axon discovers the nearest .agents/ directory (walking up from cwd)
-     * and merges its tools, prompts, scripts, and modules into the agent runtime.
+     * Control repository workspace integration.
+     *
+     * Workspace prompts and scripts are loaded by default from the nearest
+     * `.agents/prompts` and `.agents/scripts` directories found from the invocation
+     * cwd, under the `workspace:` namespace. Set false to opt out.
      */
     workspace?: boolean
 }

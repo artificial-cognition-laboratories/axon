@@ -1,5 +1,5 @@
 import type { EscalationCall } from "./policy"
-import type { AxonEntry, AxonKernelEvent, AxonSessionEvent, AxonStimulusEvent, AxonStimulusType } from "./session"
+import type { AxonEntry, AxonKernelEvent, AxonSessionEvent, AxonStimulusEvent, AxonStimulusInput, AxonStimulusType } from "./session"
 import type { AxonOutputEvent } from "./session/events/stdio/output"
 import type { AxonScript } from "./scripts"
 import type { AxonPrompt, AxonPromptName, AxonPromptProps } from "./prompts"
@@ -23,8 +23,10 @@ import type { AxonAmbient } from "./session/events/activity"
 
 /** Input to a single agent invocation. */
 export type AxonRequestInput = {
-    /** One stimulus, or an ordered batch committed before a single wake. */
-    prompt: string | string[]
+    /** Text shorthand retained for every existing caller. */
+    prompt?: string | string[]
+    /** Ordered heterogeneous stimuli, all committed before one wake starts. */
+    stimuli?: AxonStimulusInput[]
     /**
      * The surface this message arrived on — and the address a reply goes back
      * to. `terminal`, `axon-cli`, `telegram:8199237521`.

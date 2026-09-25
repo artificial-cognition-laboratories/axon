@@ -32,9 +32,48 @@ export type TreeCacheOpts = {
 export const DEFAULT_TREE_CACHE = join(homedir(), ".axon", "cache", "trees")
 export const DEFAULT_MAX_TREES = 24
 
+/**
+ * Environment overrides, for the same reason `AXON_STORE_ROOT` exists.
+ *
+ * `root` being injectable was supposed to keep tests off the developer's real
+ * cache — the comment above says so outright — but injection only protects the
+ * call sites that remember to inject. The SUITE does not: every fixture builds
+ * a `Platform()`, which builds a `Tree()`, which builds a `TreeCache()` with
+ * defaults, so a full parallel run resolves into `~/.axon/cache/trees` and
+ * evicts from it. Measured on 2026-09-10: thirteen of the developer's
+ * twenty-four cached trees were rewritten by test runs, against a cap of
+ * twenty-four.
+ *
+ * That is not only rude, it makes the suite's install behaviour a function of
+ * whatever else the machine has built lately. A run whose working set collides
+ * with the cap evicts trees other tests in the same run are about to want, and
+ * each miss turns a ~1ms graft into a full `bun install` — which is what a
+ * 60-second timeout in a test that takes 4.5 seconds alone actually looks like.
+ *
+ * An env var rather than another option threaded through Platform(), because
+ * the escape has to close for call sites that never think about it — exactly
+ * the argument `storeRoot()` makes for the store.
+ */
+const ENV_TREE_CACHE_ROOT = "AXON_TREE_CACHE_ROOT"
+const ENV_TREE_CACHE_MAX = "AXON_TREE_CACHE_MAX"
+
+/** The cap from the environment, if it names a usable one. */
+function maxFromEnv(): number | null {
+    const raw = process.env[ENV_TREE_CACHE_MAX]
+    if (raw === undefined) return null
+    const parsed = Number(raw)
+    // Loud rather than silently falling back: a mistyped cap that quietly
+    // reverts to the default would show up only as the eviction thrash this
+    // variable exists to remove, months later and with nothing pointing here.
+    if (!Number.isInteger(parsed) || parsed < 1) {
+        throw new Error(`${ENV_TREE_CACHE_MAX} must be a positive integer — got ${JSON.stringify(raw)}`)
+    }
+    return parsed
+}
+
 export function TreeCache(opts: TreeCacheOpts = {}) {
-    const cacheRoot = opts.root ?? DEFAULT_TREE_CACHE
-    const maxTrees = opts.max ?? DEFAULT_MAX_TREES
+    const cacheRoot = opts.root ?? process.env[ENV_TREE_CACHE_ROOT] ?? DEFAULT_TREE_CACHE
+    const maxTrees = opts.max ?? maxFromEnv() ?? DEFAULT_MAX_TREES
 
 
     /**

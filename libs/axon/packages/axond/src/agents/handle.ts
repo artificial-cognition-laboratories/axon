@@ -1,6 +1,5 @@
 import { err } from "@arcforge/err"
-import { isEntryEvent } from "@arcforge/types"
-import type { AxonAgentHandle, AxonBlueprint, AxonEntry, AxonStimulusEntry } from "@arcforge/types"
+import { isEntryEvent, type AxonAgentHandle, type AxonBlueprint, type AxonEntry, type AxonStimulusEntry } from "@arcforge/types"
 import { Mirror } from "./mirror"
 import type { Supervised } from "./supervise"
 

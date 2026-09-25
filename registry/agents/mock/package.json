@@ -5,16 +5,16 @@
   "private": false,
   "type": "module",
   "dependencies": {
-    "@arcforge/types": "2.0.169",
-    "@arcforge/engines": "2.0.169",
+    "@arcforge/types": "2.0.219",
+    "@arcforge/engines": "2.0.219",
     "h3": "^1.13.0",
-    "@arcforge/cognet": "2.0.169",
-    "@arcforge/air": "2.0.169",
-    "@axon/zero": "^1.0.44"
+    "@arcforge/cognet": "2.0.219",
+    "@arcforge/air": "2.0.219",
+    "@axon/zero": "^1.0.49"
   },
   "axon": {
     "trackedFrom": {
-      "@axon/zero": "http://127.0.0.1:3099"
+      "@axon/zero": "https://axon-api-t53zrgvpga-ew.a.run.app"
     }
   }
 }

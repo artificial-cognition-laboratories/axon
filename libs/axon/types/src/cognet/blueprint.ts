@@ -1,6 +1,6 @@
 import type { AxonEntryEvent } from "../session/events/entries"
-import type { CognetDefinition } from "./cognet"
-import type { EngineRequirements } from "../inference"
+import type { CognetDefinition, CognetStimulusSupport } from "./cognet"
+import type { EngineRequirements, ResolvedEngineFacts } from "../inference"
 
 /**
  * The cognet slot in the agent blueprint — how a brain reaches the runtime.
@@ -25,6 +25,15 @@ export type CognetBlueprint = {
     abi: string
     /** Declarative wake mask — overrides the definition's own default. */
     wakeOn?: Array<keyof AxonEntryEvent>
+
+    /** Input modalities the brain declares it knows how to consume. */
+    stimuli?: CognetStimulusSupport
+
+    /**
+     * Actual role facts resolved by a supervisor before confinement.
+     * Contains no provider/model identity or credentials.
+     */
+    resolvedEngines?: Readonly<Record<string, ResolvedEngineFacts>>
 
     /**
      * Resolved model weights — the cognet's local name → an absolute path on

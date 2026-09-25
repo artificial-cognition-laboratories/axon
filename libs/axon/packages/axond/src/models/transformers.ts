@@ -2,6 +2,8 @@ import { existsSync, statSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { err } from "@arcforge/err"
 import type { LoadedWeight, ModelAdapter } from "./adapter"
+import type { RuntimesT } from "./runtimes"
+import { optionalImport } from "./optional"
 
 /**
  * The transformers.js adapter — a model REPOSITORY, not a weight.
@@ -35,18 +37,14 @@ import type { LoadedWeight, ModelAdapter } from "./adapter"
  * honestly rather than crashing at import, so a CLI installed by someone who
  * never runs a local model does not carry it.
  */
-export function TransformersAdapter(): ModelAdapter {
+export function TransformersAdapter(runtimes?: RuntimesT): ModelAdapter {
     let runtime: Promise<TransformersModule | null> | null = null
 
-    function load(): Promise<TransformersModule | null> {
-        // Built rather than literal so the compiler does not resolve it: the
-        // package is OPTIONAL, and a static import would make the build
-        // require exactly what this adapter exists to work without.
-        const specifier = "@huggingface" + "/transformers"
-        runtime ??= import(specifier)
-            .then(module => module as unknown as TransformersModule)
-            .catch(() => null)
-        return runtime
+    async function load(): Promise<TransformersModule | null> {
+        runtime ??= runtimes
+            ? runtimes.install("transformers").then(() => runtimes.import("transformers") as Promise<TransformersModule | null>)
+            : optionalImport("@huggingface/transformers").then(module => module as TransformersModule | null).catch(() => null)
+        return await runtime
     }
 
     return {
@@ -121,6 +119,14 @@ export function TransformersAdapter(): ModelAdapter {
              * through `this` is undefined.
              */
             async function call(input: unknown, opts?: Record<string, unknown>): Promise<unknown> {
+                if (IMAGE_TASKS.has(task)) {
+                    const { images, extra } = imageCall(transformers, task, input)
+                    try {
+                        return plain(await pipe(images as never, (extra ?? opts) as never))
+                    } catch (cause) {
+                        throw err("MODEL_RUN_FAILED", { cause, context: { runtime: "transformers", path: path, task: task } })
+                    }
+                }
                 const payload = task === "automatic-speech-recognition" && typeof input === "string"
                     ? await samples(input)
                     : input
@@ -281,8 +287,26 @@ function taskFor(path: string): PipelineTask {
 
     if (kind.includes("whisper") || arch.includes("whisper")) return "automatic-speech-recognition"
     if (arch.includes("forcausallm") || arch.includes("forconditionalgeneration")) return "text-generation"
-    if (existsSync(join(path, "preprocessor_config.json")) && arch.includes("imageclassification")) {
-        return "image-classification"
+    const visual = existsSync(join(path, "preprocessor_config.json"))
+    if (visual) {
+        if (kind.includes("owl") && arch.includes("forobjectdetection")) return "zero-shot-object-detection"
+        if (arch.includes("forobjectdetection")) return "object-detection"
+        if (arch.includes("imageclassification")) return "image-classification"
+
+        /*
+         * An image encoder with no text half — DINOv2, ViT — produces image
+         * embeddings. One that ALSO carries a tokenizer (CLIP, SigLIP) can
+         * embed either modality, and which one a caller means is not written
+         * anywhere in the directory. Guessing would return vectors from the
+         * wrong tower, which look exactly like right ones.
+         */
+        if (existsSync(join(path, "tokenizer.json"))) {
+            throw err("MODEL_NO_RUNTIME", {
+                detail: `${path} encodes both images and text (${kind}); which one a call means is ambiguous, so it is refused rather than guessed`,
+                context: { runtime: "transformers", modelType: kind },
+            })
+        }
+        return "image-feature-extraction"
     }
 
     /*
@@ -349,6 +373,12 @@ type PipelineTask =
     | "automatic-speech-recognition"
     | "feature-extraction"
     | "image-classification"
+    | "image-feature-extraction"
+    | "object-detection"
+    | "zero-shot-object-detection"
+
+/** Tasks whose input is an image, which crosses the socket as an ImageInput. */
+const IMAGE_TASKS = new Set<PipelineTask>(["image-classification", "image-feature-extraction", "object-detection", "zero-shot-object-detection"])
 
 type Pipeline = ((input: never, opts?: never) => Promise<unknown>) & { dispose?(): Promise<void> }
 
@@ -362,4 +392,40 @@ type Pipeline = ((input: never, opts?: never) => Promise<unknown>) & { dispose?(
 type TransformersModule = {
     pipeline(task: string, model: string, opts?: Record<string, unknown>): Promise<Pipeline>
     env: { allowRemoteModels: boolean; allowLocalModels: boolean }
+    RawImage: new (data: Uint8ClampedArray, width: number, height: number, channels: number) => unknown
+}
+
+/**
+ * An image call's arguments, from what crossed the socket.
+ *
+ * `ImageInput` (see @arcforge/types) or an array of them — a batch of crops is
+ * the common perception call. Zero-shot detection also needs the words it is
+ * looking for, so it takes `{ images, labels }`.
+ *
+ * Anything else is refused at the seam: a malformed image handed to the
+ * library fails deep inside it with a message about tensors, far from the
+ * caller that sent the wrong thing.
+ */
+function imageCall(transformers: TransformersModule, task: PipelineTask, input: unknown): { images: unknown; extra?: unknown } {
+    const toRaw = (value: unknown): unknown => {
+        const image = value as { kind?: unknown; width?: unknown; height?: unknown; channels?: unknown; data?: unknown }
+        if (image?.kind !== "image" || typeof image.width !== "number" || typeof image.height !== "number" || image.channels !== 3 || typeof image.data !== "string") {
+            throw err("MODEL_INPUT_INVALID", { detail: `${task} expects an ImageInput { kind: "image", width, height, channels: 3, data: base64 }`, context: { task: task } })
+        }
+        const bytes = Buffer.from(image.data, "base64")
+        if (bytes.length !== image.width * image.height * 3) {
+            throw err("MODEL_INPUT_INVALID", { detail: `ImageInput holds ${bytes.length} bytes, expected ${image.width}×${image.height}×3`, context: { task: task } })
+        }
+        return new transformers.RawImage(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength), image.width, image.height, 3)
+    }
+    const many = (value: unknown) => (Array.isArray(value) ? value.map(toRaw) : toRaw(value))
+
+    if (task === "zero-shot-object-detection") {
+        const call = input as { images?: unknown; labels?: unknown }
+        if (!Array.isArray(call?.labels) || call.labels.some(label => typeof label !== "string")) {
+            throw err("MODEL_INPUT_INVALID", { detail: "zero-shot detection takes { images, labels: string[] }", context: { task: task } })
+        }
+        return { images: many(call.images), extra: call.labels }
+    }
+    return { images: many(input) }
 }

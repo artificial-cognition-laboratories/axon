@@ -1,3 +1,0 @@
-{
-  "extends": "../.agent/axon-test.tsconfig.json"
-}

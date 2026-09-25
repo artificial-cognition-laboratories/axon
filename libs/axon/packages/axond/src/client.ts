@@ -7,6 +7,7 @@ import type { Download } from "./models/downloads"
 import type { Actor, Job, JobsState } from "./jobs/index"
 import type { Admission, MachineState } from "./machine/index"
 import type { DaemonPaths, DaemonStarted, DaemonStatus } from "../types/index"
+import type { LeaseGrant, WorldsState, BodyInfo, ModState } from "./worlds/index"
 import type { AgentSchedule, CreateSchedule, ScheduleState, UpdateSchedule, ScheduleResult } from "./schedule/schedule"
 import type { DictationState, Dictated } from "./dictation/dictation"
 
@@ -130,7 +131,7 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             /** One job by ref or full id. Null when nothing matches. */
             at: (ref: string) => call(["jobs", "at"], ref) as Promise<Job | null>,
             /** Delegate work. `by` is the actor — see Actor on what makes a human mark real. */
-            create: (input: { content: string; by: Actor; title?: string; agent?: string | null; cwd?: string | null }) =>
+            create: (input: { brief: string; by: Actor; title?: string; agent?: string | null; cwd?: string | null }) =>
                 call(["jobs", "create"], input) as Promise<Job>,
             /** Add a turn. A person's turn on a blocked job unblocks it. */
             say: (input: { ref: string; text: string; by: Actor }) => call(["jobs", "say"], input) as Promise<Job>,
@@ -160,6 +161,12 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             state: () => call(["models", "state"]) as Promise<ModelsState>,
             /** Re-read what is on disk. */
             refresh: () => call(["models", "refresh"]) as Promise<ModelRecord[]>,
+            /** The daemon-owned local execution environments, separate from model weights. */
+            runtimes: () => call(["models", "runtimes"]) as Promise<import("./models/runtimes").RuntimeState[]>,
+            installRuntime: (runtime: "onnx" | "llama.cpp" | "transformers") =>
+                call(["models", "installRuntime"], runtime) as Promise<import("./models/runtimes").RuntimeState>,
+            removeRuntime: (runtime: "onnx" | "llama.cpp" | "transformers") =>
+                call(["models", "removeRuntime"], runtime) as Promise<boolean>,
             /** Local generation models this daemon can serve right now. */
             local: () => call(["models", "local"]) as Promise<import("@arcforge/types").EngineCapability[]>,
             /** Load a weight into memory and take a hold on it. */
@@ -264,6 +271,32 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             bind: () => call(["dictation", "bind"]) as Promise<{ chord: string; mode: string; bound: boolean }>,
             /** Remove it. */
             unbind: () => call(["dictation", "unbind"]) as Promise<void>,
+        },
+
+        /**
+         * The lab — the running Terraria world and the warm bodies agents
+         * occupy. The daemon owns them because a display, a port and a game
+         * client can only belong to one process on this machine.
+         */
+        worlds: {
+            /** Every world on disk, what is running, every body, the mod. One read for a whole view. */
+            state: () => call(["worlds", "state"]) as Promise<WorldsState>,
+            start: (input: { name: string; port?: number; players?: number }) => call(["worlds", "start"], input) as Promise<void>,
+            stop: () => call(["worlds", "stop"]) as Promise<void>,
+            /** Stop and start the running world, so a rebuilt mod is loaded everywhere. */
+            restart: () => call(["worlds", "restart"]) as Promise<void>,
+            logs: (input?: { lines?: number }) => call(["worlds", "logs"], input) as Promise<{ server: string[] }>,
+            mod: {
+                state: () => call(["worlds", "mod", "state"]) as Promise<ModState>,
+                build: () => call(["worlds", "mod", "build"]) as Promise<ModState>,
+            },
+            bodies: {
+                list: () => call(["worlds", "bodies", "list"]) as Promise<BodyInfo[]>,
+                add: () => call(["worlds", "bodies", "add"]) as Promise<BodyInfo>,
+                lease: (input: { agent: string; pid: number; character: string; characterDir: string }) =>
+                    call(["worlds", "bodies", "lease"], input) as Promise<LeaseGrant>,
+                release: (lease: string) => call(["worlds", "bodies", "release"], lease) as Promise<void>,
+            },
         },
     }
 }

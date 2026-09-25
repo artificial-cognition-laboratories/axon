@@ -48,6 +48,12 @@ export type CloneOpts = {
     /** What is being cloned, by its registry name. */
     source: string
     /**
+     * The site fronting the registry this command is talking to, used for the
+     * artifact link. Required so the link cannot claim production while the
+     * command runs against a local stack — see registryUrl.
+     */
+    registryWeb: string
+    /**
      * The name it lands as, when that differs — a fork renames it.
      *
      * Present only for a fork, and it is the whole visible difference between
@@ -78,7 +84,7 @@ export function clone(r: RendererHandle, opts: CloneOpts): string {
     lines.push(header(r, {
         title: opts.as ? "Forking" : "Cloning",
         subtitle: opts.source,
-        href: registryUrl(opts.source),
+        href: registryUrl(opts.source, opts.registryWeb),
     }))
 
     // Stated up front rather than at the end: it changes what the whole

@@ -86,22 +86,15 @@ describe("kernel failure: a reply with no block", () => {
         await runtime.shutdown()
     })
 
-    /**
-     * A bare `<done/>` is a complete reply, not an empty one.
-     *
-     * It is what a model sends when the previous turn already spoke and acted
-     * and there is nothing left to add — and it is the exact signal the loop's
-     * stop condition reads. Rejecting it forced a model with nothing to say to
-     * invent something three times, then failed the wake outright.
-     */
-    it("accepts a bare <done/> as a finished turn rather than an empty one", async () => {
+    /** A bare `<done/>` cannot complete a live user request with no handback. */
+    it("repairs a bare <done/> rather than silently abandoning the request", async () => {
         let calls = 0
         const def: AxonEngineDef = {
             name: "done-only",
             create: () => ({
                 async *stream() {
                     calls++
-                    yield* emit("<done/>")
+                    yield* emit(calls === 1 ? "<done/>" : "<text>you're welcome</text><done/>")
                 },
             }),
         }
@@ -109,8 +102,11 @@ describe("kernel failure: a reply with no block", () => {
 
         await expect(runtime.kernel.request({ content: "thanks" })).resolves.toBeDefined()
 
-        // Once. Not retried, and not failed.
-        expect(calls).toBe(1)
+        // The repair fact keeps the request live until the model supplies a reply.
+        expect(calls).toBe(2)
+        const output = runtime.session.entries.filter(e => e.type === "cognet:output:text")
+        expect(output).toHaveLength(1)
+        expect((output[0] as { data: { content: string } }).data.content).toBe("you're welcome")
 
         await runtime.shutdown()
     })

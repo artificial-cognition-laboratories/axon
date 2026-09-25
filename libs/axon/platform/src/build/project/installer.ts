@@ -247,11 +247,12 @@ export function Installer(opts: InstallerOpts) {
                         additions[name] = range
                         repaired.push({ name, from: existing, to: range, origin })
                     }
-                } catch {
-                    // Unresolvable here too. Left alone deliberately: the
-                    // install that follows fails with the package manager's own
-                    // message, which is more specific than anything this could
-                    // invent about a package it could not reach.
+                } catch (cause) {
+                    // This is the boundary that discovered the incompatible
+                    // registry state. Continuing would make Bun fail later
+                    // with a manifest-wide error that hides which tracked
+                    // range became invalid.
+                    throw cause
                 }
             }
 
@@ -322,7 +323,21 @@ export function Installer(opts: InstallerOpts) {
                     // `track: "latest"` skips this: the whole point is to
                     // re-resolve and overwrite the declared range, so treating
                     // it as an untouchable pin is exactly the wrong answer.
-                    if (existing !== undefined && !constraint && options.track !== "latest") {
+                    /*
+                     * An ABI-bound install is never "already installed" on the
+                     * strength of a declared range.
+                     *
+                     * The range answers "what did the author allow"; the
+                     * question here is "does what is on disk fit THIS kernel",
+                     * and those come apart exactly when it matters. A cloned
+                     * agent declaring `^0.1.0` short-circuited here, so the
+                     * ABI-aware resolve below never ran, and bun installed the
+                     * lockfile's ABI-10 cognet onto an ABI-11 kernel.
+                     *
+                     * Re-resolving costs one registry call and is the only way
+                     * to answer the question actually being asked.
+                     */
+                    if (existing !== undefined && !constraint && options.track !== "latest" && options.abi === undefined) {
                         // …unless the range was auto-resolved against a
                         // DIFFERENT registry than the one now configured. Such
                         // a range describes a version this registry may never
@@ -340,12 +355,30 @@ export function Installer(opts: InstallerOpts) {
                     }
 
                     const version = await resolveVersion(name, constraint, options.abi)
-                    // `keepRange` re-applies the operator already declared, so
-                    // an update moves the version without narrowing the user's
-                    // constraint into a pin. See InstallOptions.
-                    const range = options.keepRange && constraint
-                        ? `${existingRange?.match(/^[\^~]/)?.[0] ?? ""}${version}`
-                        : constraint ?? `^${version}`
+                    /*
+                     * An ABI-resolved version is written as an EXACT pin.
+                     *
+                     * `resolveVersion` asked the registry "the newest version
+                     * that fits kernel ABI N" and got a specific answer. Writing
+                     * `^that` throws the answer away: the npm protocol has no
+                     * concept of an ABI — deliberately, it is what makes a
+                     * cognet installable by `bun add` at all — so any range left
+                     * for bun to resolve is a range resolved WITHOUT the ABI.
+                     * `^0.1.0` spanning an ABI-10 and an ABI-11 build is exactly
+                     * that, and it is how a clone got the wrong one.
+                     *
+                     * A range is a semver compatibility claim, and an ABI-bound
+                     * artifact is not semver-compatible in the way it implies.
+                     * That is the whole reason `abi` exists as a separate axis.
+                     */
+                    const range = options.abi !== undefined
+                        ? version
+                        : options.keepRange && constraint
+                            // `keepRange` re-applies the operator already
+                            // declared, so an update moves the version without
+                            // narrowing the user's constraint into a pin.
+                            ? `${existingRange?.match(/^[\^~]/)?.[0] ?? ""}${version}`
+                            : constraint ?? `^${version}`
 
                     if (existing === range) {
                         results.push({ status: "already-installed", name, version })

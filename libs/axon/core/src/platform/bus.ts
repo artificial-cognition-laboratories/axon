@@ -25,7 +25,7 @@ export type BusHistoryEntry = {
  * subscribes for live rendering, and tests assert against history(). An
  * event that only reaches the bus is gone when the process ends.
  *
- * Distinct from Hooks(): this is many-to-many fire-and-forget notification;
+ * Distinct from Hooks(): this is many-to-many notification;
  * hooks are call-and-await-to-completion at a fixed runtime call point.
  *
  * Generic EventMap lets user-defined events be typed alongside built-ins.
@@ -76,10 +76,11 @@ export type AxonBusT<EventMap extends Record<string, unknown> = AxonEventMap> = 
 
     /**
      * Subscribe to ALL events. Handler receives the event name and payload.
+     * Async handlers are awaited, and failures are reported like named handlers.
      * Used by the WebSocket bus relay to forward events to connected TUI clients.
      * Returns an unsubscribe function.
      */
-    onAny(handler: (event: string, payload: unknown) => void): () => void
+    onAny(handler: (event: string, payload: unknown) => void | Promise<void>): () => void
 
     /**
      * Relay an externally-typed event onto the bus without static payload
@@ -93,13 +94,12 @@ export type AxonBusT<EventMap extends Record<string, unknown> = AxonEventMap> = 
 
 export function AxonBus<EventMap extends Record<string, unknown> = AxonEventMap>(opts?: { maxHistory?: number }): AxonBusT<EventMap> {
     const maxHistory = opts?.maxHistory ?? 1000
-    type FullMap = AxonEventMap & EventMap
 
     // handler map: event name → ordered list of handlers
     const handlers = new Map<string, Array<EventHandler<unknown>>>()
 
     // wildcard handlers — called for every emitted event
-    const anyHandlers = new Set<(event: string, payload: unknown) => void>()
+    const anyHandlers = new Set<(event: string, payload: unknown) => void | Promise<void>>()
 
     // history ring — all emitted events, in order
     const _history: BusHistoryEntry[] = []
@@ -150,34 +150,29 @@ export function AxonBus<EventMap extends Record<string, unknown> = AxonEventMap>
             try {
                 await handler(payload)
             } catch (cause) {
-                // A handler failure is a real failure — plugins and modules
-                // register handlers, so a silently-broken one is invisible
-                // rot. Constructing it through err() delivers it to the
-                // session's error sink (errScope), which is what makes it
-                // durable; previously this only reached the in-memory
-                // history ring and stderr, so nothing about a failing
-                // plugin handler ever survived the process.
-                const failure = err("BUS_HANDLER_FAILED", {
-                    detail: `handler for "${event}" threw`,
-                    context: { event },
-                    cause,
-                })
-                // Recursion guard: a failing axon:bus:error handler must not
-                // re-enter this path forever. Its own failure is already
-                // recorded by err() above.
-                if (event !== "axon:bus:error") {
-                    await emit("axon:bus:error", { event, error: failure })
-                }
+                await reportHandlerFailure(event, cause)
             }
         }
 
-        // Wildcard handlers are non-fatal, but failures are surfaced.
-        for (const handler of anyHandlers) {
+        for (const handler of [...anyHandlers]) {
             try {
-                handler(event, payload)
-            } catch (anyHandlerError) {
-                console.warn(`[axon:bus] wildcard handler error on "${event}":`, anyHandlerError)
+                await handler(event, payload)
+            } catch (cause) {
+                await reportHandlerFailure(event, cause)
             }
+        }
+    }
+
+    async function reportHandlerFailure(event: string, cause: unknown): Promise<void> {
+        // err() delivers the failure to the session's scoped sink. The bus
+        // error event informs live observers; its own failures cannot recurse.
+        const failure = err("BUS_HANDLER_FAILED", {
+            detail: `handler for "${event}" threw`,
+            context: { event },
+            cause,
+        })
+        if (event !== "axon:bus:error") {
+            await emit("axon:bus:error", { event, error: failure })
         }
     }
 
@@ -196,7 +191,7 @@ export function AxonBus<EventMap extends Record<string, unknown> = AxonEventMap>
             return result
         },
         clearHistory(): void { _history.length = 0 },
-        onAny(handler: (event: string, payload: unknown) => void): () => void {
+        onAny(handler: (event: string, payload: unknown) => void | Promise<void>): () => void {
             anyHandlers.add(handler)
             return () => { anyHandlers.delete(handler) }
         },

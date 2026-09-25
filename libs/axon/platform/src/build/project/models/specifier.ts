@@ -17,10 +17,19 @@ export type ParsedModel = {
     repo: string
     /** Path within the repo. A repo is a directory; big ones hold many weights. */
     file: string
+    /** Complete repository layout rather than one file. */
+    set?: boolean
     /** Git revision. `main` unless pinned. */
     rev: string
     /** Expected content hash, when the author pinned one. */
     sha256?: string
+    /** Optional provider capability metadata carried into the machine cache. */
+    traits?: {
+        capability?: string
+        type?: "generate" | "transform" | "stream"
+        in?: string[]
+        out?: string[]
+    }
 }
 
 /** The one place a model's fetch URL is constructed. */
@@ -45,7 +54,7 @@ export function basenameOf(model: ParsedModel): string {
  */
 export function parseModel(key: string, ref: ModelRef): ParsedModel {
     if (typeof ref !== "string") {
-        if (!ref.hf || !ref.file) {
+        if (!ref.hf || (!ref.file && !ref.set)) {
             throw err("MODEL_SPECIFIER_INVALID", {
                 detail: `models.${key}: the object form needs both "hf" (owner/repo) and "file"`,
                 context: { key },
@@ -55,9 +64,18 @@ export function parseModel(key: string, ref: ModelRef): ParsedModel {
             key,
             host: "hf",
             repo: ref.hf,
-            file: ref.file,
+            file: ref.file ?? "",
+            ...(ref.set ? { set: true } : {}),
             rev: ref.rev ?? "main",
             ...(ref.sha256 ? { sha256: ref.sha256 } : {}),
+            ...((ref.capability || ref.type || ref.in || ref.out) ? {
+                traits: {
+                    ...(ref.capability ? { capability: ref.capability } : {}),
+                    ...(ref.type ? { type: ref.type } : {}),
+                    ...(ref.in ? { in: ref.in } : {}),
+                    ...(ref.out ? { out: ref.out } : {}),
+                },
+            } : {}),
         }
     }
 

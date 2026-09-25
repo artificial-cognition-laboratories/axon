@@ -41,6 +41,24 @@ export type CognetSchedule =
     | { kind: "continuous" }
 
 /**
+ * When this brain can consume one input modality.
+ *
+ * `true` means cognition itself owns a path regardless of inference bindings.
+ * An engine condition means the path is available only when that resolved role
+ * actually accepts the same modality. `any` supports multi-model fallbacks
+ * without exposing provider or model identity.
+ */
+export type CognetStimulusCondition =
+    | true
+    | { engine: string }
+    | { any: string[] }
+
+export type CognetStimulusSupport = Partial<Record<
+    "text" | "image" | "audio" | "video" | "vector",
+    CognetStimulusCondition
+>>
+
+/**
  * What cognet.config.ts declares via defineCognet() — the cognet's own
  * DECLARED shape, and nothing that is already a fact elsewhere.
  *
@@ -77,6 +95,14 @@ export type CognetConfig = {
 
     /** Default wake mask — overridable by the blueprint's wakeOn. Absent = wake on everything. */
     wakeOn?: Array<keyof AxonEntryEvent>
+
+    /**
+     * Input modalities this brain has an explicit cognitive path for.
+     *
+     * This is distinct from engine capability: a multimodel brain may accept
+     * images through a fallback even when its cortex is text-only.
+     */
+    stimuli?: CognetStimulusSupport
 
     /**
      * Hard safety bound for one wake. Omitted means UNBOUNDED, which is the
@@ -122,6 +148,30 @@ export type CognetConfig = {
      */
     engines?: EngineRequirements
 
+    /**
+     * The weights this brain needs, by the names IT calls them.
+     *
+     * ```ts
+     * models: {
+     *     features: { hf: "onnx-community/dinov2-small", set: true, capability: "vision", type: "transform", in: ["image"], out: ["vector"] },
+     * }
+     * ```
+     *
+     * The supply half of the indirection `engines:` makes for inference:
+     * `engines` says what a role is FOR, this says where a local provider can
+     * get something to fill it. A brain that shipped a provider identity would
+     * be a brain wired to one machine.
+     *
+     * Declaring weights is a STATIC fact about a mind, which is why the build
+     * reads it textually (`readCognetModels`) rather than by evaluating the
+     * config: a computed or imported specifier is deliberately not recognised.
+     * Keep the literal a literal.
+     *
+     * Fetched at `axon prepare`, verified against `sha256` when one is pinned,
+     * and stored once per hash — so two brains naming the same weights share
+     * the bytes.
+     */
+    models?: Readonly<Record<string, ModelRef>>
 }
 
 /**
@@ -141,12 +191,22 @@ export type ModelRef =
     | {
         /** `owner/repo` on Hugging Face. */
         hf: string
-        /** Path within the repo — a repo is a directory, and repos hold many weights. */
-        file: string
+        /** Set this when Axon must materialize the complete repository directory. */
+        set?: boolean
+        /** Path within the repo. Required unless `set: true` requests the complete repository. */
+        file?: string
         /** Git revision. Defaults to `main`. */
         rev?: string
         /** Expected content hash. Pin it and a changed upstream is an error, not a surprise. */
         sha256?: string
+        /** Optional capability metadata for Axond's local provider catalogue. */
+        capability?: string
+        /** Engine handle shape: generate, transform, or stream. */
+        type?: "generate" | "transform" | "stream"
+        /** Accepted input modalities. */
+        in?: string[]
+        /** Produced output modalities. */
+        out?: string[]
     }
 
 /**

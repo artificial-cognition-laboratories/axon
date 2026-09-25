@@ -1,0 +1,5 @@
+AxonT exposes an owned, agent-driven Terraria client to Axon over a loopback
+WebSocket: proprioceptive body samples out, leased controls in, and server
+join/leave as explicit commands.
+
+It does nothing unless AXONT_MANAGED_CLIENT=1 is set in the client's environment.

@@ -1,4 +1,6 @@
+import { workerPath } from "../utils/packaged"
 import { AsyncLocalStorage } from "node:async_hooks"
+import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import {
@@ -282,7 +284,7 @@ Object.assign(globalThis, instrumented)
 // globalThis alone does not replace them. Transform only the explicitly
 // selected test file in memory — user source is never rewritten on disk.
 const target = resolve(process.cwd(), file)
-const apiUrl = pathToFileURL(new URL("./test-api.ts", import.meta.url).pathname).href
+const apiUrl = pathToFileURL(workerPath(import.meta.dir, "test-api.js", "test-api.ts")).href
 const injected = `import { describe, test, it, xdescribe, xtest, xit, beforeAll, beforeEach, afterEach, afterAll } from ${JSON.stringify(apiUrl)};\n`
 const targetFilter = new RegExp(`^${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
 

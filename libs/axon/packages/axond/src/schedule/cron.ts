@@ -3,7 +3,8 @@ const RANGES = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]] as const
 
 function fieldMatches(expression: string, value: number, min: number, max: number): boolean {
     return expression.split(",").some(part => {
-        const [base, stepText] = part.split("/")
+        const [rawBase, stepText] = part.split("/")
+        const base = rawBase ?? ""
         const step = stepText === undefined ? 1 : Number(stepText)
         if (!Number.isInteger(step) || step < 1) return false
 
@@ -24,10 +25,12 @@ export function isValidCron(expression: string): boolean {
     const fields = expression.trim().split(/\s+/)
     if (fields.length !== 5) return false
     return fields.every((field, index) => field.length > 0 && field.split(",").every(part => {
-        const [base, stepText] = part.split("/")
+        const [rawBase, stepText] = part.split("/")
+        const base = rawBase ?? ""
         if (stepText !== undefined && (!/^\d+$/.test(stepText) || Number(stepText) < 1)) return false
         if (base === "*") return true
-        const [fromText, toText] = base.split("-")
+        const [rawFromText, toText] = base.split("-")
+        const fromText = rawFromText ?? ""
         if (!/^\d+$/.test(fromText) || (toText !== undefined && !/^\d+$/.test(toText))) return false
         const from = Number(fromText)
         const to = toText === undefined ? from : Number(toText)

@@ -2,8 +2,7 @@ import type { HttpClient } from "../../platform/http"
 import { record } from "../../platform/parse"
 import { DeviceFlow } from "./device"
 import { jwt } from "./jwt"
-import { parseAuthUser } from "./types"
-import type { AuthSession, AuthUser, DeviceAuthorization } from "./types"
+import { parseAuthUser, type AuthSession, type AuthUser, type DeviceAuthorization } from "./types"
 
 const REFRESH_BUFFER_MS = 5 * 60 * 1000
 

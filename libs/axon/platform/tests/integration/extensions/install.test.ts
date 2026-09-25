@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
-import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK_PUBLISHED } from "../../setup/user"
+import { TEST_USER, TEST_FRAMEWORK_PUBLISHED } from "../../setup/user"
 
 /**
  * Installing an extension: fetch it, and record it in `profile.config.ts`.
@@ -32,13 +32,13 @@ async function withProfile(fn: (ctx: Fixture) => Promise<void>): Promise<void> {
     const storeDir = await mkdtemp(join(tmpdir(), "axon-test-store-"))
     const workDir = await mkdtemp(join(tmpdir(), "axon-test-work-"))
     try {
-        const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
+        const seed = Platform({ ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
         seed.store.profiles.save(TEST_USER.id, {
             user: { id: TEST_USER.id, email: TEST_USER.email },
             auth: { apiKey: TEST_USER.apiKey },
         })
 
-        const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
+        const platform = Platform({ ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
         await platform.profile.ensure()
 
         await fn({

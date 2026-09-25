@@ -19,3 +19,6 @@ export { CognetHost } from "./host"
 export { defineCognet } from "./define"
 
 export { Clock, type ClockT, type ClockOpts, type ClockEmit } from "./clock"
+// Exported because Clock requires one and Clock is public: a consumer that can
+// build a clock must be able to build the counter it runs on.
+export { Ticks, type TicksT } from "./ticks"

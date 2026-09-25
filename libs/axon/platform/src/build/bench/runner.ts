@@ -1,4 +1,6 @@
-import { join } from "node:path"
+import { workerPath } from "../../utils/packaged"
+import { join, resolve } from "node:path"
+import { existsSync } from "node:fs"
 import type {
     AxonTestEvent,
     BenchAxis,
@@ -130,7 +132,7 @@ export function Runner(opts: RunnerOpts) {
             const requiredIds = new Set(config.measurements.filter(item => item.required).map(item => item.id))
             const measured = new Set<string>()
             const measurementStates: BenchMeasurementState[] = []
-            const preload = new URL("./preload.ts", import.meta.url).pathname
+            const preload = workerPath(import.meta.dir, "bench-preload.js", "preload.ts")
 
             try {
                 for (let cellIndex = 0; cellIndex < coordinates.length && !budgetExhausted; cellIndex++) {

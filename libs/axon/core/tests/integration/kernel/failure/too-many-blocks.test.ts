@@ -53,6 +53,12 @@ describe("kernel failure: too many blocks", () => {
         const message = String((faults[0] as { data: { content: string } }).data.content)
         expect(message).toContain("Too many blocks")
         expect(message).toContain("at the same time")
+        expect((faults[0] as { data: { attributes?: Record<string, string> } }).data.attributes).toMatchObject({
+            texts: "0",
+            scripts: "2",
+            yielded: "true",
+            crossed: "false",
+        })
 
         // The rejected reply itself is in the log, verbatim — a correction the
         // model cannot see the subject of is a scolding, not a diagnostic.

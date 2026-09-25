@@ -54,7 +54,14 @@ async function fetchCompletions(req: AxonEngineRequest, url: string, opts: OpenR
             },
             body: JSON.stringify({
                 model: opts.model,
-                messages: req.messages,
+                messages: req.messages.map(message => ({
+                    role: message.role,
+                    content: typeof message.content === "string"
+                        ? message.content
+                        : message.content.map(part => part.type === "text"
+                            ? { type: "text", text: part.text }
+                            : { type: "image_url", image_url: { url: part.ref.uri } }),
+                })),
                 stream: true,
                 ...(req.maxTokens != null ? { max_tokens: req.maxTokens } : {}),
                 ...(req.temperature != null ? { temperature: req.temperature } : {}),

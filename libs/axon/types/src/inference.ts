@@ -43,10 +43,11 @@ export type EngineType = "generate" | "transform" | "stream"
  * here only has to be specific enough for a resolver to tell two models
  * apart.
  *
- * "score", "vector" and "depth" are output shapes rather than modalities in
- * the strict sense. They earn their place because a cognet asking for a VAD
- * and a cognet asking for speech-to-text both say `in: "audio"`, and the
- * output is the only thing that separates them.
+ * "score", "vector", "depth" and "detections" are output shapes rather than
+ * modalities in the strict sense. They earn their place because a cognet
+ * asking for a VAD and a cognet asking for speech-to-text both say
+ * `in: "audio"`, and the output is the only thing that separates them — and
+ * an image encoder and an object detector both take `in: "image"`.
  */
 export type Modality =
     | "text"
@@ -56,6 +57,29 @@ export type Modality =
     | "vector"
     | "score"
     | "depth"
+    /** Located things: a box, a label and a confidence each. */
+    | "detections"
+
+/**
+ * An image, as it crosses to an engine.
+ *
+ * Raw pixels rather than an encoded file, because what a perception stack
+ * holds is pixels — it decoded the frame to look at it — and a crop of one is
+ * pixels too. Re-encoding a crop to JPEG to hand it to a model would spend
+ * time to lose information.
+ *
+ * `data` is base64 because the call crosses a JSON socket, where a typed
+ * array arrives as an index-keyed object nine hundred entries long.
+ */
+export type ImageInput = {
+    kind: "image"
+    width: number
+    height: number
+    /** RGB only. A channel count is stated rather than inferred so a mismatch fails at the seam. */
+    channels: 3
+    /** Row-major RGB bytes, base64. */
+    data: string
+}
 
 /**
  * One named engine a cognet requires, as declared in `cognet.config.ts`.
@@ -78,6 +102,18 @@ export type EngineRequirement = {
 
     /** Produced output modalities. A single value is shorthand for one. */
     out: Modality | Modality[]
+
+    /**
+     * Modalities that improve this role but are not required for it to run.
+     *
+     * Resolution prefers candidates covering these after honoring an explicit
+     * user model choice, then falls back to any candidate satisfying `in`.
+     * The bound handle reports what it actually got.
+     */
+    prefer?: {
+        in?: Modality | Modality[]
+        out?: Modality | Modality[]
+    }
 
     /**
      * Minimum usable context window, in tokens. Only meaningful for
@@ -194,6 +230,19 @@ export type EngineCapability = {
  * site can never block on it and can never fail differently on the second
  * tick than the first.
  */
+/**
+ * Sanitized facts about one resolved role.
+ *
+ * Safe to cross confinement: these describe what the handle can do, never
+ * which provider/model supplies it or which credential reaches it.
+ */
+export type ResolvedEngineFacts = {
+    type: EngineType
+    context?: number
+    modalities: { in: Modality[]; out: Modality[] }
+    slots: number
+}
+
 export type EngineBinding = {
     role: string
     requirement: EngineRequirement
@@ -238,4 +287,57 @@ export type EngineResolution = {
     unmet: EngineUnmet[]
     /** Unfilled roles that were NOT optional — non-empty means the agent cannot run. */
     missing: EngineUnmet[]
+}
+
+/** What a model takes in, gives back, and how it is called — read off its task. */
+export type ModelShape = {
+    type: EngineType
+    in: Modality[]
+    out: Modality[]
+}
+
+const TEXT_GENERATION: ModelShape = { type: "generate", in: ["text"], out: ["text"] }
+
+/**
+ * Hugging Face task tags → model shape. THE one table.
+ *
+ * It lived twice — an exact-match table in @arcforge/engines and a substring
+ * matcher in axond's catalogue — and the two disagreed: the substring version
+ * read `image-feature-extraction` as `feature-extraction` and advertised
+ * DINOv2 as a TEXT encoder, so no role asking for image → vector could ever
+ * resolve to it. Two places that interpret a vocabulary are two chances to
+ * interpret it differently.
+ *
+ * Exact match on purpose. An unknown tag has NO shape — never a guess — so a
+ * reader can tell "nobody wrote this down" from a confident lie.
+ */
+const PIPELINE_TAGS: Record<string, ModelShape> = {
+    "text-generation": TEXT_GENERATION,
+    "text2text-generation": TEXT_GENERATION,
+    "image-text-to-text": { type: "generate", in: ["text", "image"], out: ["text"] },
+    "audio-text-to-text": { type: "generate", in: ["text", "audio"], out: ["text"] },
+    "text-to-speech": { type: "generate", in: ["text"], out: ["audio"] },
+    "text-to-audio": { type: "generate", in: ["text"], out: ["audio"] },
+    "text-to-image": { type: "transform", in: ["text"], out: ["image"] },
+    "text-to-video": { type: "transform", in: ["text"], out: ["video"] },
+    "automatic-speech-recognition": { type: "transform", in: ["audio"], out: ["text"] },
+    "image-to-text": { type: "transform", in: ["image"], out: ["text"] },
+    "feature-extraction": { type: "transform", in: ["text"], out: ["vector"] },
+    "sentence-similarity": { type: "transform", in: ["text"], out: ["vector"] },
+    "image-feature-extraction": { type: "transform", in: ["image"], out: ["vector"] },
+    "depth-estimation": { type: "transform", in: ["image"], out: ["depth"] },
+    "image-classification": { type: "transform", in: ["image"], out: ["text"] },
+    "object-detection": { type: "transform", in: ["image"], out: ["detections"] },
+    "zero-shot-object-detection": { type: "transform", in: ["image", "text"], out: ["detections"] },
+    "image-segmentation": { type: "transform", in: ["image"], out: ["image"] },
+    "text-classification": { type: "transform", in: ["text"], out: ["text"] },
+    "token-classification": { type: "transform", in: ["text"], out: ["text"] },
+    "audio-classification": { type: "transform", in: ["audio"], out: ["text"] },
+    "voice-activity-detection": { type: "stream", in: ["audio"], out: ["score"] },
+}
+
+/** A task tag's shape, or null for a tag nobody has described. */
+export function shapeOfPipelineTag(tag: string | undefined): ModelShape | null {
+    if (!tag) return null
+    return PIPELINE_TAGS[tag.toLowerCase()] ?? null
 }

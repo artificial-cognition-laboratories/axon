@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/axond",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "exports": {
         ".": {
@@ -22,7 +22,9 @@
         "bin/**/*.ts"
     ],
     "scripts": {
-        "test": "bun test --parallel=4",
+        "test": "bun run test:full",
+        "test:hot": "bun test --parallel=4 tests/hot",
+        "test:full": "bun test --parallel=4 tests/hot tests/integration",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
@@ -41,8 +43,5 @@
     "peerDependencies": {
         "typescript": "^5"
     },
-    "optionalDependencies": {
-        "onnxruntime-node": "^1.29.0",
-        "node-llama-cpp": "^3.20.0"
-    }
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

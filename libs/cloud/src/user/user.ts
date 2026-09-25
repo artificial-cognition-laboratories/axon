@@ -3,6 +3,7 @@ import { Activity } from "./activity"
 import { Auth } from "./auth"
 import { Billing } from "./billing"
 import { Deployments } from "./deployments"
+import { Installs } from "./installs"
 import { Keys } from "./keys"
 import { Orgs } from "./orgs"
 import { Overview } from "./overview"
@@ -25,6 +26,8 @@ type UserOpts = {
     onUnauthorized?: () => void
     /** Fired on 5xx and transport failures, for crash reporting — see HttpOpts. */
     onFailure?: (error: unknown, path: string, method: string) => void
+    /** Transport override — see HttpOpts.fetch. Production passes nothing. */
+    fetch?: typeof fetch
 }
 
 /**
@@ -50,6 +53,7 @@ export function User(opts: UserOpts) {
         token: () => auth.token,
         ...(opts.onUnauthorized !== undefined ? { onUnauthorized: opts.onUnauthorized } : {}),
         ...(opts.onFailure !== undefined ? { onFailure: opts.onFailure } : {}),
+        ...(opts.fetch !== undefined ? { fetch: opts.fetch } : {}),
     })
 
     const billing = Billing({ http: http })
@@ -62,6 +66,7 @@ export function User(opts: UserOpts) {
     const pins = Pins({ http: http })
     const deployments = Deployments({ http: http })
     const overview = Overview({ http: http })
+    const installs = Installs({ http: http })
 
     return {
         auth: auth,
@@ -76,6 +81,7 @@ export function User(opts: UserOpts) {
         pins: pins,
         deployments: deployments,
         overview: overview,
+        installs: installs,
     }
 }
 

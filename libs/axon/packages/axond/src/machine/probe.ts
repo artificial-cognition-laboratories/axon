@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { freemem, loadavg, totalmem } from "node:os"
 import { amdCardDevice, sysfsNumber } from "./hardware"
 import type { MachineReading } from "./types"
+import { ask } from "./ask"
 
 /**
  * Probe — what is in use RIGHT NOW.
@@ -71,7 +72,7 @@ function nvidiaUsage(): { used: number; util: number } | null {
     if (!Bun.which("nvidia-smi")) return null
 
     try {
-        const probed = Bun.spawnSync([
+        const probed = ask([
             "nvidia-smi",
             "--query-gpu=memory.used,utilization.gpu",
             "--format=csv,noheader,nounits",

@@ -1,11 +1,19 @@
 import { err } from "@arcforge/err"
 import type { KernelAbi } from "@arcforge/types"
+import type { Stamp } from "./ecs"
+import type { TicksT } from "./ticks"
 
 /** Telemetry sink — the cognet's own `kernel.emit`. Fire-and-forget, never awaited. */
 export type ClockEmit = KernelAbi["emit"]
 
 export type ClockOpts = {
     emit: ClockEmit
+    /**
+     * The cognet's tick counter. Owned by the host because it outlives every
+     * wake — see ticks.ts. A per-Clock counter reset to zero on each wake,
+     * which made the tick number meaningless in continuous mode.
+     */
+    ticks: TicksT
     /**
      * The wake's own abort signal. Lets tick/phase/system tell an intentional
      * interrupt (Escape/Ctrl+C, engine abort) apart from a genuine failure.
@@ -34,19 +42,26 @@ export type ClockOpts = {
  * telemetry never swallows.
  */
 export function Clock(opts: ClockOpts) {
-    const { emit, signal } = opts
+    const { emit, signal, ticks } = opts
 
-    let tick = 0
     let phase: string | null = null
+    let system: string | null = null
 
-    /** tick/phase stamp merged into every event payload below tick level. */
-    function stamp() {
-        return { tick, phase }
+    /**
+     * Where in the thought an event happened — merged into every payload below
+     * tick level, and into every world write.
+     *
+     * `system` is what turns a component write into lineage: without it a
+     * reader sees that `fear` changed but not who changed it, and "who changes
+     * this?" can only be answered by guessing from event order.
+     */
+    function stamp(): Stamp {
+        return { tick: ticks.current(), phase: phase, system: system }
     }
 
     return {
         get tick() {
-            return tick
+            return ticks.current()
         },
         // Annotated: without it the inferred return collapses to `null` (the
         // initializer's type), so a consumer comparing it to a phase name gets
@@ -54,12 +69,14 @@ export function Clock(opts: ClockOpts) {
         get phase(): string | null {
             return phase
         },
+        get system(): string | null {
+            return system
+        },
         stamp,
 
         /** One iteration of the cognitive loop. Advances the clock. */
         async runTick<T>(fn: () => Promise<T>): Promise<T> {
-            tick += 1
-            const current = tick
+            const current = ticks.next()
             const started = Date.now()
             void emit("cognet:tick:start", { tick: current })
             try {
@@ -81,18 +98,18 @@ export function Clock(opts: ClockOpts) {
         async runPhase<T>(name: string, fn: () => Promise<T>): Promise<T> {
             phase = name
             const started = Date.now()
-            void emit("cognet:phase:start", { tick, phase: name })
+            void emit("cognet:phase:start", { tick: ticks.current(), phase: name })
             try {
                 const result = await fn()
-                void emit("cognet:phase:complete", { tick, phase: name, durationMs: Date.now() - started })
+                void emit("cognet:phase:complete", { tick: ticks.current(), phase: name, durationMs: Date.now() - started })
                 return result
             } catch (cause) {
                 if (signal?.aborted) {
-                    void emit("cognet:phase:interrupted", { tick, phase: name })
+                    void emit("cognet:phase:interrupted", { tick: ticks.current(), phase: name })
                     throw cause
                 }
                 const failure = err(cause)
-                void emit("cognet:phase:failed", { tick, phase: name, error: failure, durationMs: Date.now() - started })
+                void emit("cognet:phase:failed", { tick: ticks.current(), phase: name, error: failure, durationMs: Date.now() - started })
                 throw failure
             } finally {
                 phase = null
@@ -101,6 +118,10 @@ export function Clock(opts: ClockOpts) {
 
         /** A unit of work within a phase — the innermost bracket. */
         async runSystem<T>(name: string, fn: () => Promise<T>): Promise<T> {
+            // Restored rather than cleared: a system may bracket a sub-step as
+            // a system of its own, and the outer one is still running after.
+            const outer = system
+            system = name
             const started = Date.now()
             void emit("cognet:system:start", { ...stamp(), system: name })
             try {
@@ -115,6 +136,8 @@ export function Clock(opts: ClockOpts) {
                 const failure = err(cause)
                 void emit("cognet:system:failed", { ...stamp(), system: name, error: failure, durationMs: Date.now() - started })
                 throw failure
+            } finally {
+                system = outer
             }
         },
     }

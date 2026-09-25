@@ -369,6 +369,7 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
             specifier: string,
             files: { file: ModelFile; stored: StoredModel }[],
             primary: string,
+            traits?: ModelTraits,
         ): Promise<void> {
             const name = treeNameFor(specifier)
             const tree = treeFor(name)
@@ -397,7 +398,7 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
                 primary: primary,
                 // Traits describe the MODEL, not the bytes — a refetch must
                 // not forget what it is.
-                ...(previous?.traits ? { traits: previous.traits } : {}),
+                ...(traits ?? previous?.traits ? { traits: traits ?? previous?.traits } : {}),
             }
             await mkdir(root, { recursive: true })
             await Bun.write(indexPath, JSON.stringify(index, null, 4))

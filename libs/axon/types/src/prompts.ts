@@ -45,6 +45,8 @@ export type AxonPrompt = {
      * Present for agent-owned and module prompts; absent for inline prompts.
      */
     filePath?: string
+    /** Inline source for prompts discovered outside the agent root. */
+    source?: string
     /**
      * Components this prompt may compose, as PascalCase name → absolute path.
      *

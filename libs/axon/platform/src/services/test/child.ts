@@ -1,4 +1,7 @@
+import { workerPath } from "../../utils/packaged"
 import { err } from "@arcforge/err"
+import { existsSync } from "node:fs"
+import { resolve } from "node:path"
 import type { AxonTestEventFrame } from "@arcforge/types"
 import { isFrame, isTestChannel } from "./frames"
 
@@ -15,7 +18,7 @@ const DISCONNECT_GRACE_MS = 100
  * --preload` — and is never imported by this one. Packaged builds ship it as a
  * sibling .js (see the TUI's vterm.config.ts); a source checkout runs the .ts.
  */
-const PRELOAD = new URL("../../bin/test-preload.ts", import.meta.url).pathname
+const PRELOAD = workerPath(import.meta.dir, "test-preload.js", "../../bin/test-preload.ts")
 
 export type ChildOutcome = {
     exitCode: number

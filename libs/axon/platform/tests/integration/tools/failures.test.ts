@@ -55,7 +55,7 @@ describe("blueprint load: a tool that cannot be declared fails the load", () => 
     test("a syntactically broken tool fails the load", async () => {
         const root = await agentWithTools({ "broken.ts": "export function f( { return\n" })
 
-        expect(Blueprint({ root }).load()).rejects.toThrow()
+        await expect(Blueprint({ root }).load()).rejects.toThrow()
     }, 60_000)
 
     test("a tool importing an unresolvable module fails the load", async () => {
@@ -63,7 +63,7 @@ describe("blueprint load: a tool that cannot be declared fails the load", () => 
             "broken.ts": "import { gone } from './nowhere'\nexport function f() { return gone }\n",
         })
 
-        expect(Blueprint({ root }).load()).rejects.toThrow()
+        await expect(Blueprint({ root }).load()).rejects.toThrow()
     }, 60_000)
 
     test("the failure names the offending tool file", async () => {
@@ -86,7 +86,7 @@ describe("blueprint load: a tool that cannot be declared fails the load", () => 
             "broken.ts": "import { gone } from './nowhere'\nexport function f() { return gone }\n",
         })
 
-        expect(Blueprint({ root }).load()).rejects.toThrow()
+        await expect(Blueprint({ root }).load()).rejects.toThrow()
     }, 60_000)
 })
 
@@ -133,8 +133,8 @@ describe("blueprint load: failure is not cached as success", () => {
             "broken.ts": "import { gone } from './nowhere'\nexport function f() { return gone }\n",
         })
 
-        expect(Blueprint({ root }).load()).rejects.toThrow()
-        expect(Blueprint({ root }).load()).rejects.toThrow()
+        await expect(Blueprint({ root }).load()).rejects.toThrow()
+        await expect(Blueprint({ root }).load()).rejects.toThrow()
     }, 60_000)
 
     test("fixing a broken tool makes the next load succeed", async () => {

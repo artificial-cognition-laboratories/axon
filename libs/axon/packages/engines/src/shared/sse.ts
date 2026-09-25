@@ -12,7 +12,21 @@ export async function* readSse(response: Response, signal?: AbortSignal): AsyncG
     const decoder = new TextDecoder()
     let buffer = ""
 
-    const onAbort = () => { void reader.cancel() }
+    /*
+     * Cancel the body when the caller aborts — and HANDLE the rejection.
+     *
+     * `reader.cancel()` returns a promise, and cancelling a reader whose
+     * stream the transport has already errored rejects it. This listener runs
+     * synchronously inside `controller.abort()`, so with a bare `void` that
+     * rejection had no handler and no caller: it reached the process's fatal
+     * boundary as `Runtime Error / The operation was aborted.` and replaced a
+     * running TUI with a crash screen every time someone pressed Escape.
+     *
+     * There is nothing to report. The stream was cancelled deliberately, by
+     * us, one line above — a rejection saying so is the operation confirming
+     * it did what it was told.
+     */
+    const onAbort = () => { void reader.cancel().catch(() => undefined) }
     signal?.addEventListener("abort", onAbort, { once: true })
 
     try {

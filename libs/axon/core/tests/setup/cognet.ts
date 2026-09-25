@@ -1,7 +1,7 @@
 import type { KernelAbi } from "@arcforge/types"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
 import { defineCognet } from "@arcforge/cognet"
-import { Clock } from "@arcforge/cognet"
+import { Clock, Ticks } from "@arcforge/cognet"
 import { Air } from "@arcforge/air"
 
 /**
@@ -42,7 +42,11 @@ export function TestCognet() {
 
         async wake({ signal }) {
             const abi = syscalls()
-            const clock = Clock({ emit: abi.emit })
+            // A FRESH counter per wake, deliberately unlike the host's.
+            // The guard below bounds ticks within ONE wake, so this double
+            // wants the counter to restart — where a real cognet wants a
+            // monotonic world clock across wakes (see cognet/src/ticks.ts).
+            const clock = Clock({ emit: abi.emit, ticks: Ticks() })
             let stopped = false
 
             while (!stopped && !signal.aborted) {
@@ -91,7 +95,7 @@ export function TestCognet() {
                                     await abi.run(event.content)
                                     break
                                 case "engine:done":
-                                    finished = event.yielded && !event.acted
+                                    finished = event.yielded && event.spoke && !event.acted
                                     break
                             }
                         }

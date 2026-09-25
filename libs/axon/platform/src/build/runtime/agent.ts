@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto"
 import { join, resolve } from "node:path"
 import { Axon } from "@arcforge/core"
 import type { AxonHost, AxonT } from "@arcforge/core"
-import type { AxonEscalate } from "@arcforge/types"
 import type { AxonBlueprint, AxonPartialBlueprint, SupervisorToAgent } from "@arcforge/types"
 import type { AxonSessionT } from "@arcforge/session"
 import { err } from "@arcforge/err"
@@ -29,15 +28,6 @@ type AgentOpts = {
     session?: string
     /** Platform-owned services exposed to this instance's capsule. */
     host?: AxonHost
-    /**
-     * The platform's policy decider, bound to THIS agent.
-     *
-     * Bound rather than generic because a grant is written against an agent
-     * name, and the decider has no way to know which agent raised a call — the
-     * capsule only reports the fn and its arguments. Runtime() closes over the
-     * name when it builds this.
-     */
-    escalate?: AxonEscalate
     parentSessionId?: string | null
     rootSessionId?: string
     depth?: number
@@ -134,7 +124,7 @@ type AgentOpts = {
  */
 export async function Agent(opts: AgentOpts) {
     const { project } = opts
-    const blueprint = Blueprint({ root: project.root })
+    const blueprint = Blueprint({ root: project.root, cwd: opts.cwd })
 
     /**
      * The active profile's policy ceiling, re-read on every load.
@@ -150,21 +140,17 @@ export async function Agent(opts: AgentOpts) {
      * applies from the next boot or reload — not retroactively to a call
      * already in flight.
      *
-     * Never throws. An unreadable or absent profile means no ceiling, which is
-     * the correct state for `axon run` outside one and for a deployment. A
-     * ceiling that failed CLOSED here would make a broken config unbootable;
-     * one that fails open is the same posture the rest of the profile takes,
-     * and the config's own loader is what reports the breakage.
+     * No active profile means no ceiling, which is correct for `axon run`
+     * outside one and for a deployment. An active profile that cannot be read
+     * is invalid configuration and must fail this boot loudly; silently
+     * dropping its ceiling would run the agent with broader policy than the
+     * user configured.
      */
     async function profileCeiling(): Promise<AxonPartialBlueprint["profilePolicy"]> {
-        try {
-            const active = opts.store.profiles.active()
-            if (!active) return undefined
-            const policy = await readPolicy(active.root)
-            return Object.keys(policy).length > 0 ? (policy as AxonPartialBlueprint["profilePolicy"]) : undefined
-        } catch {
-            return undefined
-        }
+        const active = opts.store.profiles.active()
+        if (!active) return undefined
+        const policy = await readPolicy(active.root)
+        return Object.keys(policy).length > 0 ? (policy as AxonPartialBlueprint["profilePolicy"]) : undefined
     }
 
     /**
@@ -178,24 +164,21 @@ export async function Agent(opts: AgentOpts) {
      * Re-read per load so a provider added or a key connected takes effect on
      * the next boot or reload, rather than only after restarting the terminal.
      *
-     * Never throws. An unreadable profile means no providers, which is the
-     * correct state for `axon run` outside one and for a deployment — and a
-     * throw here would make a broken profile config unbootable, when the
-     * config's own loader is what reports the breakage.
+     * No active profile means no providers, which is correct for `axon run`
+     * outside one and for a deployment. An active profile that cannot be read
+     * is a broken credential/config boundary, not permission to silently fall
+     * back to a different provider pool.
      */
     async function profileProviders(): Promise<AxonPartialBlueprint["profileProviders"]> {
-        try {
-            const active = opts.store.profiles.active()
-            if (!active) return undefined
-            const { providers } = await ProfileConfigFile(active.root)
-            // Carried VERBATIM, including an empty array. `[]` is a user who
-            // declared no providers and absent is one who was never asked —
-            // collapsing the first into the second would silently hand them
-            // the default pool they had deliberately cleared.
-            return providers ? [...providers] : undefined
-        } catch {
-            return undefined
-        }
+        const active = opts.store.profiles.active()
+        if (!active) return undefined
+        const { providers, error } = await ProfileConfigFile(active.root)
+        if (error) throw error
+        // Carried VERBATIM, including an empty array. `[]` is a user who
+        // declared no providers and absent is one who was never asked —
+        // collapsing the first into the second would silently hand them
+        // the default pool they had deliberately cleared.
+        return providers ? [...providers] : undefined
     }
 
     /**
@@ -370,7 +353,14 @@ export async function Agent(opts: AgentOpts) {
                 // framework, modules, cognet, tree and typegen each report
                 // themselves through it, so a five-second build decomposes
                 // instead of being one opaque bar.
-                () => project.prepare({ report: (type, data) => recorder.emit(type as never, data as never) }),
+                () => project.prepare({
+                    report: (type, data) => recorder.emit(type as never, data as never),
+                    // A prepared result is reusable only while Project's
+                    // watcher has continuously observed the root. The next
+                    // blueprint load still runs below, so profile policy and
+                    // providers are never taken from a stale cache.
+                    reuse: true,
+                }),
                 result => ({ warnings: result.warnings.length }),
             )
 
@@ -450,25 +440,31 @@ export async function Agent(opts: AgentOpts) {
              */
             raise({ stage: "booting" })
 
-            const linked = await confined({
-                blueprint: { ...loaded, session: { id: sessionId } },
-                sessionId,
-                /**
-                 * A REAL reload: rescan the project, then hand the agent the
-                 * blueprint that produced.
-                 *
-                 * The first cut re-sent the blueprint captured at boot, which
-                 * is a reload that cannot observe an edit — a tool the author
-                 * had just added never appeared, and the call reported success.
-                 * `build()` is the same scan+compile+load the boot path runs,
-                 * so a reload and a fresh boot see the project identically.
-                 *
-                 * The session id is preserved: a reload is the same
-                 * conversation with new code, and minting a new one would
-                 * split the log at every edit.
-                 */
-                rescan: () => build().then(next => ({ ...next, session: { id: sessionId } })),
-            })
+            const linked = await span(
+                recorder,
+                "build:supervise",
+                { agent: loaded.agent?.name ?? project.name },
+                () => confined({
+                    blueprint: { ...loaded, session: { id: sessionId } },
+                    sessionId,
+                    /**
+                     * A REAL reload: rescan the project, then hand the agent the
+                     * blueprint that produced.
+                     *
+                     * The first cut re-sent the blueprint captured at boot, which
+                     * is a reload that cannot observe an edit — a tool the author
+                     * had just added never appeared, and the call reported success.
+                     * `build()` is the same scan+compile+load the boot path runs,
+                     * so a reload and a fresh boot see the project identically.
+                     *
+                     * The session id is preserved: a reload is the same
+                     * conversation with new code, and minting a new one would
+                     * split the log at every edit.
+                     */
+                    rescan: () => build().then(next => ({ ...next, session: { id: sessionId } })),
+                }),
+                runtime => ({ pid: runtime.pid }),
+            )
             // The supervisor-held session owns this log from here, so build
             // events commit through the same writer the agent's own will —
             // one serialized writer per file, which the envelope depends on.
@@ -502,7 +498,7 @@ export async function Agent(opts: AgentOpts) {
              * writes the reload's own business rather than the next reload's
              * trigger.
              */
-            if (true) return linked  // MUTANT
+            if (opts.watch === false) return linked
 
             const stopWatching = ReloadWatch({
                 watcher: project.watcher,
@@ -599,4 +595,3 @@ export type LinkedRuntime = {
  * one kind now, so consumers reach the link directly instead of narrowing.
  */
 export type AgentT = Awaited<ReturnType<typeof Agent>>
-

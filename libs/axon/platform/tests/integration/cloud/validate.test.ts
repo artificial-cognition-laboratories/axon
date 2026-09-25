@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
 import { describe, it, expect } from "bun:test"
-import { stubFetch } from "../../setup/fetch"
+import { stubFetch, Transport } from "../../setup/fetch"
 
 /**
  * cloud.validate() — is the stored credential actually usable?
@@ -35,17 +35,6 @@ function disposable(): { id: string; email: string } {
     return { id, email: `${id}@axon.dev` }
 }
 
-/** Run `body` with fetch replaced, always restoring it. */
-async function withFetch(stub: typeof fetch, body: () => Promise<void>): Promise<void> {
-    const original = globalThis.fetch
-    globalThis.fetch = stub
-    try {
-        await body()
-    } finally {
-        globalThis.fetch = original
-    }
-}
-
 async function withStore(body: (dir: string) => Promise<void>): Promise<void> {
     const dir = await mkdtemp(join(tmpdir(), "axon-validate-"))
     try {
@@ -72,10 +61,11 @@ describe.each([...DISTRIBUTIONS])("cloud.validate (%s build)", distribution => {
     it("confirms a credential the backend accepts", async () => {
         const { id, email } = disposable()
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
-            await withFetch(accepts(id, email), async () => {
+            await net.with(accepts(id, email), async () => {
                 expect(await platform.cloud.validate()).toBe("valid")
             })
         })
@@ -86,10 +76,11 @@ describe.each([...DISTRIBUTIONS])("cloud.validate (%s build)", distribution => {
         // as authenticated forever.
         const { id, email } = disposable()
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
-            await withFetch(refuses, async () => {
+            await net.with(refuses, async () => {
                 expect(await platform.cloud.validate()).toBe("rejected")
             })
 
@@ -104,10 +95,11 @@ describe.each([...DISTRIBUTIONS])("cloud.validate (%s build)", distribution => {
         // would force a device flow on a user whose session was fine.
         const { id, email } = disposable()
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
-            await withFetch(offline, async () => {
+            await net.with(offline, async () => {
                 expect(await platform.cloud.validate()).toBe("unreachable")
             })
 
@@ -118,7 +110,8 @@ describe.each([...DISTRIBUTIONS])("cloud.validate (%s build)", distribution => {
 
     it("is rejected when there is no profile at all", async () => {
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution, fetch: net.fetch })
 
             expect(await platform.cloud.validate()).toBe("rejected")
         })
@@ -132,12 +125,13 @@ describe("validate never trusts disk alone", () => {
         // never be the thing granting access.
         const { id, email } = disposable()
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: { apiKey: "axon_revoked_key" } })
 
             expect(platform.cloud.authenticated).toBe(true) // disk says yes...
 
-            await withFetch(refuses, async () => {
+            await net.with(refuses, async () => {
                 expect(await platform.cloud.validate()).toBe("rejected") // ...the backend says no
             })
         })
@@ -150,11 +144,12 @@ describe("a real fault is never disguised as an outage", () => {
         // about a broken backend would hide the real failure.
         const { id, email } = disposable()
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
             const boom: typeof fetch = stubFetch(async () => new Response("boom", { status: 500 }))
-            await withFetch(boom, async () => {
+            await net.with(boom, async () => {
                 await expect(platform.cloud.validate()).rejects.toThrow()
             })
         })
@@ -163,7 +158,8 @@ describe("a real fault is never disguised as an outage", () => {
     it("throws on a malformed payload rather than reporting unreachable", async () => {
         const { id, email } = disposable()
         await withStore(async store => {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             platform.store.profiles.save(id, { user: { id, email }, auth: liveAuth })
 
             const garbage: typeof fetch =
@@ -171,7 +167,7 @@ describe("a real fault is never disguised as an outage", () => {
                     status: 200, headers: { "content-type": "application/json" },
                 }))
 
-            await withFetch(garbage, async () => {
+            await net.with(garbage, async () => {
                 await expect(platform.cloud.validate()).rejects.toThrow()
             })
         })

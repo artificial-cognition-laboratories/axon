@@ -77,6 +77,51 @@ process.env.AXON_NO_NETWORK_INFERENCE = "true"
  * it names the thing the lock is actually about. Falling back to ppid keeps
  * single-process runs (where it IS the runner) working.
  */
+/*
+ * No test may touch the developer's real store.
+ *
+ * `storeRoot()` resolves to `~/.axon-dev` for a source build, and any code that
+ * constructs `Platform()` without an explicit `store:` lands there. Most tests
+ * pass one; the TUI composable tests do not, because they go through
+ * `usePlatform()` — which is correct, since it is exactly what the app does.
+ *
+ * The consequence was real and not theoretical: a theme unit test called
+ * `theme.set("test-reset-theme")` and that value was persisted into the
+ * developer's own `profile.config.ts`. Pointing the whole suite at a temp root
+ * closes it for every call site at once, including ones written later that
+ * never think about it.
+ *
+ * Set before any other import evaluates, so nothing can read the real path
+ * first and cache it.
+ */
+process.env.AXON_STORE_ROOT ??= join(
+    tmpdir(),
+    `axon-test-store-${process.env.BUN_TEST_RUN_ID ?? process.ppid}`,
+)
+
+/**
+ * The suite gets its OWN resolved-tree cache, not the developer's.
+ *
+ * Without this every fixture's install resolves into `~/.axon/cache/trees` and
+ * evicts from it: thirteen of twenty-four real entries were rewritten by test
+ * runs, against a cap of twenty-four. The cache module's own comment says a
+ * test must never be able to evict a developer's real cache, and injection
+ * alone never achieved that — nothing in the suite passes a root.
+ *
+ * A STABLE path rather than a per-run temp dir: the cache is what makes a
+ * fixture install cost ~1ms instead of ~370ms, so a fresh one per run would
+ * trade this bug for a much slower suite. It survives between runs, and it is
+ * safe to delete at any time — a miss just does the install.
+ *
+ * The cap is raised well past the suite's working set (a full parallel run
+ * resolves a dozen-plus distinct trees, while unrelated fixtures hold others
+ * live). At the default of 24 a run evicts trees its own concurrent tests are
+ * still about to use, and every one of those misses becomes a full install
+ * inside a test with a fixed timeout.
+ */
+process.env.AXON_TREE_CACHE_ROOT ??= join(tmpdir(), "axon-test-tree-cache")
+process.env.AXON_TREE_CACHE_MAX ??= "96"
+
 const sweepLock = join(tmpdir(), `axon-tui-test-bootstrap-${process.ppid}`)
 
 // mkdirSync, not `await mkdir`: sibling workers DO share a ppid, so all but one
@@ -122,17 +167,47 @@ if (ownsProcessSweep) {
     }
 }
 
+/**
+ * Resolve the framework version that PUBLISHED fixtures pin, before any test
+ * file evaluates — `user.ts` reads it synchronously at module scope.
+ *
+ * It cannot be the working tree's version: during a release window that names
+ * a version npm does not have yet, and every scaffolded fixture dies in `bun
+ * install`. See TEST_PUBLISHED_VERSION in ./user.ts.
+ */
 const repo = Repo()
+
+const { PUBLISHED_VERSION_ENV } = await import("./framework-version")
+process.env[PUBLISHED_VERSION_ENV] ??= await repo.framework.published()
+
 const { backendUrl } = await repo.daemon.connect()
 
 // Stripe test-mode secret key — same one the local staging backend runs
 // against. Loaded directly from the backend's own env file rather than
 // duplicated here.
 if (!process.env.STRIPE_SECRET_KEY) {
-    const envFile = Bun.file(`${import.meta.dir}/../../../../apps/backend/.env.local`)
+    // FIVE levels up, not four. This file sits at
+    // libs/axon/platform/tests/setup, so four reaches `libs/` and the read
+    // silently found nothing — `Bun.file().exists()` is false for a path that
+    // was never going to resolve, so the miss looked exactly like "no env file
+    // on this machine".
+    //
+    // It went unnoticed for months because the branch below is skipped while
+    // TEST_USER has balance. The day that ran low, every suite in this package
+    // died in preload with "Invalid API Key provided: undefined" — which reads
+    // as a broken credential rather than a path that was never right.
+    const envFile = Bun.file(`${import.meta.dir}/../../../../../apps/backend/.env.local`)
     if (await envFile.exists()) {
         const match = (await envFile.text()).match(/^STRIPE_SECRET_KEY=(.+)$/m)
         if (match?.[1]) process.env.STRIPE_SECRET_KEY = match[1].trim()
+    }
+    // Loud rather than a silent skip: without this key the funding path below
+    // fails with a Stripe error naming the wrong problem.
+    if (!process.env.STRIPE_SECRET_KEY) {
+        throw new Error(
+            "preload: no STRIPE_SECRET_KEY in the environment or apps/backend/.env.local — "
+            + "TEST_USER cannot be topped up, and every test that spends balance will fail obscurely.",
+        )
     }
 }
 
@@ -171,7 +246,7 @@ async function ensureFunded(): Promise<void> {
 
     await cloud.user.billing.cards.sync()
     await cloud.user.billing.topup.charge({ amountMinor: TOPUP_AMOUNT_MINOR })
-    await cloud.user.billing.cards.remove(confirmed.payment_method).catch(() => { /* best-effort */ })
+    await cloud.user.billing.cards.remove(confirmed.payment_method)
 }
 
 await ensureFunded()

@@ -97,12 +97,19 @@ export function ReloadWatch(opts: ReloadWatchOpts): () => void {
     })
 
     // Fire-and-forget: start() walks the tree, and a slow walk must not hold
-    // up the agent that is already running.
-    void opts.watcher.start()
+    // up the agent that is already running. The release is captured so this
+    // runtime cannot stop a prepared-build cache's watcher when it exits.
+    let release: (() => void) | null = null
+    let stopped = false
+    void opts.watcher.retain().then(value => {
+        release = value
+        if (stopped) release()
+    })
 
     return () => {
+        stopped = true
         stop()
-        opts.watcher.stop()
+        release?.()
     }
 }
 

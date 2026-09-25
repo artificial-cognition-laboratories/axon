@@ -10,6 +10,12 @@ import { MOCK_COMMANDS } from "./commands"
  */
 const SESSION_START = `<system type="session:start"/>`
 
+function messageText(message: AxonEngineRequest["messages"][number]): string {
+    return typeof message.content === "string"
+        ? message.content
+        : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")
+}
+
 /**
  * Script — the mock's counterpart to a provider backend: instead of a wire
  * conversation it owns "what does the model do next". Pattern matching,
@@ -122,11 +128,11 @@ function countPriorSteps(req: AxonEngineRequest): number {
     // Document form is decided by SHAPE, not by a zero count — zero assistant
     // turns is the correct answer on the first tick, and treating it as "try
     // the other parser" made the mock replay step 0 forever.
-    const document = req.messages.find(m => m.content.trimStart().startsWith("<timeline>"))
+    const document = req.messages.find(m => messageText(m).trimStart().startsWith("<timeline>"))
     if (document) {
-        const lastUserStart = document.content.lastIndexOf("<user")
+        const lastUserStart = messageText(document).lastIndexOf("<user")
         if (lastUserStart === -1) return 0
-        return (document.content.slice(lastUserStart).match(/<agent>/g) ?? []).length
+        return (messageText(document).slice(lastUserStart).match(/<agent>/g) ?? []).length
     }
 
     // Conversation form: the model's own turns since the newest thing a
@@ -138,7 +144,7 @@ function countPriorSteps(req: AxonEngineRequest): number {
         const message = req.messages[i]!
         if (message.role === "assistant") { steps++; continue }
         if (message.role !== "user") continue
-        const content = message.content.trimStart()
+        const content = messageText(message).trimStart()
         // The preflight is a few-shot demonstration rendered as genuine user
         // and assistant turns, so nothing about its SHAPE distinguishes it
         // from real history — its agent turns would be counted as steps of
@@ -175,7 +181,7 @@ export function extractUserText(req: AxonEngineRequest): string {
         // runtime-authored check below, which would otherwise read the whole
         // turn as a `<system>` block and skip the only real message there is —
         // landing on the preflight's demonstration turns instead.
-        const trimmed = message.content.trim()
+        const trimmed = messageText(message).trim()
         const content = (trimmed.startsWith(SESSION_START) ? trimmed.slice(SESSION_START.length) : trimmed).trim()
 
         // The user's words, wherever they sit in this message.

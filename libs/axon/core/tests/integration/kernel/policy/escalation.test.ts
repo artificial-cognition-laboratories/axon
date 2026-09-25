@@ -68,6 +68,70 @@ describe("kernel policy: escalation", () => {
         await runtime.shutdown()
     })
 
+    /**
+     * The report that started this: a new agent, no policy, and a subagent
+     * shelling out to `axon`.
+     *
+     * Program execution does NOT go through the tools map — `decideShell()`
+     * answers it, because the question is which binary a command runs rather
+     * than which rule an address maps to. That made it the one path where the
+     * escalate verdict was computed and then discarded: `shell()` handed the
+     * decision to `check()`, which started over against the tools map, found no
+     * rule for `shell.run:axon` (a program is not a tool and never has one) and
+     * denied by omission.
+     *
+     * Every unit test over `decideShell` passed throughout, because the defect
+     * was in the DELIVERY of a correct decision. It needs a test at this layer.
+     */
+    it("an undeclared PROGRAM reaches the decider, with no policy at all", async () => {
+        const seen: EscalationCall[] = []
+
+        const runtime = await Axon({
+            blueprint: {
+                // No `policy` key whatsoever — the state every agent is in
+                // before anyone writes one.
+                config: { providers: [Mock({ "/go": [run(`await process.run("echo hi")`), "done"] })] },
+            },
+            escalate: async call => {
+                seen.push(call)
+                return true
+            },
+        })
+
+        await runtime.kernel.request({ content: "/go" })
+
+        // Asked, and asked about the PROGRAM by name so a prompt can say what
+        // is about to run.
+        expect(seen.map(call => call.fn)).toContain("shell.run:echo")
+
+        await runtime.shutdown()
+    })
+
+    it("a program the agent explicitly allowed is not re-asked", async () => {
+        const seen: EscalationCall[] = []
+
+        const runtime = await Axon({
+            blueprint: {
+                config: {
+                    providers: [Mock({ "/go": [run(`await process.run("echo hi")`), "done"] })],
+                    policy: { shell: { allow: ["echo"] } },
+                },
+            },
+            escalate: async call => {
+                seen.push(call)
+                return true
+            },
+        })
+
+        await runtime.kernel.request({ content: "/go" })
+
+        // The other half of the rule. A grant somebody wrote is a decision
+        // already made, and re-asking it would make writing policy pointless.
+        expect(seen.map(call => call.fn)).not.toContain("shell.run:echo")
+
+        await runtime.shutdown()
+    })
+
     it("denies when the decider says no", async () => {
         const runtime = await Axon({
             blueprint: {

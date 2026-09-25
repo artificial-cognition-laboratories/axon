@@ -72,7 +72,7 @@ export type AxonProvider = {
 /** What every provider factory receives — the user's declaration plus runtime resources. */
 export type LocalRuntime = {
     catalogue(): Promise<EngineCapability[]>
-    run(model: string, prompt: string): Promise<string>
+    run(model: string, input: unknown): Promise<unknown>
 }
 
 export type ProviderResources = {

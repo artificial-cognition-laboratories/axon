@@ -43,6 +43,12 @@ import { registryUrl } from "./publish.ts"
 
 export type InstallOpts = {
     /**
+     * The site fronting the registry this command is talking to, used for the
+     * artifact link. Required so the link cannot claim production while the
+     * command runs against a local stack — see registryUrl.
+     */
+    registryWeb: string
+    /**
      * The agent being installed into, by its scoped registry name
      * ("@cody/zeno") rather than its directory basename.
      *
@@ -73,7 +79,7 @@ export function install(r: RendererHandle, opts: InstallOpts): string {
     const lines: string[] = []
 
     lines.push("")
-    lines.push(header(r, { title: "Installing into", subtitle: opts.agent, href: registryUrl(opts.agent) }))
+    lines.push(header(r, { title: "Installing into", subtitle: opts.agent, href: registryUrl(opts.agent, opts.registryWeb) }))
     lines.push("")
     lines.push(...results(r, opts.modules, opts.frame !== undefined ? { frame: opts.frame } : {}))
 

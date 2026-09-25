@@ -1,12 +1,12 @@
-import type {
-    AxonEntry,
-    AxonKernelEvent,
-    AxonSessionEvent,
-    AxonSessionQuery,
-    AxonSessionScope,
-    AxonSessionSnapshot,
+import {
+    classifyEvent,
+    type AxonEntry,
+    type AxonKernelEvent,
+    type AxonSessionEvent,
+    type AxonSessionQuery,
+    type AxonSessionScope,
+    type AxonSessionSnapshot,
 } from "@arcforge/types"
-import { classifyEvent } from "@arcforge/types"
 
 type MirroredSessionOpts = {
     /** Absolute base URL of ONE agent instance. */

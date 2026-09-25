@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { err } from "@arcforge/err"
 import type { DaemonPaths, DaemonStarted, DaemonStatus } from "../../types/index"
 
@@ -298,7 +298,9 @@ export function Lifecycle(opts: LifecycleOpts) {
 
 /** Pidfile mtime as a start time. Written once at claim, so it IS the start. */
 function statMtime(path: string): number {
-    return Bun.file(path).lastModified
+  // AxonDaemon is also loaded by the Fleet VS Code extension, whose host is
+  // Node rather than Bun. Keep lifecycle inspection runtime-neutral.
+  return statSync(path).mtimeMs
 }
 
 export type LifecycleT = ReturnType<typeof Lifecycle>

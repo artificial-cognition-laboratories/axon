@@ -2,7 +2,7 @@ import type { FrameworkSource } from "./manifest/package"
 import { resolveDefaultBaseUrl, type AxonCloudClient, type DeployOptions, type DeployStep } from "@arcforge/cloud"
 import { err } from "@arcforge/err"
 import type { ProviderEntry } from "@arcforge/types"
-import { Bundle, type BundleArtifact } from "./bundle"
+import { Bundle, type BundleArtifact, type BundleTarget } from "./bundle"
 import { Cognet } from "./cognet"
 import { Deploy, type DeployResult } from "./deploy"
 import { Installer } from "./installer"
@@ -22,6 +22,8 @@ export type { ProjectKind }
 
 type ProjectOpts = {
     root: string
+    /** Invocation directory used for workspace discovery. */
+    cwd?: string
     kind: ProjectKind
     name: string
     cloud: AxonCloudClient
@@ -83,9 +85,13 @@ export function Project(opts: ProjectOpts) {
         return watcher.during(run, options)
     }
 
-    // `during` is a thunk because `watcher` is constructed below — the
-    // installer suspends the watcher around its own writes so a reload cannot
-    // land between the manifest edits and the node_modules rebuild.
+    // One watcher owns both live-reload and prepared-build invalidation.
+    // Constructed before Prepare() so a cache can begin watching before its
+    // first successful build becomes reusable.
+    const watcher = Watcher({ root, debounceMs: RELOAD_DEBOUNCE_MS })
+
+    // `during` is a thunk because the installer must suspend this watcher
+    // around its own writes so a reload cannot land mid-reconciliation.
     const installer = Installer({
         root: root,
         cloud: opts.cloud,
@@ -93,7 +99,7 @@ export function Project(opts: ProjectOpts) {
         tree: tree,
         during: (fn, options) => during(fn, options),
     })
-    const typegen = Typegen({ root: root, kind: kind })
+    const typegen = Typegen({ root: root, kind: kind, ...(opts.cwd ? { cwd: opts.cwd } : {}) })
     // `prepare` is a getter: Prepare() is built below and bundling needs it.
     const bundle = Bundle({ root: root, manifest: manifest, modules: modules, prepare: () => prepare })
 
@@ -110,25 +116,16 @@ export function Project(opts: ProjectOpts) {
         manifest: manifest,
         tree: tree,
         typegen: typegen,
+        watcher: watcher,
         frameworkVersion: opts.frameworkVersion,
         ...(opts.frameworkSource ? { frameworkSource: opts.frameworkSource } : {}),
         ...(opts.repoRoot ? { repoRoot: opts.repoRoot } : {}),
+        ...(opts.cwd ? { cwd: opts.cwd } : {}),
         ...(bench ? { extend: async () => { await bench.prepare() } } : {}),
         ...(opts.profileProviders ? { profileProviders: opts.profileProviders } : {}),
     })
     const publish = Publish({ kind, root, bundle, manifest, cloud: opts.cloud })
     const deploy = Deploy({ bundle, manifest, cloud: opts.cloud })
-    /**
-     * 150ms, not the watcher's own 100ms default.
-     *
-     * An editor writes several times per save (temp file, rename, mtime
-     * touch), and every one of those is a separate fs notification. The
-     * profile watcher settled on 150 for the same reason and has been carrying
-     * it in production — matching it keeps one answer to one question rather
-     * than two that drift.
-     */
-    const watcher = Watcher({ root, debounceMs: RELOAD_DEBOUNCE_MS })
-
     return {
         root: root,
         kind: kind,
@@ -194,8 +191,20 @@ export function Project(opts: ProjectOpts) {
         generate: typegen.generate,
 
         /** Package into the publishable artifact — image.json + source.tar.gz. */
-        bundle(): Promise<BundleArtifact> {
-            return bundle.build(kind)
+        /**
+         * `axon bundle` — package this project for inspection.
+         *
+         * Defaults to deploy-shaped, because that is what a person asking to
+         * see the artifact means: the complete, resolved tree that would boot.
+         *
+         * The default lives HERE and nowhere deeper. `Agent.build()` requires
+         * the target explicitly, because that is the layer where getting it
+         * wrong is invisible; this is a user-facing verb with a settled
+         * meaning, and `bundle("publish")` is how you inspect what a publish
+         * would actually ship — which is the thing nobody could see before.
+         */
+        bundle(target: BundleTarget = "deploy"): Promise<BundleArtifact> {
+            return bundle.build(kind, target)
         },
 
         /** Install declared modules, then generate types. What `axon prepare`/`dev` run. */

@@ -371,10 +371,13 @@ export type AxonEngineCall = AxonEngineRequest & {
  */
 export type AirProtocolName = "classic" | "raw"
 
-export type AxonEngineMessage = {
-    role: "user" | "assistant" | "system"
-    content: string
-}
+export type AxonEngineContent =
+    | { type: "text"; text: string }
+    | { type: "image"; ref: import("./session").StimulusRef }
+
+export type AxonEngineMessage =
+    | { role: "system"; content: string }
+    | { role: "user" | "assistant"; content: string | AxonEngineContent[] }
 
 /** Request payload passed to an engine. */
 export type AxonEngineRequest = {

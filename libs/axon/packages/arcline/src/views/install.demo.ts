@@ -63,6 +63,7 @@ export async function installDemo(r: RendererHandle, which = "default"): Promise
         renderer: r,
         view: (r, state, frame) => install(r, {
             agent: "@cody/zeno",
+            registryWeb: "https://axon.arclabs.it",
             modules: state.modules,
             frame,
             ...(state.prepare ? { prepare: state.prepare } : {}),

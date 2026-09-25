@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { Frame, type ProjectKind } from "../../frame"
 
@@ -28,7 +28,20 @@ export function ensureOutDir(root: string, kind: TypegenKind = "agent"): string 
 
 /** Write one declaration file into the project's generated-types dir. */
 export function writeDts(root: string, filename: string, content: string, kind: TypegenKind = "agent"): void {
-    writeFileSync(join(ensureOutDir(root, kind), filename), content, "utf-8")
+    writeIfChanged(join(ensureOutDir(root, kind), filename), content)
+}
+
+/**
+ * Materialize derived text only when its bytes changed.
+ *
+ * Type declarations are inputs to editors and watchers. Rewriting identical
+ * bytes turns every ordinary boot into a source change, needlessly waking
+ * those consumers and making a warm prepare do real filesystem work.
+ */
+export function writeIfChanged(path: string, content: string): boolean {
+    if (existsSync(path) && readFileSync(path, "utf-8") === content) return false
+    writeFileSync(path, content, "utf-8")
+    return true
 }
 
 /** kebab-case → PascalCase. */

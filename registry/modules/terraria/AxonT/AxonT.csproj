@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    tModLoader compiles the .tmod from this project (see the BuildMod target in
+    tMLMod.targets). The install directory is the one variable that is genuinely
+    machine-local, so it comes from the same TML_INSTALL_DIR the Axon module
+    documents, with the standard Steam location as a fallback.
+  -->
+  <PropertyGroup>
+    <TML_INSTALL_DIR Condition="'$(TML_INSTALL_DIR)' == ''">$(HOME)/.local/share/Steam/steamapps/common/tModLoader</TML_INSTALL_DIR>
+  </PropertyGroup>
+
+  <Import Project="$(TML_INSTALL_DIR)/tMLMod.targets" />
+
+  <PropertyGroup>
+    <AssemblyName>AxonT</AssemblyName>
+    <RootNamespace>AxonT</RootNamespace>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

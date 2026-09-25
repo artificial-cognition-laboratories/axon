@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url"
 import { readFileSync } from "node:fs"
+import { PUBLISHED_VERSION_ENV } from "./framework-version"
 
 /**
  * Seeded staging identities — see apps/backend/supabase/seed.sql, applied
@@ -78,16 +79,53 @@ export const TEST_FRAMEWORK = {
 } as const
 
 /**
+ * The framework version a PUBLISHED fixture pins.
+ *
+ * NOT TEST_VERSION. TEST_VERSION is the working tree's version, which during
+ * a release window names a version that does not exist yet — the repo bumps
+ * to 2.0.195, and every fixture scaffolded at 2.0.195 fails `bun install`
+ * with "No version matching 2.0.195 found". That is a deadlock, not a test
+ * failure: the gate must be green to publish 2.0.195, and 2.0.195 must be
+ * published for the gate to go green. It blocked a ship.
+ *
+ * Pinning the newest PUBLISHED version is both correct and what these suites
+ * already claim to do — resolve the framework "exactly as a user does". It
+ * costs nothing in coverage: none of these tests assert on the pinned
+ * version, they assert that publish/clone/install/deploy work. The framework
+ * only has to install.
+ *
+ * This is the same rule the `registry pins` release blocker already applies
+ * to registry artifacts: pin something npm can resolve, and the previous
+ * version is entirely normal.
+ */
+export const TEST_PUBLISHED_VERSION: string = (() => {
+    const version = process.env[PUBLISHED_VERSION_ENV]
+    if (!version) {
+        throw new Error(
+            `test setup: ${PUBLISHED_VERSION_ENV} is unset — the preload `
+            + `(libs/axon/platform/tests/setup/preload.ts) resolves it and must run first. `
+            + `Run this suite through \`bun test\`, not by executing the file directly.`,
+        )
+    }
+    return version
+})()
+
+/**
  * The counterpart, for suites that PUBLISH what they scaffold.
  *
- * Empty on purpose — it resolves the framework from npm, exactly as a user
- * does. A published artifact carrying `file:` dependencies resolves only on
- * the machine that built it, so the registry refuses one (see the backend's
- * publish route), and a linked fixture cannot be published at all.
+ * It resolves the framework from npm, exactly as a user does. A published
+ * artifact carrying `file:` dependencies resolves only on the machine that
+ * built it, so the registry refuses one (see the backend's publish route),
+ * and a linked fixture cannot be published at all.
+ *
+ * It carries `version` itself, so a call site cannot pin an unpublished one
+ * by forgetting to override it — spread this and pass no `version` at all.
  *
  * It exists as a NAMED value rather than "just omit TEST_FRAMEWORK" so the
  * choice is visible at the call site and survives a careless find-and-replace.
  * Anything that publishes, deploys, clones or forks uses this; everything
  * else links.
  */
-export const TEST_FRAMEWORK_PUBLISHED = {} as const
+export const TEST_FRAMEWORK_PUBLISHED = {
+    version: TEST_PUBLISHED_VERSION,
+} as const

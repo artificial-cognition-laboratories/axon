@@ -30,7 +30,14 @@ type EngineOpts = {
      * never entered the log, so the model was asked to fix a shape it could
      * not see. Absent only where no reply exists to quote.
      */
-    fault(input: { code: string; message: string; excerpt?: string; rejected?: string; attempt?: number }): Promise<void>
+    fault(input: {
+        code: string
+        message: string
+        excerpt?: string
+        rejected?: string
+        attempt?: number
+        details?: Record<string, string | number | boolean>
+    }): Promise<void>
     /**
      * The resolved inference roles, when the cognet declared any.
      *
@@ -1089,6 +1096,7 @@ export function Engine(opts: EngineOpts) {
                     message: lastFault,
                     rejected: step.value?.text,
                     attempt: attempt + 1,
+                    details: { texts: texts, scripts: scripts, yielded: yielded, crossed: crossed },
                 })
 
                 // NOTHING further is yielded. `drain()` stopped the moment the
@@ -1107,7 +1115,13 @@ export function Engine(opts: EngineOpts) {
             if (violations.length === 0 && (texts > 1 || scripts > 1)) {
                 lastFault = describeTooManyBlocks(texts, scripts)
                 lastFailure = "shape"
-                await opts.fault({ code: "OUTPUT_TOO_MANY_BLOCKS", message: lastFault, rejected: step.value?.text, attempt: attempt + 1 })
+                await opts.fault({
+                    code: "OUTPUT_TOO_MANY_BLOCKS",
+                    message: lastFault,
+                    rejected: step.value?.text,
+                    attempt: attempt + 1,
+                    details: { texts: texts, scripts: scripts, yielded: yielded, crossed: crossed },
+                })
                 attemptCall = await reframe(call, lastFault)
                 continue
             }
@@ -1165,7 +1179,13 @@ export function Engine(opts: EngineOpts) {
             if (violations.length === 0 && !acted && truncated) {
                 lastFault = describeTruncatedBlock(truncated, step.value?.text)
                 lastFailure = "empty"
-                await opts.fault({ code: "OUTPUT_TRUNCATED", message: lastFault, rejected: step.value?.text, attempt: attempt + 1 })
+                await opts.fault({
+                    code: "OUTPUT_TRUNCATED",
+                    message: lastFault,
+                    rejected: step.value?.text,
+                    attempt: attempt + 1,
+                    details: { texts: texts, scripts: scripts, yielded: yielded, truncated: truncated },
+                })
                 attemptCall = await reframe(call, lastFault)
                 continue
             }
@@ -1178,7 +1198,13 @@ export function Engine(opts: EngineOpts) {
                     attempt >= budget,
                 )
                 lastFailure = "empty"
-                await opts.fault({ code: "OUTPUT_EMPTY", message: lastFault, rejected: step.value?.text, attempt: attempt + 1 })
+                await opts.fault({
+                    code: "OUTPUT_EMPTY",
+                    message: lastFault,
+                    rejected: step.value?.text,
+                    attempt: attempt + 1,
+                    details: { texts: texts, scripts: scripts, yielded: yielded, responseChars: (step.value?.text ?? "").length },
+                })
                 attemptCall = await reframe(call, lastFault)
                 continue
             }

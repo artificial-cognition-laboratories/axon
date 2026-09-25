@@ -92,7 +92,12 @@ export function Platform(opts: PlatformOpts) {
             return result
         },
     })
-    const cloud = Cloud({ store: store, distribution: distribution, release: opts.version })
+    const cloud = Cloud({
+        store: store,
+        distribution: distribution,
+        release: opts.version,
+        ...(opts.fetch !== undefined ? { fetch: opts.fetch } : {}),
+    })
 
     const ollama = Ollama() // local models via the Ollama daemon
     const mic = Mic() // mic capture + visualizer service
@@ -148,6 +153,7 @@ export function Platform(opts: PlatformOpts) {
         // while the process runs, and every agent prepared afterwards must
         // see the new user's providers rather than the boot-time one's.
         profileProviders: () => profileProviders(),
+        cwd: cwd,
         frameworkVersion: opts.version,
         ...(opts.frameworkSource ? { frameworkSource: opts.frameworkSource } : {}),
         ...(opts.repoRoot ? { repoRoot: opts.repoRoot } : {}),
@@ -266,6 +272,15 @@ export function Platform(opts: PlatformOpts) {
 export type PlatformT = ReturnType<typeof Platform>
 
 type PlatformOpts = {
+    /**
+     * Transport override, forwarded to the cloud client — see HttpOpts.fetch.
+     *
+     * A test that needs to control the network injects it here instead of
+     * assigning over `globalThis.fetch`: Bun runs test FILES concurrently in
+     * one process, so a global stub is live inside every other file running at
+     * the same moment. Production passes nothing.
+     */
+    fetch?: typeof fetch
     /**
      * Who supervises a spawned agent.
      *

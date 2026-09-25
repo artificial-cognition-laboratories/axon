@@ -195,4 +195,9 @@ export const STIMULUS_TRANSIENT_EVENTS = new Set<AxonStimulusType>(
  * it never has to switch over every entry family that exists, only
  * the ones it can actually receive.
  */
+/** One unenveloped stimulus supplied by a caller before the session stamps it. */
+export type AxonStimulusInput = {
+    [K in AxonStimulusType]: { type: K; data: AxonStimulusEvent[K] }
+}[AxonStimulusType]
+
 export type AxonStimulusEntry = AxonEventUnion<AxonStimulusEvent>

@@ -85,7 +85,7 @@ export default defineAxonPlugin(async axon => {
                 // back into the body. Audio is sensory-tier — never in the
                 // durable log, held in the bounded ring so the last minutes
                 // stay watchable.
-                await mics.target?.stim("cognet:stimulus:audio", {
+                await store[MICS]?.target?.stim("cognet:stimulus:audio", {
                     channel,
                     ref: {
                         uri: `data:audio/pcm;base64,${Buffer.from(frame).toString("base64")}`,

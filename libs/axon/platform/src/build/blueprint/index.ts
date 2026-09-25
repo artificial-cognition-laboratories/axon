@@ -10,7 +10,7 @@ export { Components, type PromptComponent } from "./scan/components"
 
 // The config authority — Project.prepare reads declared modules through the
 // same loader Blueprint composes with. One implementation, promoted on purpose.
-export { Config, withProviderGlobals, type LoadedConfig } from "./scan/config"
+export { Config, invalidateConfig, withProviderGlobals, type LoadedConfig } from "./scan/config"
 
 // The brain toolchain. prepare() gates a cognet's ABI before compiling it;
 // publish() records the declared abi on the version row.

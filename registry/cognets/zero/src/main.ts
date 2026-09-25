@@ -37,10 +37,28 @@ async function knowledgeState() {
     }
 }
 
-loop(async ({ stop }) => {
+loop(async ({ stimuli, stop }) => {
     await phase("sync", async () => {
         sync()
     })
+
+    // Dense sensory entries are not durable. Hold this wake's media in
+    // cognition long enough for every render and structured-output retry.
+    const sensory = stimuli.filter(entry =>
+        entry.type === "cognet:stimulus:visual" || entry.type === "cognet:stimulus:audio"
+    )
+    const images = sensory.filter(entry =>
+        entry.type === "cognet:stimulus:visual" && entry.data.kind === "image"
+    )
+    const main = kernel.engine("main")
+    if (images.length > 0 && !main.modalities.in.includes("image")) {
+        await kernel.output("cognet:output:text", {
+            content: "Image input is not available with this cognet's currently bound cortex model.",
+            channel: "",
+        })
+        stop()
+        return
+    }
 
     const render = async () => {
         sync()
@@ -49,7 +67,7 @@ loop(async ({ stop }) => {
             base: await kernel.base(),
             scope: kernel.scope(),
             state: knowledge ? [knowledge] : [],
-            history: state.entries,
+            history: [...state.entries, ...sensory],
             // The trajectory this agent starts on — see ZERO_PREFLIGHT. Passed
             // rather than assumed: what a model should see FIRST is cognition,
             // and it used to be welded into the protocol where no cognet could
@@ -66,7 +84,7 @@ loop(async ({ stop }) => {
         const pending: string[] = []
 
         await system("drain", async () => {
-            const stream = kernel.engine("main").stream({
+            const stream = main.stream({
                 messages: messages,
                 protocol: air.protocol,
                 rerender: render,
@@ -89,7 +107,20 @@ loop(async ({ stop }) => {
                         break
 
                     case "engine:done":
-                        finished = event.yielded && !event.acted
+                        // `<done/>` is the model's claim that it is handing
+                        // control back, not an instruction to terminate the
+                        // wake. A bare marker made Zero stop a live request
+                        // with no reply and no action. A handback is terminal
+                        // only after actual user-facing output, and never
+                        // while a script still owes the model its result.
+                        if (event.yielded && !event.spoke && !event.acted) {
+                            await kernel.fault({
+                                code: "OUTPUT_EMPTY_HANDBACK",
+                                message: "You emitted `<done/>` without a reply or an action. The user's request is still live. Continue by sending one useful `<text>` reply or one `<script>` action; do not send `<done/>` alone.",
+                            })
+                            break
+                        }
+                        finished = event.yielded && event.spoke && !event.acted
                         break
                 }
             }

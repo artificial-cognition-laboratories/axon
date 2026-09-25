@@ -1,6 +1,5 @@
 import { trace } from "./trace"
-import { HttpError, classifyStatus } from "@arcforge/types"
-import type { HttpErrorCode } from "@arcforge/types"
+import { HttpError, classifyStatus, type HttpErrorCode } from "@arcforge/types"
 
 // HttpError is a wire contract shared across the stack — it lives in
 // @arcforge/types (so @arcforge/engines can depend on it without pulling in cloud
@@ -31,6 +30,26 @@ export const PRODUCTION_API_BASE = "https://axon-api-t53zrgvpga-ew.a.run.app"
 export function resolveDefaultBaseUrl(env: Readonly<Record<string, string | undefined>> = process.env) {
     return env.AXON_API_BASE ??
         (env.AXON_STAGING_MODE === "true" ? "http://localhost:3099" : PRODUCTION_API_BASE)
+}
+
+/**
+ * The website that fronts the registry the CLI is talking to.
+ *
+ * Paired with resolveDefaultBaseUrl and resolved from the SAME signals, because
+ * the two must never disagree about which deployment is meant. A publish that
+ * wrote to local staging and printed an axon.arclabs.it link claimed the
+ * artifact was somewhere it is not — and the link works, so nothing about it
+ * looks wrong until someone goes looking for a version that was never there.
+ *
+ * Derived from the API base rather than read from its own env var: one
+ * AXON_API_BASE pointing at a backend is the whole statement of "which stack",
+ * and a second variable would be a second chance to disagree. A non-production
+ * API base means a local stack, whose site is the dev server on :3100.
+ */
+export const PRODUCTION_WEB_BASE = "https://axon.arclabs.it"
+
+export function resolveRegistryWebUrl(env: Readonly<Record<string, string | undefined>> = process.env) {
+    return resolveDefaultBaseUrl(env) === PRODUCTION_API_BASE ? PRODUCTION_WEB_BASE : "http://localhost:3100"
 }
 
 const DEFAULT_BASE_URL = resolveDefaultBaseUrl()
@@ -101,6 +120,25 @@ function isTimeout(cause: unknown): boolean {
 type HttpOpts = {
     /** Defaults to AXON_API_BASE, then local staging when AXON_STAGING_MODE=true, then production. */
     baseUrl?: string
+    /**
+     * The transport, injectable so a caller can supply its own.
+     *
+     * Defaults to the global `fetch`, so production wiring passes nothing.
+     * It exists because the ABSENCE of this seam had a cost: a test with no
+     * way to control the network can only assign over `globalThis.fetch`, and
+     * six suites independently did. Under `parallel = true` Bun interleaves
+     * test FILES in one process, so each stub was live inside every other file
+     * running at that moment — `switch.test.ts`'s 401 fixture surfaced as
+     * "Unauthorized: invalid or expired token" in 65 unrelated tests, and a
+     * clone fixture served another suite a tarball of a deleted directory.
+     * Around 220 failures, none of them real, hidden for weeks because
+     * `--force` skips every test step.
+     *
+     * Save-and-restore helpers cannot fix that: the stub has to be live while
+     * the body runs, and that window is shared. Only a seam per instance is
+     * actually isolated.
+     */
+    fetch?: typeof fetch
     /** Resolved live per request — login/logout/refresh are picked up with nothing re-wired. */
     token: () => string | undefined
     /**
@@ -169,6 +207,7 @@ export type RequestOptions = {
  */
 export function Http(opts: HttpOpts) {
     const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL
+    const transport = opts.fetch ?? fetch
 
     function resolveHeaders(extra?: RequestInit["headers"]): Headers {
         const headers = new Headers(extra)
@@ -207,7 +246,7 @@ export function Http(opts: HttpOpts) {
             // actually succeed in.
             let response: Response
             try {
-                response = await fetch(url, {
+                response = await transport(url, {
                     ...init,
                     headers,
                     ...(timeoutMs === null ? {} : { signal: withTimeout(timeoutMs, signal) }),
@@ -240,24 +279,20 @@ export function Http(opts: HttpOpts) {
     async function parseError(response: Response, path: string): Promise<HttpError> {
         let message: string | undefined
         let data: Record<string, unknown> | undefined
-        try {
-            const text = await response.text()
-            if (text) {
-                try {
-                    const body = JSON.parse(text) as Record<string, unknown>
-                    if (body.data && typeof body.data === "object" && !Array.isArray(body.data)) {
-                        data = body.data as Record<string, unknown>
-                    }
-                    message = (body.message
-                        ?? body.statusMessage
-                        ?? (typeof body.error === "string" ? body.error : undefined)
-                        ?? (typeof data?.error === "string" ? data.error : undefined)) as string | undefined
-                } catch {
-                    message = text.slice(0, 200)
+        const text = await response.text()
+        if (text) {
+            try {
+                const body = JSON.parse(text) as Record<string, unknown>
+                if (body.data && typeof body.data === "object" && !Array.isArray(body.data)) {
+                    data = body.data as Record<string, unknown>
                 }
+                message = (body.message
+                    ?? body.statusMessage
+                    ?? (typeof body.error === "string" ? body.error : undefined)
+                    ?? (typeof data?.error === "string" ? data.error : undefined)) as string | undefined
+            } catch {
+                message = text.slice(0, 200)
             }
-        } catch {
-            // swallowed deliberately — falls through to the generic HttpError below
         }
         return new HttpError(response.status, path, message, data)
     }

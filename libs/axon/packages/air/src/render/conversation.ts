@@ -83,8 +83,10 @@ export function renderConversation(
      * happened, and provider tolerance for adjacent same-role messages is not
      * worth being wrong about what was said.
      */
-    const push = (role: AirMessage["role"], content: string): void => {
-        if (content) messages.push({ role, content })
+    const push = (role: AirMessage["role"], content: AirMessage["content"]): void => {
+        if (typeof content === "string" && !content) return
+        if (role === "system") messages.push({ role, content: content as string })
+        else messages.push({ role, content })
     }
 
     for (let i = 0; i < items.length; i++) {
@@ -104,7 +106,10 @@ export function renderConversation(
             // Flush-left for the same reason as agent speech: the user's
             // markdown is markdown too, and an indented example is one the
             // model mirrors back in its own replies.
-            push("user", `<text from="user" id="${prefix}u${++userCount}" channel="${channel}" lang="${escAttr(item.lang)}">\n${esc(item.content.trim())}\n</text>`)
+            const text = `<text from="user" id="${prefix}u${++userCount}" channel="${channel}" lang="${escAttr(item.lang)}">\n${esc(item.content.trim())}\n</text>`
+            push("user", item.image
+                ? [{ type: "text", text }, { type: "image", ref: item.image }]
+                : text)
             continue
         }
 

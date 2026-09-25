@@ -55,6 +55,12 @@ export const DEPLOY_STEPS = ["Bundling", "Registering", "Publishing", "Provision
 export type DeployOpts = {
     /** The agent being deployed, e.g. "@cody/zeno". */
     name: string
+    /**
+     * The site fronting the registry this command is talking to, used for the
+     * artifact link. Required so the link cannot claim production while the
+     * command runs against a local stack — see registryUrl.
+     */
+    registryWeb: string
     /** What it will cost to run. Shown before anything is provisioned. */
     plan?: {
         tier: string
@@ -85,7 +91,7 @@ export function deploy(r: RendererHandle, opts: DeployOpts): string {
     const lines: string[] = []
 
     lines.push("")
-    lines.push(header(r, { title: "Deploying", subtitle: opts.name, href: registryUrl(opts.name) }))
+    lines.push(header(r, { title: "Deploying", subtitle: opts.name, href: registryUrl(opts.name, opts.registryWeb) }))
     lines.push("")
 
     if (opts.plan) {

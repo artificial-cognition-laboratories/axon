@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { err } from "@arcforge/err"
-import type { AxonEntry, AxonStimulusEntry } from "@arcforge/types"
+import type { AxonEntry, AxonStimulusEntry, AxonStimulusInput } from "@arcforge/types"
 import type { KernelBus } from "../contracts"
 import type { AxonSessionT } from "@arcforge/session"
 import type { KernelCognet } from "../contracts"
@@ -16,6 +16,7 @@ type SchedulerOpts = {
 type InvokeInput = {
     /** User message committed before the invoke starts. */
     content?: string | string[]
+    stimuli?: AxonStimulusInput[]
 }
 
 /**

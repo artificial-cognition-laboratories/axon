@@ -1,6 +1,6 @@
 {
   "name": "@arcforge/cloud",
-  "version": "2.0.187",
+  "version": "2.0.219",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
@@ -14,10 +14,12 @@
     "./src/platform/span-store.node": "./src/platform/span-store.browser.ts"
   },
   "scripts": {
-    "lint": "../../../node_modules/.bin/eslint src tests",
+    "lint": "../../node_modules/.bin/eslint src tests",
     "lint:fix": "../../../node_modules/.bin/eslint --fix src tests",
-    "test": "bun test --parallel=4",
-    "test:serial": "bun test",
+    "test": "bun run test:full",
+    "test:serial": "bun test --preload ./tests/full/setup/preload.ts tests/hot tests/full",
+    "test:hot": "bun test --timeout=10000 --preload ./tests/hot/setup/preload.ts tests/hot",
+    "test:full": "bun test --parallel=4 --preload ./tests/full/setup/preload.ts tests/hot tests/full",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -27,5 +29,6 @@
   "dependencies": {
     "@arcforge/types": "workspace:*",
     "fflate": "^0.8.2"
-  }
+  },
+  "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

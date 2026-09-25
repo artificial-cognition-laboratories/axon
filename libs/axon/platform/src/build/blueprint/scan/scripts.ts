@@ -49,8 +49,11 @@ function loadToolchain() {
  * Defaults to true: a caller that has not thought about it gets the strict
  * behaviour, and only the module scanner opts out.
  */
-export async function Scripts(root: string, opts: { prefix?: string; required?: boolean } = {}): Promise<Scanned<AxonScript>> {
-    const scriptsDir = join(root, "src", "scripts")
+export async function Scripts(root: string, opts: { prefix?: string; dir?: string; required?: boolean } = {}): Promise<Scanned<AxonScript>> {
+    // Agent/module scripts live under src/scripts; a repository workspace owns
+    // its scripts directly under .agents/scripts. Sharing this scanner keeps
+    // metadata extraction and failure semantics identical across both surfaces.
+    const scriptsDir = opts.dir ? join(root, opts.dir) : join(root, "src", "scripts")
     const entries: AxonScript[] = []
     const warnings: Scanned<AxonScript>["warnings"] = []
 

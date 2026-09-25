@@ -1,7 +1,6 @@
 import type { HttpClient } from "../../platform/http"
 import { record, rows, str } from "../../platform/parse"
-import { Artifact, parseArtifactRecord } from "./artifact"
-import type { ArtifactHandle } from "./artifact"
+import { Artifact, parseArtifactRecord, type ArtifactHandle } from "./artifact"
 import { refine, type SearchInput } from "./search"
 import type { ArtifactKind, ArtifactRecord, ResolvedArtifact } from "./types"
 

@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/link",
-    "version": "2.0.187",
+    "version": "2.0.219",
     "type": "module",
     "exports": {
         ".": {
@@ -16,7 +16,9 @@
         "src/**/*.ts"
     ],
     "scripts": {
-        "test": "bun test --parallel=4",
+        "test": "bun run test:full",
+        "test:hot": "bun test --parallel=4 tests/hot",
+        "test:full": "bun test --parallel=4 tests/hot tests/integration",
         "typecheck": "tsc --noEmit",
         "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
     },
@@ -49,5 +51,6 @@
         "ai-agent",
         "agent-runtime",
         "typescript"
-    ]
+    ],
+    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
 }

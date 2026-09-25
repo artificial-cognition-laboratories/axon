@@ -12,7 +12,7 @@ import { assertConfigContained } from "./imports"
 import { Assets } from "./assets"
 import type { ArtifactsT } from "./artifacts"
 import type { StageT } from "./stage"
-import type { AgentImage, BundleResult } from "./types"
+import type { AgentImage, BundleResult, BundleTarget } from "./types"
 
 /** Config keys the bundle reads that aren't part of the core authoring type yet. */
 type PublishableConfig = AxonConfig & {
@@ -47,7 +47,24 @@ export function Agent(opts: AgentOpts) {
     const frame = Frame({ root: root, kind: "agent" })
 
     return {
-        async build(): Promise<BundleResult> {
+        /**
+         * `target` is required and has no default, deliberately.
+         *
+         * A published artifact and a deployable one are DIFFERENT artifacts
+         * with opposite requirements, and the difference used to be invisible
+         * — one `build()` served both. Deploy wants a RESOLUTION: exact
+         * versions, reproducible, because the target boots what was built.
+         * Publish wants a DECLARATION: ranges resolved on the consumer's
+         * machine against THEIR kernel.
+         *
+         * Shipping the lockfile to a consumer froze `@cody/io-engine` at the
+         * version the publisher happened to have, so a clone installed a cognet
+         * built for kernel ABI 10 onto a CLI providing ABI 11 and failed at
+         * prepare — with a message about a pin nobody in that session had
+         * chosen. A default here would let that class back in silently, so
+         * there is none: every caller states which artifact it wants.
+         */
+        async build(target: BundleTarget): Promise<BundleResult> {
             const loaded = await Config(root)
 
             // Before anything is compiled or staged. A config that reaches
@@ -107,7 +124,7 @@ export function Agent(opts: AgentOpts) {
             const stageDir = join(bundleDir, ".stage")
             try {
                 await mkdir(stageDir, { recursive: true })
-                await copyTree(root, stageDir)
+                await copyTree(root, stageDir, target)
                 await stageSourceModules(root, stageDir, loaded, modules)
                 await stageCognet(frame, bundleDir, stageDir)
 
@@ -127,10 +144,23 @@ export function Agent(opts: AgentOpts) {
                     `${frame.name}/.dockerignore`,
                     `${frame.name}/${BUNDLE_COGNET_DIR}`,
                 )
-                // The lockfile is what makes the consumer's install the SAME
-                // install: without it `bun install` re-resolves every range and
-                // the agent that ships is not the agent that was tested.
-                if (fsx.exists(join(stageDir, "bun.lock"))) entries.push("bun.lock")
+                /*
+                 * The lockfile ships to a DEPLOY and never to a publish.
+                 *
+                 * For a deploy it is the point: the image build must produce
+                 * the same tree that was tested, so the exact resolution
+                 * travels with it.
+                 *
+                 * For a publish it is actively wrong. A consumer resolving
+                 * against their own kernel is the entire mechanism by which an
+                 * ABI-bound cognet stays compatible — `/api/registry/resolve`
+                 * answers "the newest version that fits ABI N" — and a shipped
+                 * lockfile overrides that with whatever the publisher's machine
+                 * resolved, months ago, against a different kernel. npm has the
+                 * same rule for the same reason: package-lock.json is never
+                 * published.
+                 */
+                if (target === "deploy" && fsx.exists(join(stageDir, "bun.lock"))) entries.push("bun.lock")
                 if (fsx.exists(join(stageDir, "bunfig.toml"))) entries.push("bunfig.toml")
                 if (fsx.exists(join(stageDir, "README.md"))) entries.push("README.md")
 
@@ -185,7 +215,7 @@ export type AgentBundleT = ReturnType<typeof Agent>
  * publisher's machine from the result — a materialized tree bakes in whichever
  * platform's natives that machine resolved.
  */
-async function copyTree(root: string, stageDir: string): Promise<void> {
+async function copyTree(root: string, stageDir: string, target: BundleTarget): Promise<void> {
     // `cognet` is here because an INLINE brain is the agent's own source, and
     // the most load-bearing source it has. The compiled bundle ships too (see
     // stageCognet) and is what actually runs, but shipping only that would
@@ -206,10 +236,17 @@ async function copyTree(root: string, stageDir: string): Promise<void> {
     // same here, it just has to be applied after the recursive copy.
     await rm(join(stageDir, INLINE_COGNET_DIR, "tsconfig.json"), { force: true })
 
-    // bun.lock pins what install resolves; bunfig.toml carries the @axon scope →
-    // registry mapping, without which a consumer's install cannot resolve an
-    // Axon module at all.
-    for (const file of ["package.json", "README.md", "bun.lock", "bunfig.toml"]) {
+    // bunfig.toml carries the @axon scope → registry mapping, without which a
+    // consumer's install cannot resolve an Axon module at all.
+    //
+    // bun.lock is staged only for a deploy. Excluding it from the STAGE as well
+    // as from the tar entry list is belt and braces on purpose: the entry list
+    // is a thing somebody edits, and a file that is not in the stage cannot be
+    // added back by an edit that looks harmless.
+    const files = ["package.json", "README.md", "bunfig.toml"]
+    if (target === "deploy") files.push("bun.lock")
+
+    for (const file of files) {
         const source = join(root, file)
         if (fsx.exists(source)) await cp(source, join(stageDir, file))
     }

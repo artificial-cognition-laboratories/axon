@@ -243,10 +243,18 @@ async function readInput(event: Parameters<typeof readBody>[0]): Promise<AxonReq
     const body = await readBody(event).catch(() => undefined)
 
     if (typeof body === "string") return { prompt: body }
-    if (body && typeof body === "object" && "prompt" in body) {
-        const prompt = (body as { prompt: unknown }).prompt
-        if (typeof prompt === "string" || Array.isArray(prompt)) {
-            return { prompt: prompt as string | string[] }
+    if (body && typeof body === "object") {
+        const value = body as { prompt?: unknown; stimuli?: unknown; channel?: unknown }
+        const prompt = typeof value.prompt === "string" || Array.isArray(value.prompt)
+            ? value.prompt as string | string[]
+            : undefined
+        const stimuli = Array.isArray(value.stimuli) ? value.stimuli : undefined
+        if (prompt !== undefined || stimuli !== undefined) {
+            return {
+                ...(prompt !== undefined ? { prompt } : {}),
+                ...(stimuli !== undefined ? { stimuli: stimuli as never } : {}),
+                ...(typeof value.channel === "string" ? { channel: value.channel } : {}),
+            }
         }
     }
 

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
-import { join } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import type { AxonPartialBlueprint, EngineRequirements } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import { fsx } from "../../utils/fs"
 import { merge } from "./collisions"
+import { workspaceRoot } from "./workspace"
 import { Config } from "./scan/config"
 import { Modules } from "./modules"
 import { Boot } from "./scan/boot"
@@ -23,6 +24,8 @@ import type { ScanWarning } from "./types"
 type BlueprintOpts = {
     /** Agent root — the directory containing axon.config.ts. */
     root: string
+    /** Invocation directory used to discover the nearest .agents workspace. */
+    cwd?: string
 }
 
 export type BlueprintResult = {
@@ -42,6 +45,15 @@ export type BlueprintResult = {
 export function Blueprint(opts: BlueprintOpts) {
     const root = opts.root
     const cognet = Cognet({ root: root })
+    const discoveredWorkspace = opts.cwd ? workspaceRoot(opts.cwd) : null
+    // Only attach a repository workspace to agents inside that repository.
+    // The TUI process cwd may be the monorepo while tests or external agents
+    // live in temporary/profile directories.
+    const workspace = discoveredWorkspace && (() => {
+        const repoRoot = dirname(discoveredWorkspace)
+        const rel = relative(resolve(repoRoot), resolve(root))
+        return rel === "" || (!rel.startsWith(".." + "/") && rel !== "..") ? discoveredWorkspace : null
+    })()
 
     let current: AxonPartialBlueprint | null = null
 
@@ -111,6 +123,9 @@ export function Blueprint(opts: BlueprintOpts) {
 
             // Authored truth — a broken config is no agent. Throws.
             const config = await Config(root)
+            // Workspace integration is opt-out for both prompts and scripts.
+            // Resolve it once so the two repository-owned surfaces cannot drift.
+            const workspaceEnabled = config.value.workspace !== false
 
             // `engine:` is READ BY NOTHING, and now REFUSED.
             //
@@ -136,9 +151,10 @@ export function Blueprint(opts: BlueprintOpts) {
             // what this writes.
             if (loadOpts.compile) await cognet.compile(cognetSourceOf(config))
 
-            // Agent surfaces + modules, in parallel.
-            const [prompts, scripts, tools, routes, plugins, middleware, knowledge, boot, modules, brain] = await Promise.all([
+            // Agent surfaces + modules, plus workspace prompts/scripts when available.
+            const [prompts, scripts, tools, routes, plugins, middleware, knowledge, boot, modules, brain, workspacePrompts, workspaceScripts] = await Promise.all([
                 Prompts(root),
+
                 Scripts(root),
                 Tools(root),
                 Routes(root),
@@ -148,8 +164,23 @@ export function Blueprint(opts: BlueprintOpts) {
                 Boot(root),
                 Modules({ root, declared: config.modules, modulePaths: config.modulePaths }),
                 cognet.read(),
+                !workspace || !workspaceEnabled
+                    ? Promise.resolve({ entries: [], warnings: [] })
+                    : Prompts(workspace, { prefix: "workspace", dir: "prompts" }).then(async scanned => ({
+                        entries: await Promise.all(scanned.entries.map(async entry => ({
+                            ...entry,
+                            source: entry.filePath ? await Bun.file(entry.filePath).text() : undefined,
+                        }))),
+                        warnings: scanned.warnings,
+                    })),
+                !workspace || !workspaceEnabled
+                    ? Promise.resolve({ entries: [], warnings: [] })
+                    // Workspace scripts are trusted repository orchestration.
+                    // They remain namespaced so a repo cannot silently replace
+                    // an agent-owned script with the same filename.
+                    : Scripts(workspace, { prefix: "workspace", dir: "scripts", required: false }),
             ])
-            for (const scanned of [prompts, scripts, tools, routes, plugins, middleware, knowledge]) warnings.push(...scanned.warnings)
+            for (const scanned of [prompts, scripts, tools, routes, plugins, middleware, knowledge, workspacePrompts, workspaceScripts]) warnings.push(...scanned.warnings)
             warnings.push(...boot.warnings, ...modules.warnings, ...brain.warnings)
 
             // Merge module surfaces under agent-wins precedence.
@@ -157,9 +188,19 @@ export function Blueprint(opts: BlueprintOpts) {
             const mergedPrompts = merge(
                 "prompts",
                 prompts.entries,
-                groups.map(g => ({ owner: g.owner, entries: g.entries.prompts })),
+                [
+                    ...groups.map(g => ({ owner: g.owner, entries: g.entries.prompts })),
+                    ...(workspacePrompts.entries.length ? [{ owner: "workspace", entries: workspacePrompts.entries }] : []),
+                ],
             )
-            const mergedScripts = merge("scripts", scripts.entries, groups.map(g => ({ owner: g.owner, entries: g.entries.scripts })))
+            const mergedScripts = merge(
+                "scripts",
+                scripts.entries,
+                [
+                    ...groups.map(g => ({ owner: g.owner, entries: g.entries.scripts })),
+                    ...(workspaceScripts.entries.length ? [{ owner: "workspace", entries: workspaceScripts.entries }] : []),
+                ],
+            )
             const mergedTools = merge("tools", tools.entries, groups.map(g => ({ owner: g.owner, entries: g.entries.tools })))
             warnings.push(...mergedPrompts.warnings, ...mergedScripts.warnings, ...mergedTools.warnings)
 

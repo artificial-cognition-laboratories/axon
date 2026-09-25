@@ -42,6 +42,7 @@ function surface(r: RendererHandle) {
         renderer: r,
         view: (r, state, frame) => publish(r, {
             name: "@cody/zeno",
+            registry: { api: "https://axon-api-t53zrgvpga-ew.a.run.app", web: "https://axon.arclabs.it" },
             steps: state.steps,
             frame,
             ...(state.result ? { result: state.result } : {}),

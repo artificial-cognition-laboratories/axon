@@ -40,14 +40,25 @@ import type { BenchMeasurementDefinition, BenchMeasurementReducer, BenchMeasurem
  * prepare — the author writes a type, the system keeps a value.
  */
 
-const COMPILER_OPTIONS: ts.CompilerOptions = {
-    allowJs: false,
-    noEmit: true,
-    target: tsc().ScriptTarget.ESNext,
-    module: tsc().ModuleKind.ESNext,
-    moduleResolution: tsc().ModuleResolutionKind.Bundler,
-    skipLibCheck: true,
-    strict: true,
+/*
+ * Built on demand, not at module scope.
+ *
+ * `tsc()` is a lazy accessor, and calling it in a module-scope initializer
+ * defeated it entirely: importing this file loaded the 17MB TypeScript
+ * compiler, whether or not anything ever declared a tool. Same defect as
+ * air/output.ts's COMPILER_OPTIONS — a lazy loader is only lazy if every
+ * caller is inside a function.
+ */
+function compilerOptions(): ts.CompilerOptions {
+    return {
+        allowJs: false,
+        noEmit: true,
+        target: tsc().ScriptTarget.ESNext,
+        module: tsc().ModuleKind.ESNext,
+        moduleResolution: tsc().ModuleResolutionKind.Bundler,
+        skipLibCheck: true,
+        strict: true,
+    }
 }
 
 /** Aggregation follows from the kind unless the author says otherwise. */
@@ -59,7 +70,7 @@ const DEFAULT_AGGREGATE: Record<BenchMeasurementValueDefinition["kind"], BenchMe
 }
 
 export function extractBenchSchema(configPath: string): BenchMeasurementDefinition[] {
-    const program = tsc().createProgram([configPath], COMPILER_OPTIONS)
+    const program = tsc().createProgram([configPath], compilerOptions())
     const source = program.getSourceFile(configPath)
     if (!source) throw err("BENCH_SCHEMA_UNREADABLE", { detail: configPath, context: { configPath } })
 

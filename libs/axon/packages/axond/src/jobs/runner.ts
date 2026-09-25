@@ -10,8 +10,8 @@ type RunnerOpts = {
     /** Report progress back onto the job's log. */
     report: {
         say(ref: string, text: string): void
-        finish(ref: string, summary: string | null): void
-        fail(ref: string, reason: string): void
+        finish(ref: string, run: string, summary: string | null): void
+        fail(ref: string, run: string, reason: string): void
     }
 }
 
@@ -72,9 +72,18 @@ export function Runner(opts: RunnerOpts) {
          * exist to remove. The answer arrives on the job's log.
          */
         async start(job: Job): Promise<{ session: string }> {
+            const run = job.run
+            if (run === null) throw new Error(`job ${job.ref} has no claimed run to start`)
             const host = await current()
 
-            const target = job.agent ?? host.agents.zeno.name
+            const schedule = job.schedule
+            if (run.trigger === "schedule" && schedule === null) {
+                throw new Error(`scheduled job ${job.ref} has no schedule configuration`)
+            }
+            // A trigger names an agent only when it should differ from the
+            // job's own, so the job is the fallback rather than the exception.
+            const scheduled = schedule !== null && run.trigger === "schedule" ? schedule.agent : null
+            const target = scheduled ?? job.agent ?? host.agents.zeno.name
             // Zeno is guaranteed to exist rather than assumed: a first-run
             // machine has no agents at all, and a job is the first thing this
             // user may ever run.
@@ -103,13 +112,13 @@ export function Runner(opts: RunnerOpts) {
             void agent.link
                 .request({
                     type: "cognet:stimulus:text",
-                    data: { content: job.content, channel: "axon-job" },
+                    data: { content: instruction(job), channel: "axon-job" },
                 } as never)
                 .then((answer: unknown) => {
-                    opts.report.finish(job.id, summaryOf(answer))
+                    opts.report.finish(job.id, run.id, summaryOf(answer))
                 })
                 .catch((cause: unknown) => {
-                    opts.report.fail(job.id, cause instanceof Error ? cause.message : String(cause))
+                    opts.report.fail(job.id, run.id, cause instanceof Error ? cause.message : String(cause))
                 })
 
             return { session: instance.sessionId }
@@ -149,4 +158,9 @@ function summaryOf(answer: unknown): string | null {
     const content = (answer as { content?: unknown } | null)?.content
     if (typeof content === "string" && content.trim() !== "") return content.trim()
     return null
+}
+
+function instruction(job: Job): string {
+    if (job.run?.trigger !== "schedule" || job.schedule === null) return job.brief
+    return `${job.brief}\n\nScheduled run instruction:\n${job.schedule.prompt}`
 }

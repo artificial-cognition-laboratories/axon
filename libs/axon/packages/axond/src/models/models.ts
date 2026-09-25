@@ -1,13 +1,14 @@
 import { statSync } from "node:fs"
 import { err } from "@arcforge/err"
-import { Models as PlatformModels, ModelStore } from "@arcforge/platform/build/project"
+import { Models as PlatformModels, ModelStore, type ParsedModel } from "@arcforge/platform/build/project"
 import { Adapters, type AdaptersT, type LoadedWeight } from "./adapter"
-import { Catalog, files, plan, preferred, repo, type CatalogT } from "./catalog"
+import { Catalog, files, plan, preferred, type CatalogT } from "./catalog"
 import { Downloads, alreadyRunning, type Download } from "./downloads"
 import { parseSpecifier } from "./specifier"
 import { LlamaAdapter } from "./llama"
 import { OnnxAdapter } from "./onnx"
 import { TransformersAdapter } from "./transformers"
+import { Runtimes, type RuntimesT } from "./runtimes"
 import type { EngineType, Modality } from "@arcforge/types"
 import { estimateBytes, fitFor, order, type ModelSort } from "./fit"
 import type { ModelCapability, ModelRecord, ModelRuntime, ModelsState } from "./types"
@@ -27,6 +28,8 @@ export type ModelsOpts = {
     root?: string
     /** Which runtimes this daemon can execute with. Injected so a test can supply a fake. */
     adapters?: AdaptersT
+    /** Optional local runtime environments. Defaults to the Axon-owned store. */
+    runtimes?: RuntimesT
     /** What can be downloaded. Injected so a test never depends on Hugging Face. */
     catalog?: CatalogT
     /**
@@ -108,7 +111,8 @@ export function Models(opts: ModelsOpts) {
      * and stop working the moment a file adapter learns to claim a directory,
      * so the specific runtime goes first while the rule is still cheap to keep.
      */
-    const adapters = opts.adapters ?? Adapters([TransformersAdapter(), OnnxAdapter(), LlamaAdapter()])
+    const runtimes = opts.runtimes ?? Runtimes()
+    const adapters = opts.adapters ?? Adapters([TransformersAdapter(runtimes), OnnxAdapter(runtimes), LlamaAdapter(runtimes)])
     const catalog = opts.catalog ?? Catalog()
     // The platform's fetcher, pointed at the same store this reads. Acquisition
     // is its concern — hash verification, atomic writes, content addressing —
@@ -629,24 +633,29 @@ export function Models(opts: ModelsOpts) {
             }
         },
 
+        /** Installed local execution backends. They are absent on a normal cloud-only install. */
+        runtimes: () => runtimes.state(),
+
+        /** Explicitly provision a backend; model download never silently adds native code. */
+        installRuntime: async (runtime: "onnx" | "llama.cpp" | "transformers") => await runtimes.install(runtime),
+
+        /** Remove one Axon-owned local backend environment. */
+        removeRuntime: async (runtime: "onnx" | "llama.cpp" | "transformers") => await runtimes.remove(runtime),
+
         refresh: refresh,
 
-        /** Generation-capable local weights Axond can actually execute. */
+        /** Cached local weights Axond can actually execute. */
         async local(): Promise<import("@arcforge/types").EngineCapability[]> {
             const records = cached.length > 0 ? cached : await refresh()
             return records
-                // A GGUF claimed by llama.cpp is a text-generation weight. Its
-                // registry task is often absent, so requiring a "chat" tag
-                // would hide every manually-cached local model from the one
-                // route meant to run it.
-                .filter(record => record.runtime === "llama.cpp" && record.path !== null)
+                .filter(record => record.runtime !== null && record.path !== null)
                 .map(record => ({
                     id: record.id,
                     provider: "local",
                     name: record.name,
-                    type: "generate" as const,
-                    in: ["text" as const],
-                    out: ["text" as const],
+                    type: record.type,
+                    in: record.in,
+                    out: record.out,
                     local: true,
                     ...(record.bytes !== null ? { bytes: record.bytes } : {}),
                 }))
@@ -667,11 +676,11 @@ export function Models(opts: ModelsOpts) {
          * repository with no single weight is refused rather than half-fetched
          * — see `preferred`.
          */
-        async fetch(input: string | { specifier: string; file?: string }): Promise<ModelRecord> {
+        async fetch(input: string | { specifier: string; file?: string; traits?: ParsedModel["traits"] }): Promise<ModelRecord> {
             // One argument crosses the wire (see Dispatch), so a caller with
             // two passes an object. A bare string is the ergonomic form for an
             // in-process caller and means the same thing.
-            const { specifier, file } = typeof input === "string" ? { specifier: input, file: undefined } : input
+            const { specifier, file, traits } = typeof input === "string" ? { specifier: input, file: undefined, traits: undefined } : input
             const existing = await store.resolved(specifier)
             if (existing) {
                 await describe(specifier)
@@ -698,7 +707,7 @@ export function Models(opts: ModelsOpts) {
             const set = await planFor(specifier, file)
             if (set) {
                 const parsed = repoOf(specifier)
-                const stored = await platform.resolveSet(parsed, set.files, set.primary)
+                const stored = await platform.resolveSet(parsed, set.files, set.primary, traits ? { traits } : {})
                 await describe(specifier)
                 await refresh()
                 return record({

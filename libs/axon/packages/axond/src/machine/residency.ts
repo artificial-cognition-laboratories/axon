@@ -42,6 +42,10 @@ const ROOTS = [
  */
 export function Residency(opts: ResidencyOpts = {}) {
     const writeRoot = opts.root ?? ROOTS[1]!
+    // Supplying a root is an isolation boundary for tests and embedded
+    // consumers. Production, where no root is supplied, still spans both
+    // distribution stores so the machine has one shared residency view.
+    const readRoots = opts.root ? [writeRoot] : ROOTS
 
     return {
         /**
@@ -54,7 +58,7 @@ export function Residency(opts: ResidencyOpts = {}) {
         live(): Hold[] {
             const found: Hold[] = []
 
-            for (const root of new Set([...ROOTS, writeRoot])) {
+            for (const root of new Set([...readRoots, writeRoot])) {
                 if (!existsSync(root)) continue
 
                 for (const name of readdirSync(root)) {
@@ -120,7 +124,7 @@ export function Residency(opts: ResidencyOpts = {}) {
 
         /** Release one hold. A no-op when already gone — unloading twice is not an error. */
         release(id: string): void {
-            for (const root of new Set([...ROOTS, writeRoot])) {
+            for (const root of new Set([...readRoots, writeRoot])) {
                 try { rmSync(join(root, `${id}.json`), { force: true }) } catch { /* raced */ }
             }
         },

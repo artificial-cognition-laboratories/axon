@@ -1,0 +1,14 @@
+{
+  "name": "@axon/speaker",
+  "version": "0.1.0",
+  "description": "A cross-platform audio output body for Axon agents.",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@arcforge/types": "2.0.199",
+    "@arcforge/engines": "2.0.199",
+    "@arcforge/cognet": "2.0.199",
+    "@arcforge/air": "2.0.199",
+    "h3": "^1.13.0"
+  }
+}

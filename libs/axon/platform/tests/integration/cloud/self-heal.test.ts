@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
 import { TEST_VERSION, TEST_FRAMEWORK } from "../../setup/user"
 import { describe, it, expect } from "bun:test"
-import { stubFetch } from "../../setup/fetch"
+import { stubFetch, Transport } from "../../setup/fetch"
 
 /**
  * A stale session heals itself. Only a spent one asks the user for anything.
@@ -38,16 +38,6 @@ async function withStore(body: (dir: string) => Promise<void>): Promise<void> {
         await body(dir)
     } finally {
         await rm(dir, { recursive: true, force: true })
-    }
-}
-
-async function withFetch(stub: typeof fetch, body: () => Promise<void>): Promise<void> {
-    const original = globalThis.fetch
-    globalThis.fetch = stub
-    try {
-        await body()
-    } finally {
-        globalThis.fetch = original
     }
 }
 
@@ -93,10 +83,11 @@ describe("a stale token heals without asking the user", () => {
             // profile's session at construction, so a profile saved afterwards
             // would leave the client with no session to refresh.
             seed(store, id, email, jwtExpiring(30))
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
 
             const { stub, calls } = backend({ refresh: "ok", freshToken: fresh })
-            await withFetch(stub, async () => {
+            await net.with(stub, async () => {
                 expect(await platform.cloud.validate()).toBe("valid")
             })
 
@@ -114,10 +105,11 @@ describe("a stale token heals without asking the user", () => {
 
         await withStore(async store => {
             seed(store, id, email, jwtExpiring(3600))
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
 
             const { stub, calls } = backend({ refresh: "ok" })
-            await withFetch(stub, async () => {
+            await net.with(stub, async () => {
                 expect(await platform.cloud.validate()).toBe("valid")
             })
 
@@ -134,10 +126,11 @@ describe("a spent token falls back to a full login", () => {
 
         await withStore(async store => {
             seed(store, id, email, jwtExpiring(30))
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
 
             const { stub } = backend({ refresh: "refused" })
-            await withFetch(stub, async () => {
+            await net.with(stub, async () => {
                 expect(await platform.cloud.validate()).toBe("rejected")
             })
 
@@ -154,10 +147,11 @@ describe("a spent token falls back to a full login", () => {
 
         await withStore(async store => {
             seed(store, id, email, stored)
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
 
             const offline: typeof fetch = stubFetch(async () => { throw new TypeError("fetch failed") })
-            await withFetch(offline, async () => {
+            await net.with(offline, async () => {
                 expect(await platform.cloud.validate()).toBe("unreachable")
             })
 
@@ -175,11 +169,12 @@ describe("switch() runs the same ladder", () => {
 
         await withStore(async store => {
             seed(store, id, email, jwtExpiring(30))
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             platform.store.profiles.deactivate()
 
             const { stub } = backend({ refresh: "ok", freshToken: fresh })
-            await withFetch(stub, async () => {
+            await net.with(stub, async () => {
                 await platform.cloud.switch(email)
             })
 
@@ -195,11 +190,12 @@ describe("switch() runs the same ladder", () => {
 
         await withStore(async store => {
             seed(store, id, email, jwtExpiring(3600))
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store })
+            const net = Transport()
+            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, fetch: net.fetch })
             platform.store.profiles.deactivate()
 
             const offline: typeof fetch = stubFetch(async () => { throw new TypeError("fetch failed") })
-            await withFetch(offline, async () => {
+            await net.with(offline, async () => {
                 // Matched on the CODE, not the message: the code is the
                 // contract the auth page branches on (retry vs device flow),
                 // and prose is free to change.

@@ -335,6 +335,13 @@ export const errorMap = {
         source: "cognet",
         severity: "fatal",
     },
+    COGNET_SCHEDULE_INVALID: {
+        code: "AX-COGNET-017",
+        title: "Cognet Schedule Is Incoherent",
+        description: "A system in the cognet's schedule names a component the world never declared, or reads a belief no system writes. Both are silent forever at runtime — the read returns undefined and the system quietly does nothing — so the schedule refuses to run instead.",
+        source: "cognet",
+        severity: "fatal",
+    },
     COGNET_MAX_TICKS: {
         code: "AX-COGNET-005",
         title: "Cognet Exceeded Max Ticks",
@@ -1422,7 +1429,7 @@ export const errorMap = {
     CAPSULE_NET_UNAVAILABLE: {
         code: "AX-CAPSULE-011",
         title: "Network Confinement Unavailable",
-        description: "The policy declares a `net` allowlist, which needs a userspace network stack (slirp4netns) and nftables inside the box's namespace. One of them is missing on this host. Install slirp4netns and nftables, or drop the `net` block to run with no network at all — the box will not fall back to unfiltered egress.",
+        description: "The policy declares a `net` allowlist, but this runtime cannot enforce it. Rootless enforcement needs Linux, bubblewrap, systemd-run, nftables, slirp4netns and capsh; the error detail and context name what is absent. Install the missing host prerequisites, then use isolation: auto or hardened. Axon refuses to fall back to unfiltered egress.",
         source: "capsule",
         severity: "fatal",
     },
@@ -2347,6 +2354,14 @@ export const errorMap = {
         severity: "fatal",
         expected: true,
     },
+    MODEL_RUNTIME_INSTALL_FAILED: {
+        code: "AX-MODEL-039",
+        title: "Local Runtime Installation Failed",
+        description: "Axon could not prepare the isolated local-inference runtime. The partial install remains outside the ready runtime directory, so retrying is safe and cannot make the daemon import an incomplete native package.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
     MODEL_LOAD_FAILED: {
         code: "AX-MODEL-032",
         title: "The Model Could Not Be Loaded",
@@ -2404,9 +2419,17 @@ export const errorMap = {
         expected: true,
     },
     MODEL_DOWNLOAD_RUNNING: {
-        code: "AX-MODEL-038",
+        code: "AX-MODEL-040",
         title: "That Model Is Already Downloading",
         description: "A fetch was asked for while the same weight was already in flight. Downloads belong to the daemon rather than to whoever started one, so a second request is almost always a second click rather than a second intent — and starting again would write the same bytes twice and leave two records of one transfer.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+    MODEL_CATALOG_FILTER_INVALID: {
+        code: "AX-MODEL-041",
+        title: "Invalid Model Catalog Filter",
+        description: "The requested capability or sort order is not supported by the model catalog. The filter is refused at the CLI boundary rather than ignored or passed through with a cast.",
         source: "daemon",
         severity: "degraded",
         expected: true,
@@ -2483,14 +2506,6 @@ export const errorMap = {
         severity: "degraded",
         expected: true,
     },
-    DICTATION_BIND_FAILED: {
-        code: "AX-DICTATION-009",
-        title: "The Shortcut Could Not Be Registered",
-        description: "The compositor refused the keybinding. It is registered live through `hyprctl eval` rather than by editing a config file — a plugin that rewrites someone's hand-maintained bindings owns a merge problem forever, and leaves a dead keybind behind when it is uninstalled. Live registration means the daemon re-applies it at each start instead.",
-        source: "daemon",
-        severity: "degraded",
-        expected: true,
-    },
     DICTATION_NO_TRANSCRIPT: {
         code: "AX-DICTATION-008",
         title: "The Model Returned No Text",
@@ -2544,11 +2559,20 @@ export const errorMap = {
         expected: true,
     },
 
-    JOB_NOT_FOUND: {
-        code: "AX-JOB-001",
-        title: "No Such Job",
-        description: "Nothing on this machine matches that job reference. `axon job list` shows what exists; refs are the first eight characters of the id.",
-        source: "daemon",
+    JOB_DOCUMENT_INVALID: {
+        code: "AX-JOB-006",
+        title: "Invalid Job Document",
+        description: "A Markdown job could not be parsed. Its front matter, filename, or entry format is invalid; listing skips malformed files, while direct references report this error.",
+        source: "cli",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_WORKSPACE_NOT_FOUND: {
+        code: "AX-JOB-007",
+        title: "No Job Workspace Found",
+        description: "No .agents/work directory was found from the current directory, or the explicit workspace does not exist.",
+        source: "cli",
         severity: "degraded",
         expected: true,
     },
@@ -2556,7 +2580,43 @@ export const errorMap = {
     JOB_REF_AMBIGUOUS: {
         code: "AX-JOB-002",
         title: "That Job Reference Matches Several",
-        description: "A short ref matched more than one job. It refuses rather than picking one, because the verbs that take a ref include cancel, and cancelling the wrong job is not recoverable.",
+        description: "A job reference matched more than one job. Use an ID or path that identifies one job.",
+        source: "cli",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_ID_INVALID: {
+        code: "AX-JOB-008",
+        title: "Invalid Job ID",
+        description: "A job ID may contain letters, numbers, dots, underscores and hyphens, and must begin with a letter or number.",
+        source: "cli",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_ALREADY_EXISTS: {
+        code: "AX-JOB-009",
+        title: "That Job Already Exists",
+        description: "Creation refused because the requested job file already exists.",
+        source: "cli",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_PROPOSAL_NOT_FOUND: {
+        code: "AX-JOB-010",
+        title: "No Proposal to Accept",
+        description: "Acceptance requires a proposal entry on the job. Add a proposal before accepting it.",
+        source: "cli",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_NOT_FOUND: {
+        code: "AX-JOB-001",
+        title: "No Such Job",
+        description: "Nothing on this machine matches that job reference. `axon job list` shows what exists; refs are the first eight characters of the id.",
         source: "daemon",
         severity: "degraded",
         expected: true,
@@ -2575,6 +2635,51 @@ export const errorMap = {
         code: "AX-JOB-004",
         title: "That Is a Person's Decision",
         description: "Acknowledging, cancelling and retrying belong to whoever delegated the work. An agent can create jobs and report on them, but an agent that could mark its own work complete would make the list meaningless — everything would arrive already ticked off by the thing that did it.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_EXISTS: {
+        code: "AX-JOB-011",
+        title: "That Job Name Is Taken",
+        description: "A chosen job id has to be unique in its workspace, and one already uses this name. Pick another, or leave the id out and let one be generated.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_ATTACHMENT_MISSING: {
+        code: "AX-JOB-012",
+        title: "No File to Attach",
+        description: "Nothing is at the path given. Attachments are read at the moment they are attached, so the file has to exist now — a reference to something that is not there would be recorded permanently in an append-only log.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_ATTACHMENT_INVALID: {
+        code: "AX-JOB-013",
+        title: "That Is Not a File",
+        description: "Attachments are single files. Point at one, or archive a directory first.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_ATTACHMENT_TOO_LARGE: {
+        code: "AX-JOB-014",
+        title: "That Attachment Is Too Large",
+        description: "Attachments are committed alongside the code so a job travels with its checkout, which makes every byte permanent in the repository's history. Large files are refused here rather than discovered later as a repository nobody can clone.",
+        source: "daemon",
+        severity: "degraded",
+        expected: true,
+    },
+
+    JOB_NOT_RUNNING: {
+        code: "AX-JOB-015",
+        title: "That Job Has No Run in Progress",
+        description: "A report or proposal is the outcome of a run, so `-ar` / `-ap` answer the run currently in progress. This job has none — start one first, or leave a comment with `-ac`.",
         source: "daemon",
         severity: "degraded",
         expected: true,
@@ -2607,6 +2712,83 @@ export const errorMap = {
         expected: true,
     },
 
+    WORLD_INSTALL_MISSING: {
+        code: "AX-WORLD-001",
+        title: "World Engine Not Installed",
+        description: "Something a Terraria world needs is not on this machine — tModLoader, its bundled dotnet, Xvfb, ffmpeg, or pactl. The detail names which, and where it was looked for.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_NOT_FOUND: {
+        code: "AX-WORLD-002",
+        title: "No Such World",
+        description: "The named world has no .wld file in tModLoader's Worlds folder.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_NOT_RUNNING: {
+        code: "AX-WORLD-003",
+        title: "World Is Not Running",
+        description: "The operation needs a running world. Start it from the Worlds view in Axon Fleet.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_ALREADY_RUNNING: {
+        code: "AX-WORLD-004",
+        title: "A World Is Already Running",
+        description: "One world runs at a time. Stop the running one first.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_START_FAILED: {
+        code: "AX-WORLD-005",
+        title: "World Did Not Start",
+        description: "The dedicated server exited or never reported that it was listening. Its last output is in the detail.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_MOD_MISSING: {
+        code: "AX-WORLD-006",
+        title: "AxonT Is Not Built",
+        description: "There is no AxonT.tmod to load. Build the mod — from the Worlds view, or `dotnet build` in its source folder.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_MOD_BUILD_FAILED: {
+        code: "AX-WORLD-007",
+        title: "AxonT Build Failed",
+        description: "Building the AxonT mod failed. The compiler's output is in the detail.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_CHARACTER_LEASED: {
+        code: "AX-WORLD-008",
+        title: "Character Already In Use",
+        description: "This character is already embodied by another agent. One character file can only be in one body at a time — two would overwrite each other's saves.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_NO_BODY: {
+        code: "AX-WORLD-009",
+        title: "No Body Available",
+        description: "No warm body became available in time, or the pool is at its limit.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_BODY_FAILED: {
+        code: "AX-WORLD-010",
+        title: "Body Failed",
+        description: "A body's game client failed or could not do what was asked. The detail names the body and the step.",
+        source: "daemon",
+        severity: "fatal",
+    },
+    WORLD_LEASE_UNKNOWN: {
+        code: "AX-WORLD-011",
+        title: "Unknown Lease",
+        description: "No body is leased under this id — it was released, or its agent died and it was reclaimed.",
+        source: "daemon",
+        severity: "fatal",
+    },
     DAEMON_NOT_WIRED: {
         code: "AX-DAEMON-005",
         title: "That Part of the Daemon Is Not Built Yet",

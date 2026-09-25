@@ -19,6 +19,14 @@ type AxonCloudOpts = {
     /** Axon session identity — forwarded to Cognos so events share one trace tree. */
     sessionId?: string
     /**
+     * Transport override — see HttpOpts.fetch.
+     *
+     * Exists so a caller can isolate the network per INSTANCE instead of
+     * assigning over `globalThis.fetch`, which is shared with every test file
+     * Bun runs concurrently. Production passes nothing.
+     */
+    fetch?: typeof fetch
+    /**
      * "node" (default) — full surface, for the TUI/CLI. "browser" — drops
      * the two leaves that need real Node builtins (agent/module publish,
      * which read bundle files off local disk; Codex OAuth, which runs a
@@ -70,9 +78,26 @@ export function AxonCloud(opts: AxonCloudOpts) {
     // Built BEFORE User so it can be handed to Http as the failure observer.
     // It deliberately does not receive `user.http` — see Reporting(): sending
     // a report through the transport whose failures it reports is a loop.
+    /*
+     * AXON_NO_TELEMETRY turns the crash channel off, the same way it turns the
+     * install script's off. One switch for all outbound telemetry, because
+     * "how do I stop this reporting home" has one answer or it has none.
+     *
+     * There was no kill switch at all before, and the gap was not theoretical:
+     * the fresh-box install matrix runs the real CLI in throwaway containers,
+     * every failed command POSTed a crash report to PRODUCTION, and one run
+     * put 15 fabricated occurrences into the operator dashboard under a
+     * /home/tester path. A test harness that cannot stop reporting makes the
+     * crash list untrustworthy exactly when someone is trying to read it.
+     *
+     * An explicit `reporting: false` still wins — the env var can only turn
+     * reporting OFF, never on.
+     */
     const reporting = Reporting({
         baseUrl: opts.baseUrl ?? resolveDefaultBaseUrl(),
-        enabled: opts.reporting ?? true,
+        // Read through globalThis: this package is bundled for the browser too,
+        // where a bare `process` reference is a ReferenceError rather than undefined.
+        enabled: (opts.reporting ?? true) && !globalThis.process?.env?.AXON_NO_TELEMETRY,
         ...(opts.release !== undefined ? { release: opts.release } : {}),
         platform: describePlatform(),
     })
@@ -84,6 +109,7 @@ export function AxonCloud(opts: AxonCloudOpts) {
         environmentCredentials: opts.environmentCredentials ?? true,
         ...(opts.onUnauthorized !== undefined ? { onUnauthorized: opts.onUnauthorized } : {}),
         onFailure: reporting.httpFailure,
+        ...(opts.fetch !== undefined ? { fetch: opts.fetch } : {}),
         runtime,
     })
 

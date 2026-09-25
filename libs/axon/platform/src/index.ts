@@ -1,5 +1,9 @@
 export { Platform, type PlatformT } from "./platform"
 export type { ProjectKind, ProjectT } from "./build/project"
+// Promoted deliberately: the name of the default brain is a public fact about
+// the platform, and `arc`'s release preflight now asks the registry whether a
+// version of it exists for this kernel's ABI. Two consumers, one constant.
+export { DEFAULT_COGNET } from "./build/blueprint"
 // The `@` palette renders these rows, so the shape is part of the platform's
 // public surface rather than an internal of the walk that produces it.
 export type { FileEntry, FilesT } from "./services/files"

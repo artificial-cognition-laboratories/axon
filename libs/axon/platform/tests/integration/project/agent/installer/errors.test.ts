@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
-import { TEST_USER, TEST_VERSION, TEST_FRAMEWORK_PUBLISHED } from "../../../../setup/user"
+import { TEST_USER, TEST_FRAMEWORK_PUBLISHED } from "../../../../setup/user"
 import { describe, it, expect } from "bun:test"
 
 function disposableName(prefix: string): string {
@@ -10,13 +10,13 @@ function disposableName(prefix: string): string {
 }
 
 async function authenticatedPlatform(storeDir: string) {
-    const seed = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
+    const seed = Platform({ ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
     seed.store.profiles.save(TEST_USER.id, {
         user: { id: TEST_USER.id, email: TEST_USER.email },
         auth: { apiKey: TEST_USER.apiKey },
     })
 
-    return Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
+    return Platform({ ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
 }
 
 describe("installer: per-specifier error isolation", () => {

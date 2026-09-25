@@ -14,6 +14,8 @@ type ProjectsOpts = {
     frameworkVersion: string
     frameworkSource?: FrameworkSource
     repoRoot?: string
+    /** Invocation directory used for workspace discovery. */
+    cwd?: string
     /** Collaborators a bench project needs — the test runner and agent resolution. */
     bench: BenchExtras
     /**
@@ -40,7 +42,13 @@ type ProjectsOpts = {
  * cloud client and fails loudly at the call site when logged out.
  */
 export function Projects(opts: ProjectsOpts) {
-    async function open(root: string): Promise<ProjectT> {
+    // A project owns its prepared-build cache and the watcher that validates
+    // it. Reopening the same root must therefore return the same handle;
+    // constructing a fresh Project() per spawn discarded both and guaranteed
+    // a full reconciliation after every close → reopen.
+    const opened = new Map<string, ProjectT>()
+
+    async function open(root: string, cwd = opts.cwd): Promise<ProjectT> {
         const absolute = resolve(root)
         const kind = detectKind(absolute)
 
@@ -48,17 +56,23 @@ export function Projects(opts: ProjectsOpts) {
             throw err("PROJECT_NOT_FOUND", { context: { path: absolute } })
         }
 
-        return Project({
+        const existing = opened.get(absolute)
+        if (existing) return existing
+
+        const project = Project({
             root: absolute,
             kind: kind,
             name: await projectName(absolute),
             cloud: opts.cloud,
             frameworkVersion: opts.frameworkVersion,
+            ...(cwd ? { cwd } : {}),
         ...(opts.frameworkSource ? { frameworkSource: opts.frameworkSource } : {}),
         ...(opts.repoRoot ? { repoRoot: opts.repoRoot } : {}),
             bench: opts.bench,
             ...(opts.profileProviders ? { profileProviders: opts.profileProviders } : {}),
         })
+        opened.set(absolute, project)
+        return project
     }
 
     /** Open the project at or above cwd, refusing anything that isn't `kind`. */
@@ -70,7 +84,9 @@ export function Projects(opts: ProjectsOpts) {
                 context: { path: cwd, kind },
             })
         }
-        const project = await open(root)
+        // Workspace discovery belongs to this invocation, not the long-lived
+        // terminal process that happened to create the platform.
+        const project = await open(root, cwd)
         if (project.kind !== kind) {
             throw err("PROJECT_WRONG_KIND", {
                 detail: `${project.root} is a ${project.kind} project, not a ${kind}`,
@@ -126,7 +142,7 @@ export function Projects(opts: ProjectsOpts) {
             const report = input.onProgress ?? (() => {})
 
             report({ step: "scaffolding" })
-            const root = await KINDS[kind].scaffold({
+            const scaffolded = await KINDS[kind].scaffold({
                 name: input.name,
                 dir: input.dir ?? process.cwd(),
                 frameworkVersion: opts.frameworkVersion,
@@ -134,12 +150,47 @@ export function Projects(opts: ProjectsOpts) {
         ...(opts.repoRoot ? { repoRoot: opts.repoRoot } : {}),
                 ...(input.apiBase !== undefined ? { apiBase: input.apiBase } : {}),
             })
+
+            /*
+             * What was scaffolded is not always a project of its own.
+             *
+             * `axon cognet init` inside an agent writes an INLINE cognet at
+             * <agent>/cognet/ — deliberately with no package.json, because it
+             * is part of the agent rather than a second publishable package.
+             * `detectKind()` refuses to claim such a directory, equally
+             * deliberately. So opening the scaffolded path threw
+             * PROJECT_NOT_FOUND against a directory this function had just
+             * written, one line after reporting success: the scaffolder was
+             * right and the step after it had not been told.
+             *
+             * The project to open — and to PREPARE, since an inline cognet is
+             * compiled from the agent's node_modules into the agent's frame —
+             * is the one that OWNS the scaffolded path. For every other kind
+             * that owner is the scaffolded path itself.
+             */
+            const root = detectKind(scaffolded) ? scaffolded : find(scaffolded)
+            if (!root) {
+                throw err("PROJECT_NOT_FOUND", {
+                    detail: `scaffolded ${scaffolded} but found no project at or above it`,
+                    context: { path: scaffolded, kind },
+                })
+            }
             const project = await open(root)
 
             report({ step: "preparing", root })
             await project.prepare()
 
-            report({ step: "created", root, name: project.name })
+            /*
+             * The step describes WHAT WAS CREATED, which for an inline cognet
+             * is the cognet — not the agent that now owns it. Reporting the
+             * agent's root and name here would tell a user who asked for a
+             * cognet that they had made an agent.
+             */
+            report({
+                step: "created",
+                root: scaffolded,
+                name: root === scaffolded ? project.name : input.name,
+            })
             return project
         },
     }

@@ -74,14 +74,14 @@ export function Mediator(opts: MediatorOpts): MediatorT {
         return execution.current?.id ?? null
     }
 
-    const pending = new Map<string, (allow: boolean) => void>()
+    const pending = new Map<string, (allow: boolean, reason?: "headless") => void>()
 
     wire.onCommand(cmd => {
         if (cmd.type !== "policy:response") return
         const resolve = pending.get(cmd.id)
         if (!resolve) return
         pending.delete(cmd.id)
-        resolve(cmd.allow)
+        resolve(cmd.allow, cmd.reason)
     })
 
     /**
@@ -160,6 +160,21 @@ export function Mediator(opts: MediatorOpts): MediatorT {
             return false
         }
 
+        return await escalate(fn, args, module, String(rule))
+    }
+
+    /**
+     * Ask the host, and record the answer.
+     *
+     * Extracted from `check()` because `shell()` must reach it WITHOUT rule
+     * resolution. `decideShell` already weighed the shell policy and returned
+     * "escalate"; sending that through `check()` re-resolved a TOOLS rule for
+     * an address like `shell.run:axon`, found none — a program is not a tool
+     * and never has one — and denied by omission. The escalate verdict was
+     * computed and then thrown away, which is why an agent with no policy was
+     * refused instead of asked.
+     */
+    async function escalate(fn: string, args: unknown[], module: string, rule: string): Promise<boolean> {
         // Escalate — round trip to the host, default deny on timeout.
         const id = randomUUID()
 
@@ -207,12 +222,12 @@ export function Mediator(opts: MediatorOpts): MediatorT {
              * the 30s timeout denied it. A policy answered instantly still
              * took half a minute to be refused.
              */
-            pending.set(id, allow => {
+            pending.set(id, (allow, reason) => {
                 clearTimeout(timer)
-                settle(allow, "escalation-denied")
+                settle(allow, reason === "headless" ? "escalation-headless" : "escalation-denied")
             })
 
-            wire.emit("process:policy:escalation", { id, commandId: commandId(), module, fn, args, rule: String(rule) })
+            wire.emit("process:policy:escalation", { id, commandId: commandId(), module, fn, args, rule })
         })
     }
 
@@ -224,7 +239,7 @@ export function Mediator(opts: MediatorOpts): MediatorT {
     async function shell(argv: string[], command?: string): Promise<ShellDecision> {
         // `command` is the unsplit line — the only form in which a chain is
         // still visible. See decideShell.
-        const decision = decideShell(policy.shell, argv, undefined, command)
+        const decision = decideShell(policy.shell, argv, command)
         if (decision.verdict === "allow") return decision
 
         if (decision.verdict === "deny") {
@@ -235,7 +250,9 @@ export function Mediator(opts: MediatorOpts): MediatorT {
             return decision
         }
 
-        const allowed = await check(`shell.run:${decision.program}`, argv.join(" "), argv, "shell")
+        // Straight to the ask — see escalate(). Routing through check() here
+        // re-resolved a tools rule for a program address and denied by omission.
+        const allowed = await escalate(`shell.run:${decision.program}`, argv, "shell", decision.reason)
         return { ...decision, verdict: allowed ? "allow" : "deny" }
     }
 

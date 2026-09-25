@@ -1,0 +1,6 @@
+displayName = AxonT
+author = Arc Labs
+version = 0.2
+# Client-side only: the agent's client carries the bridge, and a server Cody
+# hosts must never be required to install it for Terry to connect.
+side = Client

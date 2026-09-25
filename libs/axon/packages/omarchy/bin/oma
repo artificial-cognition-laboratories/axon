@@ -1,0 +1,97 @@
+#!/usr/bin/env sh
+#
+# oma — summon the machine's agent, or put it away.
+#
+# -- Why a shell script ------------------------------------------------------
+#
+# This is bound to a key, so it runs on every press and its whole job is to
+# decide between two hyprctl calls. Going through the Axon CLI would cost
+# ~620ms of bundle load to make that decision -- measured, and the same trap
+# the dictation keypress hit. A POSIX script is about two milliseconds.
+#
+# -- Why the process is never allowed to die ---------------------------------
+#
+# A cold summon costs ~1.9s: CLI bundle, agent spawn, model, first paint. That
+# is fine once and intolerable every time, and it is the whole difference
+# between a sidekick and a thing you avoid opening.
+#
+# So the window lives in a special workspace and the toggle only ever SHOWS or
+# HIDES it. Quitting the TUI inside does not close the window -- it clears the
+# session and starts a fresh one, hidden, so the next summon is a toggle again.
+# "Exit means clear" is also the honest reading of a single-session sidekick:
+# there is nothing else quitting could usefully mean when dismissing is a
+# keypress away.
+set -eu
+
+WORKSPACE=oma
+APP_ID=org.omarchy.axon.oma
+
+toggle() { hyprctl eval "hl.dispatch(hl.dsp.workspace.toggle_special(\"$WORKSPACE\"))" >/dev/null 2>&1; }
+running() { hyprctl clients -j 2>/dev/null | grep -q "\"$APP_ID\""; }
+
+# `warm` pre-launches without showing anything: the session runs this at login
+# so the first real summon is already a toggle.
+MODE="${1:-toggle}"
+
+if running; then
+    [ "$MODE" = "warm" ] || toggle
+    exit 0
+fi
+
+# A keybind runs with the graphical session's PATH, which contains neither
+# `axon` nor the `bun` its shebang needs.
+for candidate in \
+    "$HOME/.local/bin/axonl" \
+    "$HOME/.cache/.bun/bin/axon" \
+    "$HOME/.bun/bin/axon" \
+    /usr/local/bin/axon \
+    /usr/bin/axon
+do
+    [ -x "$candidate" ] && AXON="$candidate" && break
+done
+
+if [ -z "${AXON:-}" ]; then
+    notify-send "Axon" "The axon CLI could not be found — Oma cannot start." 2>/dev/null || true
+    exit 1
+fi
+
+# The agent reference.
+#
+# `@axon/oma` resolves against INSTALLED agents only -- references never fetch
+# from the registry -- so a machine that has not cloned it gets AX-AGENT-404.
+# Installed wins when it is there; a checkout is the fallback, which is what a
+# developer working on the agent itself has. Shipping order is publish, then
+# `axon clone @axon/oma`, after which the first branch is always the one taken.
+REF=""
+for store in "$HOME/.axon/profiles" "$HOME/.axon-dev/profiles"; do
+    for found in "$store"/*/agents/oma; do
+        [ -d "$found" ] && REF="@axon/oma" && break 2
+    done
+done
+[ -n "${AXON_OMA_HOME:-}" ] && [ -d "$AXON_OMA_HOME" ] && REF="$AXON_OMA_HOME"
+if [ -z "$REF" ]; then
+    notify-send "Axon" "Oma is not installed — run: axon clone @axon/oma" 2>/dev/null || true
+    exit 1
+fi
+
+# Shown first, so the window opens into a workspace already in front rather
+# than appearing behind one. Not for a warm start, which must stay invisible.
+[ "$MODE" = "warm" ] || toggle
+
+# The respawn loop, with a crash guard: a TUI that dies immediately twice is
+# broken, and looping on it would spin forever with nothing on screen to say so.
+exec omarchy-launch-tui --app-id="$APP_ID" bash -lc "
+    export PATH=\"\$HOME/.bun/bin:\$HOME/.cache/.bun/bin:\$HOME/.local/bin:\$PATH\"
+    fast=0
+    while :; do
+        began=\$(date +%s)
+        '$AXON' '$REF' -a || true
+        [ \$(( \$(date +%s) - began )) -lt 2 ] && fast=\$(( fast + 1 )) || fast=0
+        if [ \$fast -ge 2 ]; then
+            echo
+            echo 'Oma exited twice immediately — not restarting.'
+            read -rsn1 -p 'Press any key to close.'
+            exit 1
+        fi
+    done
+"

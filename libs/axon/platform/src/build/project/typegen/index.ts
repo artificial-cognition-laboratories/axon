@@ -4,6 +4,9 @@ import { Generators } from "./generators"
 import type { BuiltinRegistry } from "./registry-dts"
 import { Tools } from "../../blueprint/scan/tools"
 import { KINDS, type ProjectKind } from "../kinds"
+import { generateWorkspaceScriptFrame } from "./workspace-scripts"
+import { workspaceRoot } from "../../blueprint/workspace"
+import { dirname, relative, resolve } from "node:path"
 
 export type TypegenResult = {
     toolGlobals: number
@@ -37,6 +40,8 @@ type TypegenOpts = {
      * serves. The names are data — the platform only writes them down.
      */
     builtins?: BuiltinRegistry
+    /** Invocation directory used to discover a repository workspace. */
+    cwd?: string
 }
 
 /**
@@ -63,6 +68,12 @@ type TypegenOpts = {
 export function Typegen(opts: TypegenOpts) {
     const { kind, root } = opts
     const generate = Generators(opts)
+    const discoveredWorkspace = opts.cwd ? workspaceRoot(opts.cwd) : null
+    const workspace = discoveredWorkspace && (() => {
+        const repoRoot = dirname(discoveredWorkspace)
+        const rel = relative(resolve(repoRoot), resolve(root))
+        return rel === "" || (!rel.startsWith(".." + "/") && rel !== "..") ? discoveredWorkspace : null
+    })()
 
     return {
         /** Per-domain generators — regenerate one file when one domain changed. */
@@ -129,6 +140,9 @@ export function Typegen(opts: TypegenOpts) {
                 scripts: generate.scripts(blueprint.scripts ?? []),
                 components: await generate.components(blueprint.modules ?? []),
                 env: generate.env(),
+                ...(workspace && blueprint.config?.workspace !== false
+                    ? (generateWorkspaceScriptFrame(workspace, root, blueprint.scripts ?? [], blueprint.prompts ?? []), {})
+                    : {}),
             }
         },
     }

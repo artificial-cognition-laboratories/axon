@@ -60,6 +60,9 @@ export type ChannelSocket = {
     readonly pending?: number
     /** Resolves once `pending` has fallen below the given depth. */
     whenDrained?(below: number): Promise<void>
+    /** Stop/resume reads when a consumer stops pulling a stream. */
+    pause?(): void
+    resume?(): void
     /** Best-effort close. */
     close(): void
 }
@@ -72,6 +75,10 @@ export type ChannelSocket = {
  * kernel's own send buffer (~233KB here) sits underneath this.
  */
 const STREAM_HIGH_WATER = 256 * 1024
+
+/** Maximum decoded stream chunks held for a consumer that has stopped pulling. */
+const STREAM_INBOUND_HIGH_WATER = 16
+const STREAM_INBOUND_LOW_WATER = 8
 
 export type ChannelHandlers = {
     /** Answer a `call`. Rejecting sends an error reply. */
@@ -122,10 +129,47 @@ export function Channel(opts: ChannelOpts) {
     const pending = new Map<string, { resolve(v: unknown): void; reject(e: Error): void }>()
     const streams = new Map<string, { push(v: unknown): void; end(e?: Error): void }>()
     const inbound = new Map<string, AbortController>()
-    let closed: Error | null = null
+    const pausedStreams = new Set<string>()
+
+    /*
+     * Why the close reason is LAZY.
+     *
+     * `err()` emits to every observer at CONSTRUCTION, not at throw — so
+     * building an AxonError is itself the act of reporting one. `close()` on
+     * the shutdown path used to call `fail(err("LINK_CLOSED"))` eagerly, which
+     * meant every clean `axon` quit filed two fatal crash reports with nothing
+     * wrong and nothing in flight. In production that was AX-LINK-002 and
+     * AX-LINK-003, four occurrences each, every stack rooted in
+     * `shutdown → stop → dispose → close`.
+     *
+     * Downgrading their severity would be the wrong fix: rejecting a call that
+     * WAS in flight is a real fatal failure for that call. What is not a
+     * failure is closing a channel nobody was using. So the reason is passed
+     * as a thunk and materialised only when someone is actually told about it
+     * — a pending call to reject, a stream to end, or a later use of the
+     * closed channel. No listener, no error, no report.
+     */
+    let closedBy: (() => Error) | null = null
+    let closedError: Error | null = null
+
+    /** The close reason, constructed once, on first use. */
+    function closedReason(): Error {
+        closedError ??= closedBy!()
+        return closedError
+    }
+
+    function pauseInbound(id: string): void {
+        if (pausedStreams.size === 0) opts.socket.pause?.()
+        pausedStreams.add(id)
+    }
+
+    function resumeInbound(id: string): void {
+        if (!pausedStreams.delete(id) || pausedStreams.size > 0) return
+        opts.socket.resume?.()
+    }
 
     function send(message: Wire): void {
-        if (closed) throw closed
+        if (closedBy) throw closedReason()
         opts.socket.write(encodeMessage(message))
     }
 
@@ -237,7 +281,7 @@ export function Channel(opts: ChannelOpts) {
         // whole class of assertion that could not be written until these tests
         // were typechecked.
         call<T = unknown>(verb: string, arg: unknown, signal?: AbortSignal): Promise<T> {
-            if (closed) return Promise.reject(closed)
+            if (closedBy) return Promise.reject(closedReason())
             const id = nextId()
             return new Promise<T>((resolve, reject) => {
                 pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
@@ -264,14 +308,18 @@ export function Channel(opts: ChannelOpts) {
          * buffer fills, and the peer's writes go short.
          */
         async *stream<T>(verb: string, arg: unknown, signal?: AbortSignal): AsyncGenerator<T> {
-            if (closed) throw closed
+            if (closedBy) throw closedReason()
             const id = nextId()
             const queue: unknown[] = []
             let done: Error | null | undefined
             let wake: (() => void) | null = null
 
             streams.set(id, {
-                push(value) { queue.push(value); wake?.(); wake = null },
+                push(value) {
+                    queue.push(value)
+                    if (queue.length >= STREAM_INBOUND_HIGH_WATER) pauseInbound(id)
+                    wake?.(); wake = null
+                },
                 end(error) { done = error ?? null; wake?.(); wake = null },
             })
 
@@ -286,7 +334,11 @@ export function Channel(opts: ChannelOpts) {
             try {
                 send({ k: "open", id, verb, arg })
                 for (;;) {
-                    while (queue.length > 0) yield queue.shift() as T
+                    while (queue.length > 0) {
+                        const value = queue.shift() as T
+                        if (queue.length <= STREAM_INBOUND_LOW_WATER) resumeInbound(id)
+                        yield value
+                    }
                     if (done !== undefined) {
                         if (done) throw done
                         return
@@ -295,6 +347,7 @@ export function Channel(opts: ChannelOpts) {
                 }
             } finally {
                 streams.delete(id)
+                resumeInbound(id)
                 signal?.removeEventListener("abort", onAbort)
             }
         },
@@ -308,17 +361,29 @@ export function Channel(opts: ChannelOpts) {
          * every pending call explicitly is what makes a dead peer an error
          * rather than a hang.
          */
-        fail(error: Error): void {
-            if (closed) return
-            closed = error
-            for (const [id, entry] of pending) { pending.delete(id); entry.reject(error) }
-            for (const [id, entry] of streams) { streams.delete(id); entry.end(error) }
+        fail(reason: Error | (() => Error)): void {
+            if (closedBy) return
+            // An already-constructed Error has, by definition, already been
+            // reported at its own construction site — wrapping it in a thunk
+            // changes nothing. A thunk is what lets a caller with no failure to
+            // describe avoid creating one.
+            closedBy = typeof reason === "function" ? reason : () => reason
+
+            // Materialised ONCE, and only if there is somebody to hand it to.
+            // This is the whole point: a channel closing with nothing pending
+            // never builds an error and never files a report.
+            if (pending.size > 0 || streams.size > 0) {
+                const error = closedReason()
+                for (const [id, entry] of pending) { pending.delete(id); entry.reject(error) }
+                for (const [id, entry] of streams) { streams.delete(id); entry.end(error) }
+            }
+            for (const id of pausedStreams) resumeInbound(id)
             for (const controller of inbound.values()) controller.abort()
             inbound.clear()
             opts.socket.close()
         },
 
-        get isClosed() { return closed !== null },
+        get isClosed() { return closedBy !== null },
     }
 }
 

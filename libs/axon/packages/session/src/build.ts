@@ -193,7 +193,7 @@ export type BuildRecorderT = ReturnType<typeof BuildRecorder>
 export async function span<T>(
     recorder: BuildRecorderT | null,
     name: "build" | "build:open" | "build:prepare" | "build:load" | "build:framework"
-        | "build:modules" | "build:cognet" | "build:tree" | "build:typegen" | "build:scan",
+        | "build:modules" | "build:cognet" | "build:compile" | "build:tree" | "build:blueprint" | "build:typegen" | "build:scan" | "build:supervise",
     start: Record<string, unknown>,
     run: () => Promise<T>,
     complete?: (value: T) => Record<string, unknown>,

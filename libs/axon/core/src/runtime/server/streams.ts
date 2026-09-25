@@ -1,6 +1,5 @@
 import type { setResponseHeader } from "h3"
-import type { AxonEventView, AxonHandle, AxonSessionQuery } from "@arcforge/types"
-import { classifyEvent } from "@arcforge/types"
+import { classifyEvent, type AxonEventView, type AxonHandle, type AxonSessionQuery } from "@arcforge/types"
 import type { AxonBusT } from "../../platform"
 import { frame, sseResponse } from "./sse"
 

@@ -1,4 +1,5 @@
-import type { GrammarT } from "../grammar"
+import type { AxonEngineContent } from "@arcforge/types"
+    import type { GrammarT } from "../grammar"
 import type { AirMessage, AirRenderInput } from "../types"
 import { renderConversation } from "./conversation"
 import { preflightEntries } from "./preflight"
@@ -192,12 +193,20 @@ export function Render(opts: RenderOpts) {
                     const folded = trailing?.role === "user"
                     if (folded) messages.pop()
 
-                    turns[0] = {
-                        ...first,
-                        content: [renderSessionStart(), folded ? trailing!.content : null, first.content]
-                            .filter(Boolean)
-                            .join("\n"),
-                    }
+                    const asParts = (content: AirMessage["content"]): AxonEngineContent[] =>
+                        typeof content === "string"
+                            ? [{ type: "text" as const, text: content }]
+                            : content
+                    turns[0] = first.role === "system"
+                        ? first
+                        : {
+                            ...first,
+                            content: [
+                                { type: "text" as const, text: renderSessionStart() },
+                                ...(folded ? asParts(trailing!.content) : []),
+                                ...asParts(first.content),
+                            ],
+                        }
                 }
 
                 messages.push(...turns)

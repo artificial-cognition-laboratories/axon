@@ -1,5 +1,8 @@
 import type TsNamespace from "typescript"
 import type { ModuleOptionSchema } from "@arcforge/types"
+import { createHash } from "node:crypto"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { Frame } from "../../frame"
 import { fsx } from "../../../utils/fs"
 
 /**
@@ -29,11 +32,52 @@ export type ModuleMeta = {
     optionsSchema: Record<string, ModuleOptionSchema>
 }
 
-export async function readMeta(configPath: string): Promise<ModuleMeta> {
-    const meta: ModuleMeta = { automerge: null, env: {}, optionsSchema: {} }
+type CachedMeta = Record<string, ModuleMeta>
 
+/** ModuleMetaCache — durable AST metadata for installed module declarations. */
+export function ModuleMetaCache(opts: { root: string }) {
+    const frame = Frame({ root: opts.root, kind: "agent" })
+    const path = frame.file("cache", "module-meta.json")
+    let entries: CachedMeta | null = null
+
+    function load(): CachedMeta {
+        if (entries) return entries
+        if (!existsSync(path)) return entries = {}
+        try {
+            return entries = JSON.parse(readFileSync(path, "utf-8")) as CachedMeta
+        } catch {
+            // Derived metadata is non-authoritative; re-parsing the authored
+            // module config below restores a torn cache entry.
+            return entries = {}
+        }
+    }
+
+    return {
+        async read(configPath: string): Promise<ModuleMeta> {
+            const content = await fsx.readText(configPath)
+            if (content === null) return { automerge: null, env: {}, optionsSchema: {} }
+            const key = createHash("sha256").update(configPath).update("\0").update(content).digest("hex")
+            const cached = load()[key]
+            if (cached) return cached
+            const meta = await parseMeta(configPath, content)
+            load()[key] = meta
+            frame.ensure("cache")
+            writeFileSync(path, JSON.stringify(load()) + "\n", "utf-8")
+            return meta
+        },
+    }
+}
+
+export type ModuleMetaCacheT = ReturnType<typeof ModuleMetaCache>
+
+export async function readMeta(configPath: string): Promise<ModuleMeta> {
     const content = await fsx.readText(configPath)
-    if (content === null) return meta
+    if (content === null) return { automerge: null, env: {}, optionsSchema: {} }
+    return parseMeta(configPath, content)
+}
+
+async function parseMeta(configPath: string, content: string): Promise<ModuleMeta> {
+    const meta: ModuleMeta = { automerge: null, env: {}, optionsSchema: {} }
 
     await loadTs()
     const src = ts.createSourceFile(configPath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)

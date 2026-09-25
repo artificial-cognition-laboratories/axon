@@ -76,6 +76,10 @@ export type ReservationsOpts = {
 
 export function Reservations(opts: ReservationsOpts = {}) {
     const writeRoot = opts.root ?? ROOTS[1]!
+    // An injected root is an isolation boundary, not merely an alternate
+    // write destination. Tests and embedded callers supply one specifically
+    // so they do not observe or reap the machine's real reservations.
+    const readRoots = opts.root ? [writeRoot] : ROOTS
 
     function ensure(): string {
         mkdirSync(writeRoot, { recursive: true })
@@ -94,7 +98,7 @@ export function Reservations(opts: ReservationsOpts = {}) {
     function live(): Reservation[] {
         const found: Reservation[] = []
 
-        for (const root of new Set([...ROOTS, writeRoot])) {
+        for (const root of new Set([...readRoots, writeRoot])) {
             if (!existsSync(root)) continue
 
             for (const name of readdirSync(root)) {
@@ -145,7 +149,7 @@ export function Reservations(opts: ReservationsOpts = {}) {
 
         /** Release everything this process holds — shutdown, and the one place a clean exit matters. */
         releaseAll(): void {
-            for (const root of new Set([...ROOTS, writeRoot])) {
+            for (const root of new Set([...readRoots, writeRoot])) {
                 if (!existsSync(root)) continue
                 for (const name of readdirSync(root)) {
                     const path = join(root, name)

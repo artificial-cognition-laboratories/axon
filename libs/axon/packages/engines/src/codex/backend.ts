@@ -121,10 +121,19 @@ async function fetchResponses(
     // is when an assistant message first reached a driver at all.
     const input = nonSystemMessages.map(m => {
         const assistant = m.role === "assistant"
+        const content = typeof m.content === "string"
+            ? [{ type: assistant ? "output_text" as const : "input_text" as const, text: m.content }]
+            : assistant
+                ? m.content
+                    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+                    .map(part => ({ type: "output_text" as const, text: part.text }))
+                : m.content.map(part => part.type === "text"
+                    ? { type: "input_text" as const, text: part.text }
+                    : { type: "input_image" as const, image_url: part.ref.uri })
         return {
             type: "message",
             role: assistant ? "assistant" : "user",
-            content: [{ type: assistant ? "output_text" : "input_text", text: m.content }],
+            content,
         }
     })
 

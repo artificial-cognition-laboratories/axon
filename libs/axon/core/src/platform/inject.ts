@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { err } from "@arcforge/err"
-import { defineArgs, defineAxonPlugin, defineMiddleware, defineModule, defineProps, definePrompt } from "@arcforge/types"
-import type { AxonBlueprint, AxonHandle } from "@arcforge/types"
+import { defineArgs, defineAxonPlugin, defineMiddleware, defineModule, defineProps, definePrompt, type AxonBlueprint, type AxonHandle } from "@arcforge/types"
 
 const argsStorage = new AsyncLocalStorage<Record<string, unknown>>()
 
@@ -147,7 +146,7 @@ export function Inject() {
                 // miss forwards to the live handle; `activity` is the one own
                 // member.
                 ? new Proxy(axon as object, {
-                    get: (target, key, receiver) => key === "activity"
+                    get: (target, key) => key === "activity"
                         ? ambient.activity
                         : Reflect.get(target, key, target),
                     has: (target, key) => key === "activity" || Reflect.has(target, key),
@@ -246,4 +245,3 @@ function installToolGlobals(g: Record<string, unknown>, loaded: Record<string, u
         installedToolGlobals.push(name)
     }
 }
-

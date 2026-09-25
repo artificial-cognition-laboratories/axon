@@ -45,7 +45,7 @@ export function Deploy(opts: DeployOpts) {
         // step the caller can render honestly. Without it a failure during
         // publish marks the bundle as the thing that failed.
         report({ step: "bundling" })
-        const session = bundle.session("agent")
+        const session = bundle.session("agent", "deploy")
         let artifact = await session.current()
 
         while (true) {

@@ -99,7 +99,10 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
     // address to look up, and a registry may not publish a usable one either.
     // Skipping this made every prepare re-download every model.
     const remembered = await opts.store.resolved(specifierOf(model))
-    if (remembered) return remembered
+    if (remembered) {
+        if (model.traits) await opts.store.describe(specifierOf(model), model.traits)
+        return remembered
+    }
 
     const expected = await expectedHash(model)
     if (expected && opts.store.has(expected, basenameOf(model))) {
@@ -113,7 +116,10 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
             // memory it does not fit in.
             bytes: (await stat(path)).size,
         }
-        if (opts.remember !== false) await opts.store.remember(specifierOf(model), hit, basenameOf(model))
+        if (opts.remember !== false) {
+            await opts.store.remember(specifierOf(model), hit, basenameOf(model))
+            if (model.traits) await opts.store.describe(specifierOf(model), model.traits)
+        }
         return hit
     }
 
@@ -147,7 +153,10 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
     // put() hashes and refuses a mismatch — verification lives at the write,
     // so nothing can reach the cache unverified by any path.
     const stored = await opts.store.put(basenameOf(model), data, expected ?? undefined)
-    if (opts.remember !== false) await opts.store.remember(specifierOf(model), stored, basenameOf(model))
+    if (opts.remember !== false) {
+        await opts.store.remember(specifierOf(model), stored, basenameOf(model))
+        if (model.traits) await opts.store.describe(specifierOf(model), model.traits)
+    }
     return stored
 }
 
@@ -177,20 +186,63 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
  * are missing hands a caller a directory path into nothing, which surfaces as
  * a runtime error about a config file rather than as "not downloaded".
  */
+export type ModelTraitsInput = {
+    capability?: string
+    type?: "generate" | "transform" | "stream"
+    in?: string[]
+    out?: string[]
+}
+
+async function discoverManifest(repo: { host: "hf"; repo: string; rev: string }): Promise<{ files: string[]; primary: string }> {
+    const response = await fetch(`https://huggingface.co/api/models/${repo.repo}`)
+    if (!response.ok) {
+        throw err("MODEL_FETCH_FAILED", {
+            detail: `${repo.repo}: could not read repository manifest (${response.status})`,
+            context: { repo: repo.repo, status: response.status },
+        })
+    }
+
+    const raw = await response.json() as { siblings?: Array<{ rfilename?: string }> }
+    const names = (raw.siblings ?? [])
+        .map(entry => entry.rfilename)
+        .filter((name): name is string => typeof name === "string")
+        .filter(name => !name.startsWith(".git/") && !/^readme|^license|^\.gitignore$/i.test(name))
+
+    const runnable = names.filter(name => /\.(onnx|gguf|safetensors|pt|pth)$/i.test(name))
+    const primary = runnable.find(name => /(^|\/)model[^/]*\.onnx$/i.test(name))
+        ?? runnable.find(name => /decoder|encoder/i.test(name))
+        ?? runnable[0]
+
+    if (!primary) {
+        throw err("MODEL_NO_SINGLE_WEIGHT", {
+            detail: `${repo.repo}: set declaration found no runnable model files`,
+            context: { repo: repo.repo },
+        })
+    }
+
+    return { files: names, primary }
+}
+
 export async function fetchManifest(
     repo: { host: "hf"; repo: string; rev: string; key: string },
     files: string[],
     primary: string,
     opts: FetchOpts,
+    traits?: ModelTraitsInput,
 ): Promise<StoredModel> {
     const specifier = `${repo.host}:${repo.repo}@${repo.rev}`
+    const manifest = files.length > 0
+        ? { files, primary }
+        : await discoverManifest(repo)
+    const resolvedFiles = manifest.files
+    const resolvedPrimary = manifest.primary
 
     const cached = await opts.store.resolved(specifier)
     if (cached) return cached
 
     const collected: { file: { path: string; sha256: string; bytes: number }; stored: StoredModel }[] = []
 
-    for (const path of files) {
+    for (const path of resolvedFiles) {
         // Reuses the whole single-file machine per member — hash expectation,
         // verification at the write, dedup against bytes already held. A set
         // sharing a config file with another set costs nothing twice.
@@ -202,7 +254,7 @@ export async function fetchManifest(
         })
     }
 
-    await opts.store.rememberSet(specifier, collected, primary)
+    await opts.store.rememberSet(specifier, collected, resolvedPrimary, traits)
 
     const resolved = await opts.store.resolved(specifier)
     if (!resolved) {
@@ -210,7 +262,7 @@ export async function fetchManifest(
         // user error, and it must not read as "this model is not cached".
         throw err("MODEL_FETCH_FAILED", {
             detail: `${repo.repo}: the set was written but could not be read back`,
-            context: { repo: repo.repo, files: files.length },
+            context: { repo: repo.repo, files: resolvedFiles.length },
         })
     }
     return resolved

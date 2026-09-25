@@ -1,0 +1,102 @@
+Configs: {
+	SurvivalConfig: {
+		DisplayName: Survival Config
+
+		Headers: {
+			Hunger: Hunger Header
+			Thirst: Thirst Header
+			Stamina: Stamina Header
+			Pain: Pain Header
+		}
+
+		HungerMaximum: {
+			Label: Hunger Maximum
+			Tooltip: ""
+		}
+
+		HungerDecayPerTick: {
+			Label: Hunger Decay Per Tick
+			Tooltip: ""
+		}
+
+		StarvationDamage: {
+			Label: Starvation Damage
+			Tooltip: ""
+		}
+
+		StarvationIntervalTicks: {
+			Label: Starvation Interval Ticks
+			Tooltip: ""
+		}
+
+		ThirstMaximum: {
+			Label: Thirst Maximum
+			Tooltip: ""
+		}
+
+		ThirstDecayPerTick: {
+			Label: Thirst Decay Per Tick
+			Tooltip: ""
+		}
+
+		ThirstRefillPerTick: {
+			Label: Thirst Refill Per Tick
+			Tooltip: ""
+		}
+
+		DehydrationDamage: {
+			Label: Dehydration Damage
+			Tooltip: ""
+		}
+
+		DehydrationIntervalTicks: {
+			Label: Dehydration Interval Ticks
+			Tooltip: ""
+		}
+
+		StaminaMaximum: {
+			Label: Stamina Maximum
+			Tooltip: ""
+		}
+
+		StaminaDrainPerTick: {
+			Label: Stamina Drain Per Tick
+			Tooltip: ""
+		}
+
+		StaminaRegenPerTick: {
+			Label: Stamina Regen Per Tick
+			Tooltip: ""
+		}
+
+		ExhaustedMoveSpeedMultiplier: {
+			Label: Exhausted Move Speed Multiplier
+			Tooltip: ""
+		}
+
+		HungerEnabled: {
+			Label: Hunger Enabled
+			Tooltip: ""
+		}
+
+		ThirstEnabled: {
+			Label: Thirst Enabled
+			Tooltip: ""
+		}
+
+		PainMaximum: {
+			Label: Pain Maximum
+			Tooltip: ""
+		}
+
+		PainPerDamage: {
+			Label: Pain Per Damage
+			Tooltip: ""
+		}
+
+		PainFadePerTick: {
+			Label: Pain Fade Per Tick
+			Tooltip: ""
+		}
+	}
+}

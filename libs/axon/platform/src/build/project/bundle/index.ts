@@ -13,4 +13,5 @@ export type {
     BundleImage,
     BundleArtifact,
     BundleIdentity,
+    BundleTarget,
 } from "./types"
