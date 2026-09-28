@@ -24,6 +24,20 @@ working directory; a command states when it only applies to an agent.
 | `axon fork <module> --as <name> [dir]` | Clone a module under a new package identity |
 | `axon prepare` | Prepare the current project and regenerate its local output |
 
+## Delegated work
+
+`axon <agent> -p` waits with you. `axon job` hands the work off instead — it runs without
+you, outlives the terminal, and asks when it needs a person.
+
+| Command | What it does |
+|---|---|
+| `axon job create -c "<instruction>"` | Delegate work to an agent |
+| `axon job list` | What still wants something from you (`--all` for everything) |
+| `axon job show <ref>` | One job and its thread |
+| `axon job say <ref> "<text>"` | Answer a blocked job, or add a turn |
+| `axon job done <ref>` | Your acknowledgement that it did what you wanted |
+| `axon job cancel <ref>` / `axon job retry <ref>` | Stop it, or run it again on the same thread |
+
 ## Cloud and deployed agents
 
 Commands for building artifacts and managing deployments.
