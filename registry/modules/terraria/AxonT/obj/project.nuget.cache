@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "lYVnXEUD3DQ70mcDFEQT/wzaNhDimjsXORw+2NJkRsifi7Y0D/aG4JIDzgonti0+tw01GYstFq7q/8R1m8/ohg==",
+  "success": true,
+  "projectFilePath": "/home/cody/git/axon/registry/modules/terraria/AxonT/AxonT.csproj",
+  "expectedPackageFiles": [
+    "/home/cody/.nuget/packages/microsoft.aspnetcore.app.ref/8.0.30/microsoft.aspnetcore.app.ref.8.0.30.nupkg.sha512"
+  ],
+  "logs": []
+}
