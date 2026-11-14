@@ -13,3 +13,5 @@ export { Profile, type ProfileT } from "./profile"
 // Sessions() acts on ONE log by path (fork, rename) as well as listing them,
 // so it is reachable on its own rather than only through Runtime().
 export { Sessions, type SessionsT } from "./sessions"
+// An agent's uses held to their interfaces' conformance cases — what `axon conform` asks.
+export { Conformance, type ConformanceT } from "./conformance"

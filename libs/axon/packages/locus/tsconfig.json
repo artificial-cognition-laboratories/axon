@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "moduleDetection": "force",
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "lib": [
+            "ESNext"
+        ],
+        "skipLibCheck": true,
+        "allowImportingTsExtensions": true,
+        "noEmit": true,
+        "types": [
+            "bun"
+        ]
+    },
+    "include": [
+        "src",
+        "tests/**/*.ts",
+        "lab/**/*.ts"
+    ]
+}

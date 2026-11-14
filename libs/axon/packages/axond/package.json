@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/axond",
-    "version": "2.0.219",
+    "version": "2.0.242",
     "type": "module",
     "exports": {
         ".": {
@@ -18,30 +18,34 @@
     },
     "files": [
         "src/**/*.ts",
+        "src/**/*.py",
         "types/**/*.ts",
         "bin/**/*.ts"
     ],
     "scripts": {
         "test": "bun run test:full",
         "test:hot": "bun test --parallel=4 tests/hot",
-        "test:full": "bun test --parallel=4 tests/hot tests/integration",
+        "test:full": "bun test --parallel=4 tests/hot tests/full tests/integration",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "@arcforge/arcline": "workspace:*",
+        "@arcforge/body": "workspace:*",
         "@arcforge/cloud": "workspace:*",
         "@arcforge/err": "workspace:*",
         "@arcforge/link": "workspace:*",
         "@arcforge/platform": "workspace:*",
         "@arcforge/types": "workspace:*",
-        "@huggingface/transformers": "^4.2.0"
+        "@huggingface/transformers": "^4.2.0",
+        "sharp": "^0.34.5"
     },
     "devDependencies": {
+        "@arclabs/repo": "workspace:*",
         "@types/bun": "latest",
-        "@arclabs/repo": "workspace:*"
+        "node-llama-cpp": "3.20.0"
     },
     "peerDependencies": {
         "typescript": "^5"
     },
-    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
+    "axonRevision": "99908cacd44ba4553e69d591f3b66811d4cf7d42"
 }

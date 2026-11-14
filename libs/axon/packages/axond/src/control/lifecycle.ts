@@ -1,6 +1,8 @@
+import { join } from "node:path"
 import { spawn } from "node:child_process"
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { err } from "@arcforge/err"
+import { profiling } from "@arcforge/types"
 import type { DaemonPaths, DaemonStarted, DaemonStatus } from "../../types/index"
 
 type LifecycleOpts = {
@@ -258,6 +260,9 @@ export function Lifecycle(opts: LifecycleOpts) {
                 env: {
                     ...process.env,
                     AXON_DAEMON_DIR: opts.paths.root,
+                    // AXON_PROFILE: the daemon writes a CPU profile when it stops. It
+                    // drops BUN_OPTIONS itself once started, so its children do not.
+                    ...(process.env.AXON_PROFILE ? { BUN_OPTIONS: profiling(join(profileRoot(process.env.AXON_PROFILE, opts.paths.root), "daemon")) } : {}),
                 },
                 // Survives the shell it was started from — the whole point.
                 detached: true,
@@ -304,3 +309,11 @@ function statMtime(path: string): number {
 }
 
 export type LifecycleT = ReturnType<typeof Lifecycle>
+
+/**
+ * Where CPU profiles go when AXON_PROFILE is set: the directory it names, or
+ * `profiles/` under the daemon's own root when it is just "1".
+ */
+export function profileRoot(setting: string, root: string): string {
+    return setting === "1" ? join(root, "profiles") : setting
+}

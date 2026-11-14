@@ -58,10 +58,20 @@ commands.register("hello", {
 })
 `
 
+const DEFAULT_EXTENSIONS = [
+    "@axon/ember-theme",
+    "@axon/gruvbox-theme",
+    "@axon/mocha-theme",
+    "@axon/nord",
+    "@axon/rose-pine",
+    "@axon/tokyo-night",
+]
+
 const CONFIG_TEMPLATE = `export default defineProfile({
-    // Extensions load in this order. A registry name ("@axon/vim") is fetched
-    // and installed; a path ("./extensions/mine") is used where it sits.
-    extensions: [],
+    // Axon's built-in theme collection. Add registry names or local paths here.
+    extensions: [
+${DEFAULT_EXTENSIONS.map(name => `        "${name}",`).join("\n")}
+    ],
 })
 `
 

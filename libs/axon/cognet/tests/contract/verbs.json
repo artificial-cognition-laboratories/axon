@@ -1,0 +1,20 @@
+{
+    "effects": ["output", "emit", "fault", "release", "reset", "close"],
+    "state": ["body", "presence", "scope", "services"],
+    "calls": [
+        "service.call",
+        "service.stream",
+        "service.open",
+        "service.push",
+        "run",
+        "store.get",
+        "store.set",
+        "store.session",
+        "knowledge.list",
+        "knowledge.read",
+        "knowledge.write",
+        "knowledge.remove",
+        "memory.connect",
+        "base"
+    ]
+}

@@ -304,6 +304,23 @@ export type AxonHandle = {
     stream(input: AxonRequestInput | string): AxonRun
 
     /**
+     * Talk to the running mind as one client, at one address.
+     *
+     * A connection is not a request: nothing waits for a reply to end. You
+     * say things, and the mind says things — answers, and anything else it
+     * decides to say — as and when it does. Works for any mind; the one way
+     * to talk to a continuous one, which has no request lifecycle at all.
+     *
+     * ```ts
+     * const terminal = axon.connect({ channel: "terminal" })
+     * terminal.on("cognet:output:text", data => render(data))
+     * terminal.activity(working => spinner(working.length > 0))
+     * await terminal.send("what's in this repo?")
+     * ```
+     */
+    connect(at: { channel: string }): AxonConnection
+
+    /**
      * Deliver a stimulus — the agent's sense door, and the only way the
      * environment reaches cognition.
      *
@@ -328,6 +345,38 @@ export type AxonHandle = {
      * sense in, act out, same shape.
      */
     stim<K extends AxonStimulusType>(type: K, data: AxonStimulusEvent[K]): Promise<AxonEntry>
+
+    /**
+     * Heavy bytes a stimulus refers to rather than carries.
+     *
+     * ```ts
+     * const ref = await axon.media.keep(jpeg, "image/jpeg")
+     * axon.stim("cognet:stimulus:visual", { channel: "/vision", ref: ref, kind: "image" })
+     * ```
+     *
+     * The bytes are written once, beside the session, in a bounded window;
+     * the event stays small on every wire it crosses, and the cognet reads
+     * the file only when it looks.
+     */
+    media: {
+        keep(bytes: Uint8Array, mime: string): Promise<import("./session").StimulusRef>
+    }
+
+    /**
+     * The body this agent wears — told by whatever connects it to one (the
+     * body module). `wear` takes the body's manifest as the body sent it,
+     * checks it, and from then on it is what `kernel.body()` reports; a body
+     * that describes itself again is worn again. `present` says whether the
+     * worn body is the mind's to move — embodied, held or overridden — and
+     * is what `kernel.presence()` reports. `leave` says it is gone. All are
+     * recorded in the session, so a replay knows what body every reading came
+     * from, and whether it was the mind's.
+     */
+    body: {
+        wear(manifest: unknown): Promise<import("./body/body").Manifest>
+        present(presence: Exclude<import("./body/body").Presence, { state: "detached" }>): Promise<void>
+        leave(why: string): Promise<void>
+    }
 
     /**
      * Observe what the brain emits — the counterpart to `stim()`.
@@ -419,6 +468,12 @@ export type AxonHandle = {
         readonly log: readonly AxonSessionEvent[]
         /** Internal tick/phase/system telemetry — the firehose behind devtools and flame graphs. */
         readonly kernelLog: readonly AxonKernelEvent[]
+        /**
+         * The oldest seq `kernelLog` still holds — it is a window of recent
+         * telemetry, not the session. 0 until it first trims; older events are
+         * on disk only.
+         */
+        readonly kernelFloor: number
     }
 }
 
@@ -430,4 +485,16 @@ export type AxonHandle = {
  */
 export type AxonCapsuleHandle = AxonAmbient & {
     request(input: AxonRequestInput | string): Promise<AxonResult>
+}
+
+/** One client's line to a running mind — see `AxonHandle.connect`. */
+export type AxonConnection = {
+    /** Say something. Resolves when the mind has it, never when it has answered. */
+    send(content: string | string[]): Promise<void>
+    /** What the mind outputs to this client's channel, or to no one in particular. Returns an unsubscribe. */
+    on<K extends keyof AxonOutputEvent>(type: K, handler: (data: AxonOutputEvent[K]) => void | Promise<void>): () => void
+    /** What the mind is working on beside its ticks, each time that changes. Empty: idle. Returns an unsubscribe. */
+    activity(handler: (working: string[]) => void): () => void
+    /** Stop what the mind is working on. */
+    interrupt(): void
 }

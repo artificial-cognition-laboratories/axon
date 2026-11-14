@@ -1,0 +1,14 @@
+[
+    {
+        "name": "answers for the whole picture: a cell per width and height, and nothing that is not a number",
+        "call": "estimate",
+        "given": { "picture": { "$picture": { "width": 64, "height": 48, "fill": [120, 96, 72] } } },
+        "expect": { "width": { "min": 1 }, "height": { "min": 1 }, "nearness": { "length": "width*height", "each": { "type": "number" } } }
+    },
+    {
+        "name": "keeps the picture's shape: a wide picture gets a wide grid",
+        "call": "estimate",
+        "given": { "picture": { "$picture": { "width": 96, "height": 32, "fill": [40, 40, 40] } } },
+        "expect": { "nearness": { "length": "width*height" } }
+    }
+]

@@ -7,6 +7,7 @@ import type { CognetEventMap } from "../session/events/cognet"
 import type { AxonScope } from "../scope"
 import type { EngineRequirements, EngineType, Modality } from "../inference"
 import type { CapsuleScope } from "../capsule-scope"
+import type { Manifest, Presence } from "../body/body"
 
 /**
  * The current kernel ABI contract version. Program definitions declare the
@@ -208,6 +209,46 @@ export type KernelKnowledge = {
      * check first.
      */
     remove(name: string): Promise<void>
+}
+
+/**
+ * Where one of the cognet's databases lives — handed to the database's
+ * opener untouched.
+ *
+ * A union so each place carries exactly what reaching it needs. `sqlite` is
+ * a file in the agent's data; `memory` holds nothing past the process;
+ * `remote` is a service the brain reaches over the network.
+ */
+export type MemoryConnection =
+    | { type: "memory" }
+    | { type: "sqlite"; path: string }
+    | { type: "remote"; url: string; token?: string }
+
+/**
+ * Long-term memory — the cognet's own databases. They are durable, and the
+ * mind is the only thing that can read them.
+ *
+ * A peer of `store` and `knowledge`, under a third doctrine:
+ * - `store`'s kv is a CACHE over the log: deleting it is always safe.
+ * - `knowledge` is human-readable material, published with the agent.
+ * - `memory` is what the mind has learned. It is not rebuildable from any
+ *   log, so losing it is losing what was learned, and it is never published.
+ *
+ * The kernel says WHERE a database lives and nothing else. Its format, its
+ * queries, and when it is read or written are memory policy, which belongs to
+ * the cognet (see RETRIEVAL IS COGNITION, on KernelKnowledge). That is why
+ * this hands over a connection rather than a database: the cognet bundles its
+ * own engine and opens it there.
+ */
+export type KernelMemory = {
+    /**
+     * Where the database `name` lives, for this cognet. One name, one
+     * database. A NAME, never a path: it is a single lowercase identifier,
+     * and anything else throws MEMORY_NAME_INVALID.
+     *
+     * Synchronous and does no IO: it resolves a place. The opener creates it.
+     */
+    connect(name: string): MemoryConnection
 }
 
 /**
@@ -440,6 +481,46 @@ export type KernelEngines<Requirements extends EngineRequirements = EngineRequir
     has(role: string): boolean
 }
 
+/** One use, as it stands: whether something fills it, and what that reports of itself. */
+export type ServiceState = {
+    available: boolean
+    /** What the granted provider's `describe()` reports — null while unavailable. */
+    describe: Readonly<Record<string, unknown>> | null
+}
+
+/**
+ * The services a cognet uses, by the names it gave them in `uses:`.
+ *
+ * Addressed by name, never by provider: the cognet asks a use for a method of
+ * its interface, and the agent — on its own side of the boundary — decides
+ * what answers, what it costs and what it may reach. Nothing here names a
+ * provider, a credential or a model.
+ *
+ * Every call carries its arguments as one object, keyed by the method's
+ * parameter names — the same shape in every language. A session is addressed
+ * by the id `open` answers with, and a handle by its own id, so every verb
+ * here is a value in and a value out: what lets the same surface cross to a
+ * Rust or Python system unchanged.
+ */
+export type KernelServices = {
+    /** Every declared use, as it stands now. */
+    state(): Readonly<Record<string, ServiceState>>
+    /** A call: one answer. Throws SERVICE_UNAVAILABLE when nothing fills the use. */
+    call(use: string, method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<unknown>
+    /** A stream: answers as they come, until it ends or `signal` stops it. */
+    stream(use: string, method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): AsyncIterable<unknown>
+    /** Opens a session; answers with its id. */
+    open(use: string, method: string): Promise<string>
+    /** One push into an open session, answered in order. */
+    push(session: string, value: unknown): Promise<unknown>
+    /** Starts a session again, as if just opened. */
+    reset(session: string): Promise<void>
+    /** Ends a session. */
+    close(session: string): Promise<void>
+    /** Lets go of a handle a provider keeps. */
+    release(handle: string): Promise<void>
+}
+
 export type KernelAbi<Requirements extends EngineRequirements = EngineRequirements> = {
     /**
      * Emit a fact to the world — text, audio, visual, or a declared field
@@ -501,6 +582,25 @@ export type KernelAbi<Requirements extends EngineRequirements = EngineRequiremen
      * where and how that capability surface enters model context.
      */
     scope(): AxonScope
+
+    /**
+     * The body this agent wears, as the body described itself — its frames,
+     * senses, controls and skills (`body/body.ts`) — or null while it wears
+     * none. The kernel reports what the body said; the cognet decides what to
+     * make of it. Read it whenever it matters: a body that changes (a limb
+     * lost, a tool picked up) describes itself again, and this is always the
+     * newest.
+     */
+    body(): Manifest | null
+
+    /**
+     * Whether the worn body is this mind's to move now: `embodied`, or
+     * `held` — an emergency stop, a safe mode, a rover asleep — or
+     * `overridden`, someone else driving it, each with why. Senses go on
+     * either way; commands are not applied. Null while it wears none, or
+     * before the body has said.
+     */
+    presence(): Exclude<Presence, { state: "detached" }> | null
 
 
     /**
@@ -566,6 +666,19 @@ export type KernelAbi<Requirements extends EngineRequirements = EngineRequiremen
     knowledge: KernelKnowledge
 
     /**
+     * Long-term memory — where the cognet's own databases live. See
+     * KernelMemory. Mediated like store and knowledge: the cognet names a
+     * database, the kernel owns the place.
+     */
+    memory: KernelMemory
+
+    /**
+     * The services this cognet declared in `uses:` — each filled, or not, by
+     * whatever the agent granted. See KernelServices.
+     */
+    services: KernelServices
+
+    /**
      * Wake the brain — the mind's own rhythm, driven from inside it.
      *
      * THE BODY DOES NOT DRIVE THE BRAIN. This used to be `axon.tick()` on the
@@ -579,16 +692,9 @@ export type KernelAbi<Requirements extends EngineRequirements = EngineRequiremen
      * and 60Hz cannot both be "the" tick rate.
      *
      * So the body only ever emits stimuli, and the brain decides when to
-     * look. A cognet plugin owns the clock:
-     *
-     * ```ts
-     * // plugins/clock.ts
-     * export default definePlugin(({ hooks }) => {
-     *     hooks.on("boot", () => {
-     *         setInterval(() => void kernel.wake(), 1000 / 30)
-     *     })
-     * })
-     * ```
+     * look. The brain declares its rate — `mode: { kind: "continuous", hz }`
+     * in its own config — and the cognet host calls this at that rate. A
+     * brain with an irregular rhythm can still call it from a plugin.
      *
      * Resolves with this wake's ordinal AS SOON AS IT IS ADMITTED — never
      * when it completes. A driver that awaited completion would serialise the
@@ -667,4 +773,20 @@ export type CognetWake = {
      * is cooperative and always will be. Check it between units and return.
      */
     signal: AbortSignal
+    /**
+     * The moment this wake stands for, epoch ms. The kernel never sets it: a
+     * live wake is now. A replay sets the time it is replaying, so the mind's
+     * clock, its systems' `now` and its world's write times, follow the
+     * recording rather than the machine running it.
+     */
+    at?: number
+    /**
+     * The async systems whose runs land in this wake's tick, as they landed
+     * when it ran live. The kernel never sets it. A replay running a
+     * session tick for tick as it ran does: an async run lands when the
+     * machine finishes it, which a replay on another machine, at another
+     * speed, could not reproduce otherwise. Present, exactly these land —
+     * waited for if still running — and every other settled run waits.
+     */
+    lands?: readonly string[]
 }

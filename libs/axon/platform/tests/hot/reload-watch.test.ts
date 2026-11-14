@@ -69,11 +69,17 @@ function fakeWatcher() {
 const tick = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 describe("ReloadWatch: it actually reloads", () => {
+    it("reports watcher startup failures and removes its listener", async () => {
+        const fake = fakeWatcher()
+        const watcher = { ...fake.watcher, retain: async () => { throw new Error("watch unavailable") } }
+        await expect(ReloadWatch({ watcher: watcher, reload: async () => {} })).rejects.toThrow("watch unavailable")
+        expect(fake.listenerCount).toBe(0)
+    })
     it("reloads when a file changes", async () => {
         // The whole reported bug in one assertion.
         const fake = fakeWatcher()
         let reloads = 0
-        const stop = ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
+        const stop = await ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
 
         fake.fire()
         await tick(10)
@@ -86,7 +92,7 @@ describe("ReloadWatch: it actually reloads", () => {
         // `Project()` built one and nobody ever started it, which is exactly
         // how a watched project watched nothing.
         const fake = fakeWatcher()
-        const stop = ReloadWatch({ watcher: fake.watcher, reload: async () => {} })
+        const stop = await ReloadWatch({ watcher: fake.watcher, reload: async () => {} })
 
         await tick(5)
 
@@ -101,7 +107,7 @@ describe("ReloadWatch: the loop guards", () => {
         // interleave into an unbounded stack of rescans.
         const fake = fakeWatcher()
         let reloads = 0
-        const stop = ReloadWatch({
+        const stop = await ReloadWatch({
             watcher: fake.watcher,
             reload: async () => { reloads++; await tick(60) },
         })
@@ -121,7 +127,7 @@ describe("ReloadWatch: the loop guards", () => {
         // them is the loop: reload writes, write triggers reload, forever.
         const fake = fakeWatcher()
         let reloads = 0
-        const stop = ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
+        const stop = await ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
 
         fake.fire()
         await tick(20)
@@ -138,7 +144,7 @@ describe("ReloadWatch: the loop guards", () => {
         // because it looks fine in a manual test.
         const fake = fakeWatcher()
         let reloads = 0
-        const stop = ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
+        const stop = await ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
 
         fake.fire()
         await tick(20)
@@ -156,7 +162,7 @@ describe("ReloadWatch: the loop guards", () => {
         // the rest of the session, silently.
         const fake = fakeWatcher()
         let reloads = 0
-        const stop = ReloadWatch({
+        const stop = await ReloadWatch({
             watcher: fake.watcher,
             reload: async () => { reloads++; throw new Error("half-written config") },
         })
@@ -177,7 +183,7 @@ describe("ReloadWatch: teardown", () => {
         // A watcher outliving its agent holds an fs handle open and reloads a
         // runtime that is gone — and every boot would add another.
         const fake = fakeWatcher()
-        const stop = ReloadWatch({ watcher: fake.watcher, reload: async () => {} })
+        const stop = await ReloadWatch({ watcher: fake.watcher, reload: async () => {} })
 
         expect(fake.listenerCount).toBe(1)
         stop()
@@ -190,7 +196,7 @@ describe("ReloadWatch: teardown", () => {
     it("does not reload after being stopped", async () => {
         const fake = fakeWatcher()
         let reloads = 0
-        const stop = ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
+        const stop = await ReloadWatch({ watcher: fake.watcher, reload: async () => { reloads++ } })
 
         stop()
         fake.fire()

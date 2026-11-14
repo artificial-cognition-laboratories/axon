@@ -36,7 +36,7 @@ afterEach(async () => {
 async function daemon() {
     const root = await mkdtemp(join(tmpdir(), "axond-limits-"))
     roots.push(root)
-    return { root, agents: Agents({ root: join(root, "running"), isolated: true }) }
+    return { root, agents: Agents({ store: join(root, "store"), root: join(root, "running"), isolated: true }) }
 }
 
 /** Publish a record directly — the graph, without booting real agents. */

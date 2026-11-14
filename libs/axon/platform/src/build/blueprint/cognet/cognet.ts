@@ -59,16 +59,17 @@ export const INLINE_COGNET_DIR = "cognet"
 /**
  * The inline cognet's directory, if the agent has one.
  *
- * Recognized by its ENTRY, not by a config file: `cognet.config.ts` is
- * optional for an inline brain (identity comes from the agent — see
- * bundleCognet), so requiring it here would make the smallest possible
- * cognet, a lone `cognet/main.ts` holding a `loop()`, invisible to every
- * stage that asks this question.
+ * Recognized by a script OR a config: `cognet.config.ts` is optional for a
+ * brain with a script (the smallest possible cognet is a lone
+ * `cognet/main.ts` holding a `loop()`), and `main.ts` is optional for a brain
+ * made of systems — so either one marks the folder as a brain. A folder with
+ * neither is not claimed here; bundleCognet() is what refuses a brain with
+ * nothing to run.
  */
 export function inlineCognetDir(agentRoot: string): string | null {
     const dir = join(agentRoot, INLINE_COGNET_DIR)
-    const hasEntry = fsx.isFile(join(dir, "main.ts")) || fsx.isFile(join(dir, "src", "main.ts"))
-    return hasEntry ? dir : null
+    const marked = ["main.ts", join("src", "main.ts"), "cognet.config.ts"].some(file => fsx.isFile(join(dir, file)))
+    return marked ? dir : null
 }
 
 /**

@@ -28,7 +28,7 @@ async function agents(machineId: string | null = "test-machine") {
     roots.push(root)
     // ISOLATED: without it these read the developer's own ~/.axon, and every
     // assertion about an empty machine passes only while nothing is running.
-    return { agents: Agents({ root: root, isolated: true, machineId: () => machineId }), root: root }
+    return { agents: Agents({ store: join(root, "store"), root: root, isolated: true, machineId: () => machineId }), root: root }
 }
 
 /** A record on disk, as a running agent would write one. */

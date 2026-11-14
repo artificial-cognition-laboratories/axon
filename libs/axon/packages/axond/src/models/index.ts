@@ -12,3 +12,7 @@ export { Catalog } from "./catalog"
 export type { CatalogT } from "./catalog"
 export { parseSpecifier } from "./specifier"
 export type { ParsedSpecifier } from "./specifier"
+
+export { Artifacts } from "./catalog"
+
+export { MODEL_PROTOCOL } from "./types"

@@ -1,6 +1,7 @@
 import type { AxonBlueprint } from "./blueprint"
 import type { AxonEntry } from "./session"
 import type { AxonStimulusEntry } from "./session/events/stdio/stimuli"
+import type { AxonIngest } from "./supervisor"
 
 /**
  * A handle to ONE running agent, wherever it runs.
@@ -58,7 +59,7 @@ export type AxonAgentHandle = {
      * is not running gets started by the scheduler's own subscription. So a
      * caller racing the end of a wake never has to know which side it landed.
      */
-    ingest(entry: AxonStimulusEntry): Promise<void>
+    ingest(input: AxonIngest): Promise<void>
 
     /**
      * Deliver a stimulus and wait for the wake it caused to SETTLE.

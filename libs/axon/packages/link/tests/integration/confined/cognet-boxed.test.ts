@@ -101,6 +101,7 @@ process.exit(0)
             sessionId: `boxed-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             services: {
                 async *infer() {},
+                transform: async () => { throw new Error("transform is not wired in this test") },
                 commit: (_type, data) => {
                     const message = (data as { message?: string })?.message
                     if (typeof message !== "string") return

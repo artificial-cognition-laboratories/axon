@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import type { AxonAgentHandle, AxonStimulusEntry } from "@arcforge/types"
+import type { AxonAgentHandle, AxonIngest, AxonStimulusEntry } from "@arcforge/types"
 import type { AgentRecord } from "./types"
 
 type InstanceOpts = {
@@ -109,8 +109,8 @@ export function Instance(opts: InstanceOpts) {
         },
 
         /** Deliver a stimulus. Resolves on admission. */
-        ingest(entry: AxonStimulusEntry) {
-            return contract().ingest(entry)
+        ingest(input: AxonIngest) {
+            return contract().ingest(input)
         },
         stimulus(entry: AxonStimulusEntry) {
             return contract().stimulus(entry)

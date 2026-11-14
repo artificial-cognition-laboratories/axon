@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonDriver, AxonEngineCall, AxonEngineDriver, CapsulePolicy, ResolvedCapsulePolicy, AxonEngineEvent, AxonEntry, AxonEntryEvent, AxonEventMap, AxonRunResult, CapsuleCommandOrigin, EngineSession, KernelAbi, TransformOptions, AxonStimulusInput } from "@arcforge/types"
+import type { AxonBlueprint, AxonDriver, AxonEngineCall, AxonEngineDriver, RemoteEngines, CapsulePolicy, ResolvedCapsulePolicy, AxonEngineEvent, AxonEntry, AxonEntryEvent, AxonEventMap, AxonRunResult, CapsuleCommandOrigin, EngineSession, KernelAbi, TransformOptions, AxonStimulusInput, ServiceGrants } from "@arcforge/types"
 import { EMPTY_CAPSULE_SCOPE } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 import type { KernelBus } from "./contracts"
@@ -12,7 +12,10 @@ import { Scheduler } from "./scheduler"
 import type { KernelCognet } from "./contracts"
 import { Mediation } from "./mediation"
 import { Store } from "./store"
+import { Memory } from "./memory"
 import { Knowledge } from "./knowledge"
+import { Body } from "./body"
+import { Services } from "./services"
 import type { AxonEscalate, AxonHost } from "@arcforge/types"
 
 type KernelOpts = {
@@ -42,7 +45,7 @@ type KernelOpts = {
      * whether it is confined. Ring 0 asks for a driver by role and gets one;
      * where that driver's tokens come from is the boundary's business.
      */
-    remote?: (role: string) => AxonEngineDriver
+    remote?: RemoteEngines
     /**
      * The agent's base identity text, rendered fresh per call — backs the
      * ABI's base(). Injected because rendering it is a PRESENTATION concern
@@ -78,6 +81,13 @@ type KernelOpts = {
      * Absent for a cognet on the single-`engine:` path.
      */
     engines?: EnginesT
+
+    /**
+     * What the agent granted each use the cognet declared. Built at the
+     * Axon() seam with the agent's providers — the kernel serves calls
+     * through it and never learns how a provider was chosen.
+     */
+    grants: ServiceGrants
 }
 
 type KernelInput = {
@@ -408,6 +418,8 @@ export async function Kernel(opts: KernelOpts) {
     let live = opts.blueprint
     const blueprintNow = () => live
 
+    // The body the agent wears, told by whatever connects it to one; the cognet reads it as body().
+    const body = Body({ session: session })
     const scheduler = Scheduler({
         bus: opts.bus,
         session: session,
@@ -463,6 +475,11 @@ export async function Kernel(opts: KernelOpts) {
         blueprint: opts.blueprint,
         cognet: cognet,
         session: session,
+    })
+
+    const memory = Memory({
+        blueprint: opts.blueprint,
+        cognet: cognet,
     })
 
     /**
@@ -703,6 +720,18 @@ export async function Kernel(opts: KernelOpts) {
     }
 
     /**
+     * Whether a declared role was filled, for a confined agent. A REQUIRED
+     * role always was — an unfillable one fails the supervisor's resolution
+     * before this process exists. An OPTIONAL one may legitimately be empty,
+     * and only the supervisor's resolved facts can say; without them it is
+     * treated as empty, so a brain degrades instead of calling into nothing.
+     */
+    function filled(role: string): boolean {
+        if (!declaredRole(role)?.optional) return true
+        return live.cognet.resolvedEngines?.[role] !== undefined
+    }
+
+    /**
      * A declared requirement, as the ABI's EngineFacts.
      *
      * `in`/`out` accept a single modality as shorthand for one, so both are
@@ -732,7 +761,7 @@ export async function Kernel(opts: KernelOpts) {
             // The role's existence is settled by the cognet's own declaration;
             // what fills it was settled by the supervisor before this process
             // started.
-            if (!bound && !(opts.remote && declared)) {
+            if (!bound && !(opts.remote && declared && filled(role))) {
                 throw err("ENGINE_ROLE_UNBOUND", {
                     detail: `no engine bound to "${role}" — declare it in engines: and check kernel.engine.has() for optional roles`,
                 })
@@ -802,7 +831,7 @@ export async function Kernel(opts: KernelOpts) {
             // was ever spawned.
             has: (role: string): boolean =>
                 (opts.engines?.resolution.bound.some(entry => entry.role === role) ?? false)
-                || Boolean(opts.remote && declaredRole(role)),
+                || Boolean(opts.remote && declaredRole(role) && filled(role)),
         },
     )
 
@@ -814,6 +843,15 @@ export async function Kernel(opts: KernelOpts) {
      * capability it was handed — a wiring fault, and loud rather than coerced.
      */
     function driverFor<K extends "transform" | "stream">(role: string, kind: K) {
+        // Confined: the engine is on the supervisor's side of the link, and
+        // resolution happened there. Nothing is bound in this heap to check.
+        if (opts.remote) {
+            if (kind === "transform") return { driver: opts.remote.transform(role) as Extract<AxonDriver, { kind: K }>, bound: undefined }
+            throw err("ENGINE_ROLE_UNBOUND", {
+                detail: `role "${role}" is a stream engine, and stream engines are not wired across the confinement boundary yet`,
+                context: { role, kind },
+            })
+        }
         const bound = opts.engines?.resolution.bound.find(entry => entry.role === role)
         const driver = opts.engines?.get(role).driver
         if (!driver || driver.kind !== kind) {
@@ -845,13 +883,13 @@ export async function Kernel(opts: KernelOpts) {
 
         const correlation = {
             role,
-            provider: bound?.capability.provider ?? "unknown",
+            provider: bound?.capability.provider ?? (opts.remote ? "supervisor" : "unknown"),
             ...(bound?.capability.id ? { model: bound.capability.id } : {}),
         }
         await session.commit("kernel:transform:start", correlation, span)
 
         try {
-            const result = await driver.transform(input, transformOpts)
+            const result = await driver.transform(input, { ...transformOpts, signal: run.signal })
             await session.commit("kernel:transform:complete", { role, durationMs: Date.now() - started }, span)
             return result
         } catch (cause) {
@@ -977,6 +1015,13 @@ export async function Kernel(opts: KernelOpts) {
         }
     }
 
+    const services = Services({
+        uses: () => blueprintNow().cognet?.uses ?? {},
+        grants: opts.grants,
+        active: () => scheduler.active(),
+        record: (type, data, span) => session.commit(type, data as never, span).then(() => {}),
+    })
+
     // ── the ABI — the syscall table, bound once to the kernel's organs ──────
     // Process-lifetime object: nothing on it carries per-wake state beyond
     // what scheduler.active() resolves internally. This is the only thing
@@ -996,6 +1041,9 @@ export async function Kernel(opts: KernelOpts) {
 
         // llm surface — by role, resolved at boot against the user's providers
         engine: engineAbi,
+
+        // what the cognet uses, by its own names — served by whatever the agent granted
+        services: services,
 
         /**
          * A format violation the COGNET detected while rendering the model's
@@ -1017,6 +1065,8 @@ export async function Kernel(opts: KernelOpts) {
             return runAndCommit(code, { signal })
         }) as KernelAbi["run"],
         scope: () => capsule.current.scope,
+        body: body.current,
+        presence: body.presence,
 
 
         // environment surface
@@ -1053,6 +1103,8 @@ export async function Kernel(opts: KernelOpts) {
             void session
                 .commit(type, data as AxonEventMap[typeof type], scheduler.current() ?? undefined)
                 .catch(() => {})
+            // The one cognet event the kernel acts on: the mind saying it is done with a request's message.
+            if (type === "cognet:settled") scheduler.settled((data as { seqs: number[] }).seqs)
         },
 
         // persistence surface — private cognitive state + read-only episodic
@@ -1063,6 +1115,10 @@ export async function Kernel(opts: KernelOpts) {
         // store's private kv. Same mediation (a name in, the kernel owns the
         // path), different doctrine: this is the record, not a cache.
         knowledge: knowledge,
+
+        // long-term memory — where the cognet's own databases live. The
+        // kernel owns the place; the cognet's engine owns everything else.
+        memory: memory,
 
         // The brain's own rhythm. Called from a cognet plugin, never from the
         // body — see KernelAbi.wake for why the body must not drive this.
@@ -1097,6 +1153,9 @@ export async function Kernel(opts: KernelOpts) {
     scheduler.attach(cognet)
 
     return {
+        /** The body the agent wears: told here by whatever connects it to one, read by the cognet as `body()`. */
+        body: { wear: body.wear, present: body.present, leave: body.leave },
+
         /**
          * Whether a cognet is loaded and able to wake.
          *

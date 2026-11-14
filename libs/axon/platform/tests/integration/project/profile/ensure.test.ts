@@ -66,6 +66,14 @@ describe("profile.ensure", () => {
             expect(existsSync(join(root, "profile.config.ts"))).toBe(true)
             expect(existsSync(join(root, "plugins"))).toBe(true)
 
+            const config = await readFile(join(root, "profile.config.ts"), "utf-8")
+            expect(config).toContain('"@axon/ember-theme"')
+            expect(config).toContain('"@axon/gruvbox-theme"')
+            expect(config).toContain('"@axon/mocha-theme"')
+            expect(config).toContain('"@axon/nord"')
+            expect(config).toContain('"@axon/rose-pine"')
+            expect(config).toContain('"@axon/tokyo-night"')
+
             // NOT extensions/. An install creates it when there is something to
             // put in it; most profiles never have one. Asserted rather than
             // simply dropped, because ensure() runs on every boot — a folder

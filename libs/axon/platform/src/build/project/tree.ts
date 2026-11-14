@@ -432,6 +432,11 @@ async function materialize(source: string, target: string): Promise<void> {
     await resolveAbsoluteLinks(target)
 }
 
+/** Windows requires junctions for directory links without Developer Mode/admin privileges. */
+async function linkDirectory(source: string, target: string): Promise<void> {
+    await symlink(source, target, process.platform === "win32" ? "junction" : "dir")
+}
+
 /**
  * Point a project's node_modules at a cached tree, without copying it.
  *
@@ -455,7 +460,7 @@ async function graft(source: string, target: string): Promise<void> {
     await mkdir(target, { recursive: true })
 
     for (const entry of await readdir(source)) {
-        await symlink(join(source, entry), join(target, entry))
+        await linkDirectory(join(source, entry), join(target, entry))
     }
 }
 
@@ -469,7 +474,7 @@ async function linkLocal(root: string, local: Array<[string, string]>): Promise<
         const target = join(root, "node_modules", ...name.split("/"))
         await rm(target, { recursive: true, force: true })
         await mkdir(dirname(target), { recursive: true })
-        await symlink(source, target, "dir")
+        await linkDirectory(source, target)
     }
 }
 
@@ -499,6 +504,11 @@ const FRAMEWORK_PACKAGES = [
     "@arcforge/air",
     "@arcforge/session",
     "@arcforge/cognet",
+    "@arcforge/locus",
+    // The body and world contracts, and the world address an agent plugs in
+    // with. A stale copy here is a mind that cannot read the address it was
+    // given — which is a runtime failure, not an old type.
+    "@arcforge/body",
 ] as const
 
 /**
@@ -543,7 +553,7 @@ async function linkFramework(root: string): Promise<void> {
 
         await rm(target, { recursive: true, force: true })
         await mkdir(dirname(target), { recursive: true })
-        await symlink(source, target, "dir")
+        await linkDirectory(source, target)
     }
 }
 

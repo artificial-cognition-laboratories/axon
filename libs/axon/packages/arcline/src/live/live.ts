@@ -74,6 +74,11 @@ export function Live<TState>(opts: LiveOpts<TState>): LiveHandle<TState> {
     let tick = 0
     let stopped = false
 
+    // Keep the original sink. While the surface is active, public renderer
+    // writes are routed above the disposable animated frame.
+    const write = r.write.bind(r)
+    const line = r.line.bind(r)
+
     function frameGlyph(): string {
         return SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!
     }
@@ -86,29 +91,32 @@ export function Live<TState>(opts: LiveOpts<TState>): LiveHandle<TState> {
      * shrinks still clears correctly because the erase happens before the
      * write, against the previous count rather than the new one.
      */
+    function erase(): void {
+        if (painted === 0) return
+
+        // Every frame ends with a newline, so the cursor is one row below it.
+        write(cursorUp(1) + COL_0)
+        for (let i = 0; i < painted; i++) {
+            write(CLEAR_LINE)
+            if (i < painted - 1) write(cursorUp(1))
+        }
+        write(COL_0)
+        painted = 0
+    }
+
     function paint(): void {
         const text = view(r, state, frameGlyph())
         const lines = text.split("\n")
-
-        if (painted > 0) {
-            // Erase UPWARDS from the last line we wrote.
-            //
-            // The cursor sits one line below the frame (every paint ends with a
-            // newline), so step up onto the last line, then clear-and-step-up
-            // through the rest. Clearing downwards with a newline between lines
-            // is what an earlier version did, and it moved the cursor down as
-            // many lines as it erased — each repaint then started one line
-            // lower than the last and left a blank row behind it.
-            r.write(cursorUp(1) + COL_0)
-            for (let i = 0; i < painted; i++) {
-                r.write(CLEAR_LINE)
-                if (i < painted - 1) r.write(cursorUp(1))
-            }
-            r.write(COL_0)
-        }
-
-        r.write(lines.join("\n") + "\n")
+        erase()
+        write(lines.join("\n") + "\n")
         painted = lines.length
+    }
+
+    function report(output: () => void): void {
+        // A message is durable transcript, not part of our disposable frame.
+        erase()
+        output()
+        if (!stopped) paint()
     }
 
     // A non-interactive destination gets one frame at the end instead. Nothing
@@ -123,8 +131,18 @@ export function Live<TState>(opts: LiveOpts<TState>): LiveHandle<TState> {
         : null
 
     if (r.interactive) {
-        r.write(HIDE_CURSOR)
+        write(HIDE_CURSOR)
         paint()
+
+        // Existing components and command code write through the renderer.
+        // Route those writes around the live cursor region while it is active.
+        r.write = text => report(() => write(text))
+        r.line = text => report(() => line(text))
+    }
+
+    function restoreRenderer(): void {
+        r.write = write
+        r.line = line
     }
 
     return {
@@ -148,16 +166,9 @@ export function Live<TState>(opts: LiveOpts<TState>): LiveHandle<TState> {
             if (interval) clearInterval(interval)
             if (r.interactive) {
                 // Erase our frame entirely — the caller owns the screen now.
-                if (painted > 0) {
-                    r.write(cursorUp(1) + COL_0)
-                    for (let i = 0; i < painted; i++) {
-                        r.write(CLEAR_LINE)
-                        if (i < painted - 1) r.write(cursorUp(1))
-                    }
-                    r.write(COL_0)
-                }
-                r.write(SHOW_CURSOR)
-                painted = 0
+                erase()
+                restoreRenderer()
+                write(SHOW_CURSOR)
             }
         },
 
@@ -169,7 +180,8 @@ export function Live<TState>(opts: LiveOpts<TState>): LiveHandle<TState> {
 
             if (r.interactive) {
                 paint()
-                r.write(SHOW_CURSOR)
+                restoreRenderer()
+                write(SHOW_CURSOR)
             } else {
                 // The one frame this destination ever sees.
                 r.write(view(r, state, "") + "\n")

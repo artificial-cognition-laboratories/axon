@@ -76,6 +76,8 @@ export type AxonStimulusEvent = {
         /** inline digest, when the producer already had one — never a summary it computed */
         transcript?: string
         durationMs?: number
+        /** When it began to be heard, ms on the body's own clock — as a vector reading's `sensed`. */
+        sensed?: number
     }
 
     /** A frame or clip. Bytes stay behind `ref`; `caption` is an optional inline digest. */
@@ -85,6 +87,8 @@ export type AxonStimulusEvent = {
         /** inline digest, when the producer already had one — never a summary it computed */
         caption?: string
         kind: "image" | "video"
+        /** When it was seen, ms on the body's own clock — as a vector reading's `sensed`. */
+        sensed?: number
     }
 
     /**
@@ -160,6 +164,19 @@ export type AxonStimulusEvent = {
          * is what keeps this kind set closed.
          */
         profile?: string
+        /**
+         * When the instrument took the sample, ms on the BODY's own clock —
+         * what ROS calls a header stamp. The envelope's time is when the
+         * reading reached the mind, which a lagging body, a batching bridge
+         * or a large reading's upload can put tens of ms after the fact.
+         * Anything relating readings to each other in time — an IMU's
+         * samples, a depth look and the motion it was taken during — needs
+         * this, and must compare it only with readings from the same body.
+         *
+         * Optional because most instruments have no clock worth more than
+         * arrival: a reading without it was sensed when it arrived.
+         */
+        sensed?: number
         /**
          * For readings too large to inline — a point cloud is 50,000 × 3
          * numbers. Same size rule audio and visual already use, so a reading

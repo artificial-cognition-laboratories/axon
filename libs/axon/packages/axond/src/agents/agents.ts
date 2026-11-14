@@ -1,13 +1,13 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import { randomBytes } from "node:crypto"
 import { join } from "node:path"
 import { err } from "@arcforge/err"
 import { DirectHandle } from "./handle"
 import { Instance, type InstanceT } from "./instance"
+import { Projects } from "./projects"
 import { Registry } from "./registry"
 import type { Supervised, SuperviseT } from "./supervise"
 import type { AxonBlueprint } from "@arcforge/types"
-import type { AgentRecord, AgentsState, DefinitionFile, InstalledAgent } from "./types"
+import type { AgentRecord, AgentsState, InstalledAgent } from "./types"
 
 /**
  * What booting one agent needs.
@@ -61,8 +61,19 @@ export type AgentsOpts = {
     machineId?: () => string | null
     /** Where records are written. Tests point this at a scratch dir. */
     root?: string
-    /** Read only `root`, ignoring the machine's real stores. Tests only — see Registry. */
+    /**
+     * See only this daemon's own store — its running records and its projects —
+     * never the machine's others. Set for a daemon whose world is its root
+     * (`DaemonPaths.isolated`); see Registry.
+     */
     isolated?: boolean
+    /** The stores whose profiles hold installed agents. Defaults to both distributions under the home directory. Tests point this at a scratch dir. */
+    stores?: string[]
+    /**
+     * This distribution's own store (`DaemonPaths.store`). Running records are
+     * written under it, and `own` answers from it alone.
+     */
+    store: string
 }
 
 /**
@@ -99,96 +110,7 @@ const MAX_DEPTH = 4
 const MAX_LIVE_CHILDREN = 4
 const MAX_LIVE_DESCENDANTS = 12
 
-/**
- * Where agent projects live, for both distributions.
- *
- * BOTH, deliberately, and for the same reason the running registry scans both:
- * a developer has an installed CLI and a source build side by side, and a
- * fleet view that showed one of them would be describing half the machine.
- */
-function storeRoots(): string[] {
-    return [join(homedir(), ".axon"), join(homedir(), ".axon-dev")]
-}
-
-/**
- * The scoped name an agent declares for itself, e.g. `@axon/zeno`.
- *
- * From its `package.json`, which is where the name that `axon <ref>` resolves
- * actually lives. The DIRECTORY name is not it: `zeno` on its own is rejected
- * as an unknown command, because a bare word could be anything and the scope
- * belongs to whoever published it rather than to the folder someone cloned it
- * into.
- *
- * Null when unreadable, so the caller falls back to the directory rather than
- * this inventing a scope.
- */
-function manifest(root: string): { name: string | null; version: string | null } {
-    try {
-        const parsed = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")) as { name?: unknown; version?: unknown }
-        return {
-            name: typeof parsed.name === "string" && parsed.name !== "" ? parsed.name : null,
-            version: typeof parsed.version === "string" && parsed.version !== "" ? parsed.version : null,
-        }
-    } catch {
-        return { name: null, version: null }
-    }
-}
-
-/**
- * The source files that define this agent, and ONLY the ones that are there.
- *
- * A detail view offers these as editor links, so a conventional path that
- * happens not to exist is a link that opens an empty buffer — the panel
- * claiming the agent has a `src/tools` it does not have. Existence is checked
- * here, where the directory is already being walked, rather than trusted from
- * the convention.
- *
- * `axon.config.ts` is always present: `installed()` uses it as the test for
- * whether a directory is an agent at all.
- */
-function definition(root: string): DefinitionFile[] {
-    const candidates: DefinitionFile[] = [
-        { label: "Configuration", path: join(root, "axon.config.ts") },
-        { label: "Boot", path: join(root, "src", "boot.vue") },
-        { label: "Tools", path: join(root, "src", "tools") },
-    ]
-    return candidates.filter(entry => existsSync(entry.path))
-}
-
-/**
- * When an agent was last used, as far as the filesystem can say.
- *
- * Its session store, which is written on every exchange, falling back to the
- * project itself for one that has never run. Read from mtime rather than by
- * opening session files: recency is the only thing wanted here, and a
- * directory stat answers it without parsing anything.
- *
- * Null when neither can be read — absent is honest where a zero would sort a
- * working agent to the bottom.
- */
-function usedAt(root: string): number | null {
-    for (const path of [join(root, ".agent", "data"), root]) {
-        try {
-            return statSync(path).mtimeMs
-        } catch { /* try the next */ }
-    }
-    return null
-}
-
-/** Subdirectories of a path, or nothing when it does not exist. */
-function readDirs(path: string): string[] {
-    try {
-        return readdirSync(path, { withFileTypes: true })
-            .filter(entry => entry.isDirectory())
-            .map(entry => entry.name)
-    } catch {
-        // Absent is the ordinary case — a machine with no profile has no
-        // agents, which is a real answer and not a failure.
-        return []
-    }
-}
-
-export function Agents(opts: AgentsOpts = {}) {
+export function Agents(opts: AgentsOpts) {
     /**
      * The agents this daemon is supervising, by session id.
      *
@@ -199,8 +121,18 @@ export function Agents(opts: AgentsOpts = {}) {
      */
     const supervised = new Map<string, Supervised>()
 
+    /**
+     * Agents whose HTTP surface this daemon has asked to be served, and how to
+     * reach it. The promise is cached, not the result, so two attaches arriving
+     * together share one serve. Forgotten when the agent goes.
+     */
+    const surfaces = new Map<string, Promise<{ port: number; token: string }>>()
+
+    const projects = Projects(opts.stores !== undefined ? { stores: opts.stores } : opts.isolated === true ? { stores: [opts.store] } : {})
+    const own = Projects({ stores: [opts.store] })
+
     const registry = Registry({
-        ...(opts.root !== undefined ? { root: opts.root } : {}),
+        root: opts.root ?? join(opts.store, "cache", "running"),
         ...(opts.isolated !== undefined ? { isolated: opts.isolated } : {}),
     })
 
@@ -223,6 +155,7 @@ export function Agents(opts: AgentsOpts = {}) {
         const live = supervised.get(sessionId)
         if (live) {
             supervised.delete(sessionId)
+            surfaces.delete(sessionId)
             registry.stop(sessionId)
             void live.stop()
             return true
@@ -331,55 +264,50 @@ export function Agents(opts: AgentsOpts = {}) {
         },
 
         /**
-         * Every agent PROJECT on this machine, running or not.
+         * Where to reach one supervised agent's HTTP surface (`/_axon/*`): served
+         * on loopback, gated by a token only this daemon holds. What a remote
+         * attach is proxied to — the token never leaves this machine.
          *
-         * ── Why the daemon owns this ────────────────────────────────────────
-         *
-         * "What is on this box" is the daemon's whole remit, and an agent that
-         * is not running is exactly as much a fact about the box as one that
-         * is. The running registry could only ever answer the second half, so
-         * a surface listing agents had a list that emptied when you stopped
-         * them.
-         *
-         * ── Read from disk on every call ────────────────────────────────────
-         *
-         * No cache. A project appears when someone runs `axon init` in another
-         * terminal, and there is no event for that — a cached answer would be
-         * stale exactly when a new user is looking for the agent they just
-         * made. It is one directory listing.
+         * Only for an agent THIS daemon supervises: one booted by a terminal
+         * holds its own link and cannot be asked to serve from here.
+         */
+        surface(sessionId: string): Promise<{ port: number; token: string }> {
+            const live = supervised.get(sessionId)
+            if (!live) {
+                return Promise.reject(err("AGENT_NOT_FOUND", {
+                    detail: `no agent with session ${sessionId} is supervised by this daemon`,
+                    context: { session: sessionId },
+                }))
+            }
+            let surface = surfaces.get(sessionId)
+            if (!surface) {
+                const token = randomBytes(32).toString("hex")
+                surface = live.link.serve({ port: 0, host: "loopback", token: token }).then(bound => ({ port: bound.port, token: token }))
+                // A failed serve is not cached: the next attach tries again rather than inheriting it.
+                surface.catch(() => surfaces.delete(sessionId))
+                surfaces.set(sessionId, surface)
+            }
+            return surface
+        },
+
+        /**
+         * Every agent project on this machine, running or not — both stores.
+         * The daemon owns this because an agent that is not running is as much
+         * a fact about the box as one that is.
          */
         installed(): InstalledAgent[] {
-            const found: InstalledAgent[] = []
-            for (const store of storeRoots()) {
-                const profiles = join(store, "profiles")
-                for (const profile of readDirs(profiles)) {
-                    const agents = join(profiles, profile, "agents")
-                    for (const name of readDirs(agents)) {
-                        const root = join(agents, name)
-                        // A directory is an agent when it declares itself one.
-                        // Anything else under `agents/` is somebody's stray
-                        // folder, and listing it would offer a Run button for
-                        // something that cannot run.
-                        if (!existsSync(join(root, "axon.config.ts"))) continue
-                        const declared = manifest(root)
-                        found.push({
-                            name: name,
-                            // What the agent CALLS itself, which is what the CLI
-                            // takes and what a person recognises.
-                            ref: declared.name ?? name,
-                            version: declared.version,
-                            profile: profile,
-                            root: root,
-                            usedAt: usedAt(root),
-                            definition: definition(root),
-                        })
-                    }
-                }
-            }
-            // Most recently used first. A fleet list is a list of things you
-            // might open again, and alphabetical order buries the one you
-            // were just in behind nine you have never run.
-            return found.sort((a, b) => (b.usedAt ?? 0) - (a.usedAt ?? 0) || a.name.localeCompare(b.name))
+            return projects.list()
+        },
+
+        /**
+         * What this distribution's store holds and runs — never the other one's.
+         *
+         * Fleet describes the whole machine and reads both stores; the machine
+         * network speaks for one daemon, and dev and prod are separate networks.
+         */
+        own: {
+            list: (): AgentRecord[] => registry.written().map(decorate),
+            installed: (): InstalledAgent[] => own.list(),
         },
 
         /** Everything the domain reports in one read — what a client's `state()` calls. */
@@ -483,7 +411,16 @@ export function Agents(opts: AgentsOpts = {}) {
                 blueprint: input.blueprint,
                 agent: input.agent,
             })
-            supervised.set(input.sessionId, live)
+            const managed = {
+                ...live,
+                async stop(): Promise<void> {
+                    await live.stop()
+                    registry.stop(input.sessionId)
+                    supervised.delete(input.sessionId)
+                    surfaces.delete(input.sessionId)
+                },
+            }
+            supervised.set(input.sessionId, managed)
 
             registry.start({
                 // The AGENT's pid, not this process's: a reader probes it to
@@ -511,7 +448,7 @@ export function Agents(opts: AgentsOpts = {}) {
                 startedAt: new Date().toISOString(),
             })
 
-            return live
+            return managed
         },
 
         /**

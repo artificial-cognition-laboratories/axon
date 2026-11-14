@@ -109,4 +109,80 @@ describe("repository jobs", () => {
         expect(entries.jobs).toHaveLength(1)
         expect(await readFile(join(workspace, ".agents", "work", `${entries.jobs[0]!.id}.jsonl`), "utf8")).toContain("Repair the release pipeline")
     })
+
+    describe("the log as a record", () => {
+        async function cli() {
+            const daemon = await mkdtemp(join(tmpdir(), "axond-daemon-"))
+            const workspace = await mkdtemp(join(tmpdir(), "axond-repository-jobs-"))
+            roots.push(daemon, workspace)
+            const commands = Cli({ axond: Axond({ root: daemon }) })
+            const created = JSON.parse(await commands.jobCreate({ brief: "Map the rivers", cwd: workspace, id: "rivers" }, true)) as { id: string }
+            return { commands, workspace, id: created.id }
+        }
+        async function events(commands: ReturnType<typeof Cli>, workspace: string, ref: string, since?: number) {
+            return (JSON.parse(await commands.job(workspace, ref, true, since)) as { events: Array<Record<string, unknown>> }).events
+        }
+
+        const saved = process.env.AXON_ACTOR
+        afterEach(() => { if (saved === undefined) delete process.env.AXON_ACTOR; else process.env.AXON_ACTOR = saved })
+
+        test("a note is appended and starts nothing", async () => {
+            const { commands, workspace, id } = await cli()
+            await commands.jobSay(workspace, id, "probe found 46% undrawn", true, undefined, "rivers-commander")
+
+            const log = await events(commands, workspace, id)
+            expect(log.at(-1)).toMatchObject({ kind: "said", entry: "note", text: "probe found 46% undrawn", by: { kind: "agent", name: "rivers-commander" } })
+            // No run was claimed or started: a note is a record, not a trigger.
+            expect(log.map(event => event.kind)).toEqual(["created", "said"])
+        })
+
+        test("a report with no run in progress is a report entry, with its attachments", async () => {
+            const { commands, workspace, id } = await cli()
+            const evidence = join(workspace, "evidence.log")
+            await Bun.write(evidence, "ok\n")
+            await commands.jobAnswer(workspace, id, "report", "STATUS done", true, [evidence], "rivers-commander")
+
+            const last = (await events(commands, workspace, id)).at(-1) as { kind: string; entry: string; attachments: Array<{ name: string }> }
+            expect(last).toMatchObject({ kind: "said", entry: "report", text: "STATUS done" })
+            expect(last.attachments.map(file => file.name)).toEqual(["evidence.log"])
+            expect((await events(commands, workspace, id)).map(event => event.kind)).toEqual(["created", "said"])
+            // A proposal still needs a run to answer.
+            await expect(commands.jobAnswer(workspace, id, "proposal", "do it", true)).rejects.toThrow()
+        })
+
+        test("AXON_ACTOR names the author, --as wins over it, and a name never closes a job", async () => {
+            const { commands, workspace, id } = await cli()
+            process.env.AXON_ACTOR = "captain"
+            await commands.jobSay(workspace, id, "from the env", true)
+            await commands.jobSay(workspace, id, "from the flag", true, undefined, "rivers-commander")
+
+            const log = await events(commands, workspace, id)
+            expect(log.slice(-2).map(event => (event.by as { name?: string }).name)).toEqual(["captain", "rivers-commander"])
+            await expect(commands.jobDone(workspace, id, true)).rejects.toThrow()
+            delete process.env.AXON_ACTOR
+            await expect(commands.jobDone(workspace, id, true, "captain")).rejects.toThrow()
+        })
+
+        test("the thread shows each entry's #seq and author, and --since shows only what is newer", async () => {
+            const { commands, workspace, id } = await cli()
+            await commands.jobSay(workspace, id, "first", true, undefined, "captain")
+            await commands.jobSay(workspace, id, "second", true, undefined, "rivers-commander", "report")
+
+            const full = await commands.job(workspace, id)
+            expect(full).toContain("#1  captain  first")
+            expect(full).toContain("#2  rivers-commander  report: second")
+
+            const newer = await commands.job(workspace, id, false, 1)
+            expect(newer).not.toContain("first")
+            expect(newer).toContain("#2  rivers-commander  report: second")
+            expect((await events(commands, workspace, id, 1)).map(event => event.seq)).toEqual([2])
+        })
+
+        test("an old entry with no type or name still reads", async () => {
+            const { commands, workspace, id } = await cli()
+            const file = join(workspace, ".agents", "work", `${id}.jsonl`)
+            await Bun.write(file, (await readFile(file, "utf8")) + JSON.stringify({ kind: "said", at: new Date().toISOString(), by: { kind: "agent", session: "anonymous" }, text: "legacy" }) + "\n")
+            expect(await commands.job(workspace, id)).toContain("#1  agent  legacy")
+        })
+    })
 })

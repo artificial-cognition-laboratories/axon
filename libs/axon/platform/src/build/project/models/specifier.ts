@@ -95,7 +95,7 @@ export function parseModel(key: string, ref: ModelRef): ParsedModel {
         })
     }
 
-    const segments = ref.slice(colon + 1).split("/").filter(Boolean)
+    const segments = ref.slice(colon + 1).split("/")
     if (segments.length < 3) {
         // Two segments is a bare repo, which is ambiguous: a repo is a
         // directory, and `ggerganov/whisper.cpp` alone names twenty
@@ -108,12 +108,18 @@ export function parseModel(key: string, ref: ModelRef): ParsedModel {
         })
     }
 
+    const repository = segments[1]!.split("@")
+    const name = repository[0]
+    const revision = repository[1] ?? "main"
+    if (!name || !revision || repository.length > 2 || segments.some(segment => !segment || segment === "." || segment === "..")) {
+        throw err("MODEL_SPECIFIER_INVALID", { detail: `models.${key}: invalid repository, revision or file path`, context: { key: key, specifier: ref } })
+    }
     return {
         key,
         host: "hf",
-        repo: `${segments[0]}/${segments[1]}`,
+        repo: `${segments[0]}/${name}`,
         file: segments.slice(2).join("/"),
-        rev: "main",
+        rev: revision,
     }
 }
 

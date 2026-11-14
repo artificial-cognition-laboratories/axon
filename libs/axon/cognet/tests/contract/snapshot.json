@@ -1,0 +1,9 @@
+{
+    "now": 1000,
+    "entities": ["self"],
+    "entries": [["count", "self", { "at": 12, "points": { "$array": 0 } }]],
+    "reads": ["count"],
+    "writes": ["count"],
+    "streams": [],
+    "state": { "rev": 1, "body": null, "presence": { "state": "embodied" }, "scope": { "modules": [], "unavailable": [] }, "services": { "depth": { "available": true, "describe": { "maxSide": 518 } }, "hear": { "available": false, "describe": null } } }
+}

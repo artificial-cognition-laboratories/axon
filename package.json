@@ -10,7 +10,6 @@
     "typescript": "^5"
   },
   "workspaces": [
-    "libs/*",
     "libs/axon/*",
     "libs/axon/packages/*",
     "registry/agents/*",

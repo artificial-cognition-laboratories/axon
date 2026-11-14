@@ -4,9 +4,13 @@ import type {
     AxonBlueprint,
     AxonEngineDriver,
     AxonEngineRawEvent,
+    AxonTransformDriver,
+    AxonCommitContext,
     AxonEngineRequest,
+    AxonIngest,
     AxonStimulusEntry,
     AxonStimulusInput,
+    ServeInput,
     SupervisorToAgent,
 } from "@arcforge/types"
 import { VERB } from "./supervisor"
@@ -25,11 +29,11 @@ export type AgentServices = {
     /** The agent's prompt surface: list, get one, render an entry. */
     prompts(request: { action: string; name?: string; entry?: unknown; props?: Record<string, unknown> }): Promise<unknown>
     /** Bind the agent's HTTP surface in its own process; reports the bound port. */
-    serve(port: number): Promise<{ port: number }>
+    serve(input: ServeInput): Promise<{ port: number }>
     /** Deliver a stimulus to the scheduler. Returns whether the brain admitted it. */
     stimulus(entry: AxonStimulusEntry): Promise<{ admitted: boolean }>
     /** Add a message to the wake already running — no reservation, no verdict. */
-    ingest(entry: AxonStimulusEntry): Promise<void>
+    ingest(input: AxonIngest): Promise<void>
     /** Hot reload. */
     update(blueprint: AxonBlueprint): Promise<void>
     /** Abort the active wake. */
@@ -52,13 +56,13 @@ export function agentHandlers(services: AgentServices) {
             async call(verb: string, arg: unknown): Promise<unknown> {
                 switch (verb) {
                     case VERB.stimulus: return services.stimulus(arg as AxonStimulusEntry)
-                    case VERB.ingest: return services.ingest(arg as AxonStimulusEntry)
+                    case VERB.ingest: return services.ingest(arg as AxonIngest)
                     case VERB.update: return services.update(arg as AxonBlueprint)
                     case VERB.shutdown: return services.shutdown()
                     case VERB.request: return services.request(arg as Parameters<AgentServices["request"]>[0])
                     case VERB.run: return services.run(arg as string)
                     case VERB.prompts: return services.prompts(arg as { action: string })
-                    case VERB.serve: return services.serve(arg as number)
+                    case VERB.serve: return services.serve(serveInput(arg))
                     default: throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
                 }
             },
@@ -100,6 +104,7 @@ export function RemoteDriver(opts: {
     signal?: AbortSignal
 }): AxonEngineDriver {
     return {
+        kind: "generate",
         async *stream(request: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> {
             /**
              * The REQUEST's signal, not one captured at construction.
@@ -123,14 +128,65 @@ export function RemoteDriver(opts: {
     }
 }
 
-/** The supervisor, as the agent calls it. */
+/**
+ * RemoteTransform — an `AxonTransformDriver` whose work happens where the
+ * engines are.
+ *
+ * The same swap RemoteDriver makes for generation: the agent's kernel keeps
+ * tracing the call, and cannot tell that the image crossed a process to be
+ * looked at. The wake's signal travels with the call, so an interrupted wake
+ * stops waiting for a result it no longer wants.
+ */
+export function RemoteTransform(opts: { role: string; supervisor: AgentToSupervisor }): AxonTransformDriver {
+    return {
+        kind: "transform",
+        transform(input: unknown, transformOpts) {
+            return opts.supervisor.transform({ role: opts.role, input: input }, transformOpts?.signal ?? new AbortController().signal)
+        },
+    }
+}
+
+/**
+ * The most commits one batch carries before it is sent without waiting for
+ * the turn to end — a burst never builds an unbounded message.
+ */
+const BATCH_MOST = 512
+
+/**
+ * The supervisor, as the agent calls it.
+ *
+ * Commits are BATCHED: gathered for one turn of the event loop and sent as
+ * one `commits` message, in order. A continuous mind commits dozens of
+ * telemetry events a tick, and one link message each was a frame, an encode
+ * and a decode apiece — the batch is one of each per tick. The order of the
+ * log is untouched: every commit waits the same way, so none overtakes
+ * another.
+ */
 export function supervisorProxy(channels: LinkChannels): AgentToSupervisor {
+    let pending: Array<{ type: string; data: unknown; ctx?: AxonCommitContext }> = []
+    let scheduled = false
+    const flush = () => {
+        scheduled = false
+        if (pending.length === 0) return
+        const batch = pending
+        pending = []
+        channels.data.send(VERB.commits, batch)
+    }
+
     return {
         infer(call, signal) {
             return channels.data.stream<AxonEngineRawEvent>(VERB.infer, call, signal)
         },
+        transform(call, signal) {
+            return channels.data.call(VERB.transform, call, signal)
+        },
         commit(type, data, ctx) {
-            channels.data.send(VERB.commit, { type, data, ...(ctx ? { ctx } : {}) })
+            pending.push({ type: type as string, data: data, ...(ctx ? { ctx } : {}) })
+            if (pending.length >= BATCH_MOST) flush()
+            else if (!scheduled) {
+                scheduled = true
+                setImmediate(flush)
+            }
         },
         escalate(call) {
             return channels.control.call<{ allow: boolean }>(VERB.escalate, call)
@@ -140,3 +196,14 @@ export function supervisorProxy(channels: LinkChannels): AgentToSupervisor {
 
 /** Type-level assurance that the served handlers cover the whole contract. */
 export type AgentSide = SupervisorToAgent
+
+/** The serve verb's argument, checked where it arrives rather than cast. */
+function serveInput(arg: unknown): ServeInput {
+    const input = arg as Partial<ServeInput> | null
+    const valid = input !== null && typeof input === "object"
+        && typeof input.port === "number" && Number.isInteger(input.port) && input.port >= 0
+        && (input.host === "loopback" || input.host === "all")
+        && (input.token === null || (typeof input.token === "string" && input.token.length >= 32))
+    if (!valid) throw err("LINK_SERVE_INVALID", { detail: JSON.stringify(arg), context: { arg: arg } })
+    return input as ServeInput
+}

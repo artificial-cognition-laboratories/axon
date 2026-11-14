@@ -1,5 +1,5 @@
 import type { AxonEntryEvent } from "../session/events/entries"
-import type { CognetDefinition, CognetStimulusSupport } from "./cognet"
+import type { CognetDefinition, CognetSchedule, CognetStimulusSupport, CognetUse } from "./cognet"
 import type { EngineRequirements, ResolvedEngineFacts } from "../inference"
 
 /**
@@ -18,7 +18,25 @@ import type { EngineRequirements, ResolvedEngineFacts } from "../inference"
  * policy, and pre-load checks; the loaded definition is the authority and
  * a disagreement fails loudly.
  */
-export type CognetBlueprint = {
+export type CognetBlueprint = CognetSlot & CognetCarrier & {
+    /**
+     * How the brain wakes, from the definition itself. Carried so a client can
+     * tell, before anything loads, whether it is talking to a mind that answers
+     * requests or one that runs and hears whatever it is sent.
+     */
+    mode: CognetSchedule
+}
+
+/**
+ * The cognet slot as a caller hands it to `AxonBlueprint()`. The live
+ * definition says its own mode, so the slot may leave it out there; the
+ * normalised blueprint always has it.
+ */
+export type CognetBlueprintInput =
+    | (CognetSlot & Extract<CognetCarrier, { path: string }> & { mode: CognetSchedule })
+    | (CognetSlot & Extract<CognetCarrier, { definition: CognetDefinition }> & { mode?: CognetSchedule })
+
+type CognetSlot = {
     name: string
     version: string
     /** Kernel ABI contract the artifact targets — checked again at load from the definition itself. */
@@ -59,7 +77,17 @@ export type CognetBlueprint = {
      * this is the copy the runtime plans with.
      */
     engines?: EngineRequirements
-} & (
+
+    /**
+     * The services this brain uses, carried from its cognet.config.ts — and
+     * each one's interface as compiled: its name, and each method's kind and
+     * parameter names. What the kernel grants against before the brain
+     * loads, and serves calls by.
+     */
+    uses?: Readonly<Record<string, CognetUse>>
+}
+
+type CognetCarrier =
     | {
         /** Absolute path to the compiled bundle — <agent>/.agent/cognet/cognet.mjs. */
         path: string
@@ -70,4 +98,4 @@ export type CognetBlueprint = {
         /** Live definition — test/embedded path. The CLI always emits path+hash. */
         definition: CognetDefinition
     }
-)
+

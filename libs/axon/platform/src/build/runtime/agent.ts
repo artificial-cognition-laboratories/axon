@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto"
 import { join, resolve } from "node:path"
 import { Axon } from "@arcforge/core"
 import type { AxonHost, AxonT } from "@arcforge/core"
-import type { AxonBlueprint, AxonPartialBlueprint, SupervisorToAgent } from "@arcforge/types"
+import type { AxonBlueprint, AxonPartialBlueprint, SupervisorToAgent, EngineSelection } from "@arcforge/types"
 import type { AxonSessionT } from "@arcforge/session"
 import { err } from "@arcforge/err"
 import type { AxonCloudClient } from "@arcforge/cloud"
 import { BuildRecorder, span } from "@arcforge/session"
 import { Blueprint } from "../blueprint"
-import { readPolicy, ProfileConfigFile } from "../extensions"
+import { readPermissions, readPolicy, ProfileConfigFile } from "../extensions"
 import { advances, stageFor, unitFor } from "./progress"
 import type { BootProgress, BootStage, UnitTiming } from "./progress"
 import { Frame } from "../frame"
@@ -33,6 +33,14 @@ type AgentOpts = {
     depth?: number
     /** Job directory this run answers, for correlation — see RunningRecord.job. */
     job?: string
+    /**
+     * What THIS invocation says, laid over the agent's own `.env`.
+     *
+     * The world address `-c` resolved rides here: one run's facts, so the
+     * same agent can be sent somewhere new without editing a file. The
+     * agent's `.env` is still what answers for everything this does not name.
+     */
+    env?: Readonly<Record<string, string>>
     /**
      * A local control channel this instance is listening on, published on
      * the running record so an editor can find and dial it.
@@ -150,7 +158,14 @@ export async function Agent(opts: AgentOpts) {
         const active = opts.store.profiles.active()
         if (!active) return undefined
         const policy = await readPolicy(active.root)
-        return Object.keys(policy).length > 0 ? (policy as AxonPartialBlueprint["profilePolicy"]) : undefined
+        const permissions = await readPermissions(active.root)
+        const mediation = permissions === "allow"
+            ? { shell: { allow: ["*"], raw: true, spawn: true }, tools: true }
+            : permissions === "ask"
+                ? { shell: { spawn: "escalate" }, tools: "escalate" }
+                : {}
+        const ceiling = { ...policy, ...mediation }
+        return Object.keys(ceiling).length > 0 ? (ceiling as AxonPartialBlueprint["profilePolicy"]) : undefined
     }
 
     /**
@@ -224,6 +239,16 @@ export async function Agent(opts: AgentOpts) {
     }
 
     function reportProgress(type: string, data: unknown): void {
+        if (type === "build:progress") {
+            const progress = data as { stage: string; message: string }
+            const stage = stageFor(`build:${progress.stage}:start`)
+            if (!stage) return
+            if (stage !== reported && !advances(reported, stage)) return
+            reported = stage
+            opts.onProgress?.({ stage: stage, detail: progress.message })
+            return
+        }
+
         // A closing span carries what it cost. Reported alongside progress so
         // a surface can show "4 mods, 15 tools (42ms)" without timing the
         // build itself — the span already measured it.
@@ -368,7 +393,7 @@ export async function Agent(opts: AgentOpts) {
                 recorder,
                 "build:load",
                 { root: project.root },
-                async () => blueprint.load({ profilePolicy: await profileCeiling(), profileProviders: await profileProviders() }),
+                async () => blueprint.load({ profilePolicy: await profileCeiling(), profileProviders: await profileProviders(), ...(opts.env ? { env: opts.env } : {}) }),
                 result => ({
                     // A scan that produced no agent identity is a scan that
                     // failed to find one — recorded as the empty string
@@ -500,19 +525,28 @@ export async function Agent(opts: AgentOpts) {
              */
             if (opts.watch === false) return linked
 
-            const stopWatching = ReloadWatch({
-                watcher: project.watcher,
-                reload: () => project.watcher.during(
-                    () => linked.reload(),
-                    { selfReloads: true },
-                ),
-            })
+            let stopWatching: () => void
+            try {
+                stopWatching = await ReloadWatch({
+                    watcher: project.watcher,
+                    reload: () => project.watcher.during(
+                        () => linked.reload(),
+                        { selfReloads: true },
+                    ),
+                })
+            } catch (cause) {
+                try { await linked.shutdown() } catch (shutdown) {
+                    throw new AggregateError([cause, shutdown], "Watcher startup and agent shutdown failed")
+                }
+                throw cause
+            }
 
             // Stop watching when the agent stops. A watcher outliving its
             // agent holds an fs handle open and reloads a runtime that is
             // gone - and every boot would add another.
             return {
                 ...linked,
+                get blueprint() { return linked.blueprint },
                 async shutdown() {
                     stopWatching()
                     await linked.shutdown()
@@ -573,7 +607,7 @@ export type LinkedRuntime = {
      * where a model picker rebinds and where a header reads what actually
      * answered. Undefined for a cognet that declared no roles.
      */
-    engines?: { select(model: string): unknown; readonly primary?: string; has(role: string): boolean; get(role: string): { binding: { capability: { provider: string; id: string } } } }
+    engines?: EngineSelection
     /** Which containment tier actually built the box. Reported, never assumed. */
     tier: "none" | "auto" | "container" | "hardened"
     /**

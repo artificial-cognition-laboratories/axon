@@ -7,44 +7,86 @@ import { bareName, type ScaffoldOpts } from "../kinds"
 
 const CONFIG_TEMPLATE = (name: string) => `// ${name} — what this brain declares.
 //
-// Identity comes from package.json and behavior from src/main.ts; the compile
-// step composes the three. The kernel ABI is stamped in at compile time, so
+// Identity comes from package.json; behaviour from its systems — every
+// *.system.ts under src/. The kernel ABI is stamped in at compile time, so
 // there is nothing to pin unless you want this brain to REFUSE a kernel it
 // has not been validated against.
 export default defineCognet({
+    // Wakes when a stimulus arrives. A mind that must keep acting whether or
+    // not the world spoke declares { kind: "continuous", hz } instead.
     mode: { kind: "invocation" },
 })
 `
 
-const MAIN_TEMPLATE = (name: string) => `// ${name} — a raw script: this file IS the brain.
-//
-// Runs once at load(), with the ambient globals live (kernel, loop, phase,
-// system, blueprint — typed by the generated frame, run \`axon prepare\`).
-// Module scope is resident RAM: alive across wakes, rebuildable from the
-// log, gone without loss on kill -9 — never authoritative.
+const SCHEMA_TEMPLATE = (name: string) => `// What ${name} believes about the room. Components are declared here, in no
+// language: \`axon prepare\` generates the TypeScript (and Rust) types and
+// handles, imported as #schema/sense/sense.
+syntax = "proto3";
 
-loop(async ({ stimuli, signal, stop }) => {
-    await phase("sense", async () => {
-        // one deterministic fold: new entries → your own resident model.
-        // kernel.store.session.get({ after: seq }) is the same door for
-        // cold-boot hydration and steady-state diffs — the equivalence
-        // that makes kill -9 free.
-    })
+package ${protoPackage(name)}.sense;
 
-    await phase("think", async () => {
-        // strategy. yours. the kernel has no opinion past this comment.
-        // const messages = ...render from your model...
-        // for await (const event of kernel.stream({ messages, signal })) { ... }
-    })
+import "cognet/cognet.proto";
 
-    await phase("act", async () => {
-        // effects leave ONLY through the two verbs:
-        //   kernel.output(type, data)  — unmediated emission (chunk: {of, final} to stream)
-        //   kernel.run(code)           — mediated capsule execution, committed for you
-    })
+// A temperature, and when it was felt.
+message Reading {
+  double celsius = 1;
+  double at = 2;
+}
 
-    // quiescent? nothing pending → this wake is over. the brain stays warm.
-    stop()
+message Components {
+  option (cognet.components) = true;
+
+  // The newest temperature the room reported. Public: act/ reads it.
+  Reading temperature = 1 [(cognet.component) = { public: true }];
+}
+`
+
+const FEEL_TEMPLATE = `import { temperature } from "#schema/sense/sense"
+
+/**
+ * Feel — the newest temperature the body reported, as a belief.
+ *
+ * Reads stimuli: every one since this system last ran, so nothing that
+ * arrived is missed. Writes the belief only; deciding what to do about it is
+ * another system's.
+ */
+export default defineSystem({
+    reads: [stimuli],
+    writes: [temperature],
+
+    run({ stimuli }) {
+        for (const stimulus of stimuli) {
+            if (stimulus.type !== "cognet:stimulus:vector" || stimulus.data.channel !== "/temperature") continue
+            ecs.set({
+                id: "room",
+                components: { temperature: { celsius: stimulus.data.values[0]!, at: stimulus.time.ms } },
+            })
+        }
+    },
+})
+`
+
+const HEAT_TEMPLATE = `import { temperature } from "#schema/sense/sense"
+
+const SETTINGS = { target: 21 }
+
+/**
+ * Heat — turn the heater on below the target, off above it.
+ *
+ * Runs after feel, and only when the temperature changed: it reads what feel
+ * writes, and the schedule derives both from that alone.
+ */
+export default defineSystem({
+    reads: [temperature],
+
+    async run() {
+        const [room] = ecs.query({ components: ["temperature"] })
+        if (!room) return
+        await kernel.output("cognet:output:vector", {
+            channel: "/heater",
+            values: [room.temperature.celsius < SETTINGS.target ? 1 : 0],
+        })
+    },
 })
 `
 
@@ -73,11 +115,14 @@ export async function scaffoldCognet(opts: ScaffoldOpts): Promise<string> {
         throw err("PROJECT_EXISTS", { detail: `${root} already exists`, context: { root } })
     }
 
-    await mkdir(join(root, "src"), { recursive: true })
+    await mkdir(join(root, "src", "sense"), { recursive: true })
+    await mkdir(join(root, "src", "act"), { recursive: true })
 
     const files: Promise<unknown>[] = [
         writeFile(join(root, "cognet.config.ts"), CONFIG_TEMPLATE(opts.name)),
-        writeFile(join(root, "src", "main.ts"), MAIN_TEMPLATE(opts.name)),
+        writeFile(join(root, "src", "sense", "sense.proto"), SCHEMA_TEMPLATE(opts.name)),
+        writeFile(join(root, "src", "sense", "feel.system.ts"), FEEL_TEMPLATE),
+        writeFile(join(root, "src", "act", "heat.system.ts"), HEAT_TEMPLATE),
     ]
 
     // A standalone cognet is a package: it has an identity to publish, its own
@@ -99,4 +144,10 @@ export async function scaffoldCognet(opts: ScaffoldOpts): Promise<string> {
     await Promise.all(files)
 
     return root
+}
+
+/** A cognet name as a proto package segment: lowercase letters, digits and underscores, starting with a letter. */
+function protoPackage(name: string): string {
+    const bare = bareName(name).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+    return /^[a-z]/.test(bare) ? bare : `cognet_${bare}`
 }

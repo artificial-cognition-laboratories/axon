@@ -49,7 +49,7 @@ describe("link verbs — supervisor ↔ agent", () => {
             request: async () => ({ ok: true }),
             run: async () => undefined,
             prompts: async () => undefined,
-            serve: async (port: number) => ({ port }),
+            serve: async input => ({ port: input.port }),
             update: async () => {},
             interrupt: () => {},
             shutdown: async () => {},
@@ -60,6 +60,7 @@ describe("link verbs — supervisor ↔ agent", () => {
         }
         const supervisorSide: SupervisorServices = {
             async *infer() {},
+            transform: async () => { throw new Error("transform is not wired in this test") },
             commit: () => {},
             ...services,
         }
@@ -170,6 +171,26 @@ describe("link verbs — supervisor ↔ agent", () => {
             }
             expect(seen.join("")).toBe("hello")
             expect(sawRole as string | null).toBe("main")
+        })
+
+        it("sends a transform across and returns its result whole", async () => {
+            // A feature grid is megabytes of base64: it must come back as one
+            // value, unchanged, and the agent still names only a role.
+            const grid = "A".repeat(4 * 1024 * 1024)
+            let sawRole: string | null = null
+            const { fromAgent } = await wire({}, {
+                transform: async call => { sawRole = call.role; return { kind: "features", input: call.input, grid: grid } },
+            })
+            const result = await fromAgent.transform({ role: "features", input: { kind: "image" } }, new AbortController().signal) as { input: unknown; grid: string }
+            expect(sawRole as string | null).toBe("features")
+            expect(result.input).toEqual({ kind: "image" })
+            expect(result.grid.length).toBe(grid.length)
+        })
+
+        it("carries a transform's failure back to the agent", async () => {
+            const { fromAgent } = await wire({}, { transform: async () => { throw new Error("no engine bound") } })
+            const failure = await fromAgent.transform({ role: "features", input: null }, new AbortController().signal).then(() => null, (cause: Error) => cause)
+            expect(failure?.message).toMatch(/no engine bound/)
         })
 
         it("appends to the log without being able to rewrite it", async () => {

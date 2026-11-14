@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, readdir, rm, stat } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { err } from "@arcforge/err"
@@ -180,16 +180,16 @@ function artifactChanged(before: CognetBlueprint, after: CognetBlueprint): boole
  * Blueprint slot → live definition.
  *
  * CLI form: verify the bundle's sha256 against the blueprint BEFORE
- * evaluating a single line of it, then import with the hash as a
- * cache-buster (the ES module registry keys on URL — a rebuilt bundle at
- * the same path must produce a FRESH module instance, whose module scope
- * becomes the new brain's resident RAM). The stale module of a swapped-out
- * brain cannot be evicted from the registry — one leaked scope per brain
- * reload, the standard HMR trade.
+ * evaluating a single line of it, then import it — where it is the first
+ * time, and as a sibling named for its hash when this process has already
+ * imported that path (a rebuilt bundle must be a FRESH module instance,
+ * whose module scope becomes the new brain's resident RAM). The stale module
+ * of a swapped-out brain cannot be evicted from the registry — one leaked
+ * scope per brain reload, the standard HMR trade.
  */
 type ResolvedCognet = {
     definition: CognetDefinition
-    /** Removes the per-runtime module copy once its owning kernel has stopped. */
+    /** Removes the copy a hot reload imported, once that brain is swapped out. Absent for a bundle imported where it is. */
     dispose?: () => Promise<void>
     /** Bundle size on disk. Absent for the live-definition form, which reads nothing. */
     bytes?: number
@@ -221,77 +221,42 @@ async function resolve(slot: CognetBlueprint): Promise<ResolvedCognet> {
         })
     }
 
-    // Module scope is a brain's resident RAM, and one brain belongs to one
-    // kernel. Bun may reuse a file module even when only its query string
-    // differs, so query-based cache busting is not a reliable isolation
-    // boundary. Give every runtime a distinct physical entry instead.
-    //
-    // The copies live under .agent (already ignored by the project watcher)
-    // and are removed with the owning runtime. The compiled cognet is a
-    // self-contained ESM artifact, so no relative import graph needs copying.
-    const instanceDir = join(dirname(slot.path), ".instances")
-    const instancePath = join(instanceDir, `${slot.hash}.${crypto.randomUUID()}.mjs`)
-    await mkdir(instanceDir, { recursive: true })
-    await sweepStaleInstances(instanceDir)
-    await Bun.write(instancePath, contents)
+    // An agent is its own process, so this process holds one brain at a time:
+    // the bundle is imported where it is, and its native module beside it
+    // resolves as built. Only a brain swapped in while running — a rebuild,
+    // `update()` — needs a path this process has not imported: Bun keys its
+    // module registry on the file, so the same path would hand back the
+    // previous brain's module. That copy sits BESIDE the bundle, named for its
+    // hash, so what it loads relative to itself still resolves; it is removed
+    // when that brain is swapped out, and one a crash leaves is cleared by the
+    // next compile.
+    const entry = imported.has(slot.path) ? join(dirname(slot.path), `cognet.${slot.hash.slice(0, 16)}.mjs`) : slot.path
+    if (entry !== slot.path) await Bun.write(entry, contents)
+    imported.add(slot.path)
 
     try {
         const importBegan = Date.now()
-        const module = (await import(pathToFileURL(instancePath).href)) as { default?: unknown }
+        const module = (await import(pathToFileURL(entry).href)) as { default?: unknown }
         const importMs = Date.now() - importBegan
         return {
             definition: validate(slot, module.default),
-            dispose: async () => { await rm(instancePath, { force: true }) },
+            ...(entry === slot.path ? {} : { dispose: async () => { await rm(entry, { force: true }) } }),
             bytes: contents.byteLength,
             hashMs: hashMs,
             importMs: importMs,
         }
     } catch (cause) {
-        await rm(instancePath, { force: true })
+        if (entry !== slot.path) await rm(entry, { force: true })
         throw cause
     }
 }
 
 /**
- * How long an instance copy must be untouched before a later boot may delete
- * it. Comfortably longer than the window between `mkdir` and the `import` that
- * pins the file, so a runtime booting concurrently can never have its own copy
- * swept out from under it.
+ * Every bundle path this process has imported. Process-wide because the
+ * module registry it mirrors is: a path imported once is never imported
+ * fresh again.
  */
-const STALE_INSTANCE_MS = 60 * 60_000
-
-/**
- * Remove instance copies orphaned by runtimes that never disposed.
- *
- * `dispose()` deletes the copy on clean shutdown, but a `kill -9` — or a crash,
- * or a debugger stop — skips it, and nothing else ever did. Every such exit
- * leaked a full copy of the compiled cognet: 21 files / 1.8MB in one local
- * agent, growing without bound, and published into the release tarball.
- *
- * Age is the only safe signal, because a sibling runtime's copy is a live
- * import that must not be touched. Sweeping on boot (rather than on dispose)
- * is what makes it work at all — the process that leaked the file is by
- * definition not around to clean it up.
- *
- * Best-effort: a failure here must never stop a brain from loading.
- */
-async function sweepStaleInstances(instanceDir: string): Promise<void> {
-    try {
-        const cutoff = Date.now() - STALE_INSTANCE_MS
-        const entries = await readdir(instanceDir)
-        await Promise.all(entries.map(async entry => {
-            const path = join(instanceDir, entry)
-            try {
-                const info = await stat(path)
-                if (info.mtimeMs < cutoff) await rm(path, { force: true })
-            } catch {
-                // Raced with another runtime's dispose — already gone, fine.
-            }
-        }))
-    } catch {
-        // No directory yet, or an unreadable one. Not a reason to fail a boot.
-    }
-}
+const imported = new Set<string>()
 
 /** The bundle's default export must be a definition, and must be who the blueprint says it is. */
 function validate(slot: CognetBlueprint, candidate: unknown): CognetDefinition {

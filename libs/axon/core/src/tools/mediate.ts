@@ -32,9 +32,9 @@ export type MediateOpts = {
     check(fn: string, subject: string, args: unknown[], owner: string): Promise<boolean>
     /** Span emission — the audit trail every surface reads. */
     emit: {
-        start(input: { module: string; fn: string; args: unknown[] }): void
-        complete(input: { module: string; fn: string; result: unknown; durationMs: number }): void
-        failed(input: { module: string; fn: string; error: unknown; durationMs: number }): void
+        start(input: { module: string; fn: string; args: unknown[] }): Promise<string>
+        complete(input: { module: string; fn: string; result: unknown; durationMs: number; spanId: string }): Promise<void>
+        failed(input: { module: string; fn: string; error: unknown; durationMs: number; spanId: string }): Promise<void>
     }
 }
 
@@ -64,15 +64,16 @@ export function mediate(opts: MediateOpts, value: unknown, path: string, owner: 
             // :start with no matching end would leave a permanently-open
             // bracket in every flame graph.
             const started = Date.now()
-            opts.emit.start({ module: owner, fn: path, args })
+            const spanId = await opts.emit.start({ module: owner, fn: path, args })
+            let result: unknown
             try {
-                const result = await Reflect.apply(value as (...a: unknown[]) => unknown, receiver, args)
-                opts.emit.complete({ module: owner, fn: path, result, durationMs: Date.now() - started })
-                return result
+                result = await Reflect.apply(value as (...a: unknown[]) => unknown, receiver, args)
             } catch (cause) {
-                opts.emit.failed({ module: owner, fn: path, error: cause, durationMs: Date.now() - started })
+                await opts.emit.failed({ module: owner, fn: path, error: cause, durationMs: Date.now() - started, spanId: spanId })
                 throw cause
             }
+            await opts.emit.complete({ module: owner, fn: path, result, durationMs: Date.now() - started, spanId: spanId })
+            return result
         }
     }
 

@@ -1,16 +1,20 @@
 import { workerPath } from "../../../utils/packaged"
 import { createHash } from "node:crypto"
 import { readdir, rename, rm } from "node:fs/promises"
-import { existsSync, lstatSync, realpathSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 import { err } from "@arcforge/err"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
-import type { CognetBlueprint, CognetDefinition } from "@arcforge/types"
+import type { CognetBlueprint, CognetDefinition, CognetUse, ServiceUse } from "@arcforge/types"
 import { fsx } from "../../../utils/fs"
 import { Frame } from "../../frame"
-import { readCognetAbi } from "./abi"
+import { CognetConfigFile } from "./config"
+import { Crate, NATIVE_DIR } from "./native"
+import { PythonProject } from "./python"
+import type { PythonSystem } from "@arcforge/cognet"
+import { Schema, type Described } from "./schema"
 
 // The subprocess entry that actually runs Bun.build() — see runBundleWorker()
 // for why this isn't inline.
@@ -34,8 +38,8 @@ type BundleWorkerResult =
  * tree, so this is not a trivial burst). A subprocess moves that freeze
  * off the process that owns the terminal.
  */
-async function runBundleWorker(entryPath: string, external: string[]): Promise<BundleWorkerResult> {
-    const proc = Bun.spawn(["bun", "run", BUNDLE_WORKER_PATH, entryPath, external.join(",")], {
+async function runBundleWorker(entryPath: string, external: string[], schemaDir: string): Promise<BundleWorkerResult> {
+    const proc = Bun.spawn(["bun", "run", BUNDLE_WORKER_PATH, entryPath, external.join(","), schemaDir], {
         stdout: "pipe",
         stderr: "pipe",
     })
@@ -56,6 +60,15 @@ export type CognetArtifact = {
     /** what the blueprint carries — pure data, path+hash form */
     blueprint: CognetBlueprint & { path: string; hash: string }
 }
+
+/**
+ * Where, in the agent frame's `cognet/`, a cognet's schemas are generated —
+ * and the specifier cognet source imports them by: `#schema/control/control`
+ * is `<frame>/cognet/schema/control/control.ts`. The bundle worker resolves
+ * it; the agent's cognet tsconfig maps it for the editor, tsc and bun test.
+ */
+export const SCHEMA_DIR = "schema"
+export const SCHEMA_SPECIFIER = "#schema/"
 
 /**
  * The host module the generated entry composes with — a BARE SPECIFIER,
@@ -147,7 +160,7 @@ async function linkedHostIdentity(hostDir: string): Promise<string | null> {
     const hash = createHash("sha256")
     const walked = await fsx.walk(join(real, "src"), { skipDirs: ["node_modules"] })
     const files = walked
-        .filter(({ relPath }) => /\.(ts|tsx|js|mjs|json)$/.test(relPath))
+        .filter(({ relPath }) => /\.(ts|tsx|js|mjs|json|rs|toml|lock|proto)$/.test(relPath))
         .sort((a, b) => a.relPath.localeCompare(b.relPath))
 
     for (const { absPath, relPath } of files) {
@@ -179,19 +192,21 @@ async function isDeclared(agentRoot: string): Promise<boolean> {
  *   <agent>/.agent/cognet/cognet.mjs.map   — sourcemap (debuggability)
  *   <agent>/.agent/cognet/manifest.json    — { name, version, abi, hash, wakeOn }
  *
- * The authoring surface is two clutter-free files — cognet.config.ts
- * (declaration via defineCognet) and src/main.ts (a raw script declaring
- * loop() against ambient globals). This step is the desugar:
+ * The authoring surface is plain files against ambient globals —
+ * cognet.config.ts (defineCognet), `*.system.ts` files anywhere under the
+ * cognet, and an optional main.ts (a raw script that may declare loop()).
+ * This step is the desugar:
  *
- * 1. WRAP main.ts — hoist its import statements out, defer its body into
- *    an exported async function. The script becomes callable; the host
- *    runs it once at load(), after the kernel global is bound.
- * 2. GENERATE an entry that imports the host FIRST (module evaluation
- *    order — installing the globals before config/main evaluate), then
- *    composes: `export default CognetHost({ ...config, ...identity }, main)`,
- *    with identity resolved here from package.json + the kernel's ABI.
- * 3. BUNDLE the entry (Bun.build) — host, config, main, and their whole
- *    import graph inlined into one file the runtime imports and verifies.
+ * 1. DISCOVER every `*.system.ts`, and every file defining components or
+ *    queries. WRAP main.ts — hoist its imports, defer its body into an
+ *    exported async function the host runs once at load().
+ * 2. GENERATE an entry that imports the host FIRST (installing the globals
+ *    before anything else evaluates), then plugins, config, the discovered
+ *    files and the script, and composes them — `Discovered()` names every
+ *    definition from where it is defined, and `CognetHost` receives the
+ *    systems with identity resolved from package.json + the kernel's ABI.
+ * 3. BUNDLE the entry (Bun.build) — host, config, systems, main, and their
+ *    whole import graph inlined into one file the runtime imports.
  *
  * The blueprint's identity is then read back off the ARTIFACT: we import the
  * fresh bundle once here and read the composed definition's own fields, so
@@ -204,32 +219,25 @@ async function isDeclared(agentRoot: string): Promise<boolean> {
  * compile skip straight to the existing manifest instead of rebuilding.
  */
 /**
- * The brain's entry file — `src/main.ts`, or `main.ts` at the cognet root.
+ * The brain's script — `src/main.ts`, or `main.ts` at the cognet root — or
+ * null when it has none.
  *
- * Both, because both are natural at their own scale. A published cognet with
- * plugins, state and several modules wants `src/`; a brain inlined in an agent
- * is often one file, and making it sit alone inside a `src/` directory is
- * ceremony with nothing to organize. The layout is the author's call.
+ * Optional since systems: a brain made only of `*.system.ts` files needs no
+ * script, and the host runs its systems every tick. Whether a brain has
+ * ANYTHING to run is checked once discovery is done, where both are known.
  *
- * `src/` wins when both exist rather than erroring: it is the conventional
- * layout, so a stray top-level `main.ts` beside a real `src/main.ts` is far
- * more likely to be a leftover than an intentional second entry.
- *
- * Throws with both candidates named — a cognet with no entry compiles to
- * nothing, and the ENOENT this used to raise pointed only at `src/main.ts`,
- * which was actively misleading for a flat layout.
+ * `src/` wins when both exist: it is the conventional layout, so a stray
+ * top-level `main.ts` beside a real `src/main.ts` is far more likely to be a
+ * leftover than an intentional second entry.
  */
-function resolveCognetMain(sourceDir: string): string {
+function resolveCognetMain(sourceDir: string): string | null {
     const nested = join(sourceDir, "src", "main.ts")
     if (fsx.isFile(nested)) return nested
 
     const flat = join(sourceDir, "main.ts")
     if (fsx.isFile(flat)) return flat
 
-    throw err("COGNET_INVALID", {
-        detail: `no brain entry in ${sourceDir} — expected src/main.ts or main.ts`,
-        context: { sourceDir, candidates: [nested, flat] },
-    })
+    return null
 }
 
 /**
@@ -312,7 +320,6 @@ export async function bundleCognet(opts: {
     const outFile = join(outDir, "cognet.mjs")
     const manifestFile = join(outDir, "manifest.json")
 
-    const mainSource = await Bun.file(mainPath).text()
 
     // A cognet.config.ts is OPTIONAL for every brain, published or inline.
     //
@@ -328,8 +335,34 @@ export async function bundleCognet(opts: {
     // author who wants a non-default schedule, a wake mask or engine
     // requirements writes the file and gets the full surface.
     const hasConfig = await Bun.file(configPath).exists()
+    const declared = CognetConfigFile({ sourceDir: opts.sourceDir }).read()
+    const named = await cognetIdentity({ sourceDir: opts.sourceDir, agentRoot: opts.agentRoot, inline: opts.inline })
 
-    const inputHash = await hashCognetInputs(opts.sourceDir, opts.agentRoot)
+    // The schemas first: what they generate — into this agent's frame, never the source — is an input
+    // the hash below must see, and a module the discovery below must name.
+    const schemaDir = join(outDir, SCHEMA_DIR)
+    // Its Rust systems, compiled into the one module the entry loads — with the schemas' Rust, when there are any.
+    const crate = Crate({ sourceDir: opts.sourceDir, agentRoot: opts.agentRoot, out: join(outDir, "native"), owned: !opts.sourceDir.split(sep).includes("node_modules") })
+    const rust = await crate.sources()
+    const native = rust.some(source => source.system !== null)
+    const hasRustProject = native || (rust.length > 0 && existsSync(join(opts.sourceDir, "Cargo.toml")))
+    const python = PythonProject({ sourceDir: opts.sourceDir, agentRoot: opts.agentRoot, out: join(outDir, "python"), owned: !opts.sourceDir.split(sep).includes("node_modules") })
+    const pythonSources = await python.sources()
+    // A hot reload's copy (see core's cognet resolve), left behind by a process that never swapped it out.
+    for (const left of existsSync(outDir) ? (await readdir(outDir)).filter(entry => /^cognet\.[0-9a-f]+\.mjs$/.test(entry)) : []) await rm(join(outDir, left), { force: true })
+    // An inline brain's own interfaces are its agent's: `@cody/terry/features@1`, not the synthetic `terry-brain`'s.
+    const scope = opts.inline ? (await fsx.readJson<{ name?: string }>(join(opts.agentRoot, "package.json")))?.name ?? named.name : named.name
+    const schema = await Schema({ sourceDir: opts.sourceDir, agentRoot: opts.agentRoot, cognet: scope, uses: declared?.uses ?? {}, out: schemaDir, rust: hasRustProject ? crate.schema() : null, python: pythonSources.length > 0 ? join(outDir, "python", "generated") : null, stage: join(outDir, ".schema") }).generate()
+    // Each use joined to the interface it names, as compiled: what the kernel grants and serves by, and what each
+    // run's `services` calls through.
+    const uses = declared?.uses && Object.keys(declared.uses).length > 0 ? joined(declared.uses, schema.interfaces) : null
+    const builtNative = hasRustProject ? await crate.build(rust) : null
+    if (!builtNative) crate.clear()
+    const nativeModule = native ? builtNative : null
+    const pythonProject = pythonSources.length > 0 ? await python.prepare(pythonSources) : null
+    if (!pythonProject) python.clear()
+
+    const inputHash = await hashCognetInputs(opts.sourceDir, opts.agentRoot, schemaDir, nativeModule ? basename(nativeModule) : null)
     const cached = await readCachedArtifact(manifestFile, outFile, inputHash)
     if (cached) return cached
 
@@ -340,31 +373,33 @@ export async function bundleCognet(opts: {
     // project-specific, so only the .mjs travels).
     const shared = await readSharedArtifact(inputHash)
     if (shared) {
+        // `uses` names where each interface's cases are on THIS machine, for THIS project: never the cached copy's.
+        const { uses: _, ...identified } = shared.blueprint
+        const blueprint = { ...identified, ...(uses ? { uses: uses } : {}), path: outFile }
         await Bun.write(outFile, shared.code)
-        await Bun.write(
-            manifestFile,
-            JSON.stringify({ ...shared.blueprint, path: outFile, inputHash, sourceDir: opts.sourceDir }, null, 4),
-        )
-        return { blueprint: { ...shared.blueprint, path: outFile } }
+        await Bun.write(manifestFile, JSON.stringify({ ...blueprint, inputHash, sourceDir: opts.sourceDir }, null, 4))
+        return { blueprint: blueprint }
     }
 
-    // 1. wrap the raw script — imports hoisted, body deferred
-    const { imports, body } = splitImports(mainSource, dirname(mainPath))
-    const wrapped = [
-        `// generated by axon — the raw script ${relative(opts.sourceDir, mainPath)}, made callable.`,
-        "// imports hoisted; body runs once at load(), after kernel binds.",
-        imports,
-        "export default async function __cognet_main(): Promise<void> {",
-        body,
-        "}",
-    ].join("\n")
+    // 1. what the brain is made of: its systems, the files defining the
+    //    components and queries they use, and its optional script.
+    const systems = await discover.systems(opts.sourceDir)
+    const definitions = [...await discover.definitions(opts.sourceDir, naming(opts.sourceDir)), ...await discover.definitions(schemaDir, relPath => relPath)]
+    if (!mainPath && systems.length === 0 && !native && !pythonProject) {
+        throw err("COGNET_NO_LOOP", {
+            detail: `no brain in ${opts.sourceDir} — expected *.system.ts, *.system.rs, *.system.py, src/main.ts, or main.ts`,
+            context: { sourceDir: opts.sourceDir },
+        })
+    }
+
+    const wrapped = mainPath ? script(mainPath, opts.sourceDir) : NO_SCRIPT
     await Bun.write(join(buildDir, "main.ts"), wrapped)
 
     // 2. the composed entry — import order IS the wiring:
     //    host first (installs the ambient globals, incl. definePlugin),
     //    then plugins (their definePlugin(...) calls register hooks at import
     //    time — before load() fires "boot"), then config, then main.
-    const plugins = await discoverPlugins(opts.sourceDir)
+    const plugins = await discover.plugins(opts.sourceDir)
 
     // An inline brain with no config file gets one written into the build
     // scratch, so the composition below stays identical for every cognet —
@@ -381,10 +416,8 @@ export async function bundleCognet(opts: {
     // config. The ABI a config may pin is honoured; absent, this compile's own
     // kernel is stamped in, which is the truthful answer — the bundle really
     // was built against it.
-    const identity = {
-        ...(await cognetIdentity({ sourceDir: opts.sourceDir, agentRoot: opts.agentRoot, inline: opts.inline })),
-        abi: (hasConfig ? await readCognetAbi(opts.sourceDir) : null) ?? KERNEL_ABI_VERSION,
-    }
+    // The host is given what it calls by — never where the cases are, which is this machine's and not the brain's.
+    const identity = { ...named, abi: declared?.abi ?? KERNEL_ABI_VERSION, ...(uses ? { uses: Object.fromEntries(Object.entries(uses).map(([name, { conformance: _, ...use }]) => [name, use])) } : {}) }
 
     // Identity is MERGED INTO the config object rather than passed as its own
     // argument. CognetHost is a published package's public surface, and a
@@ -395,12 +428,8 @@ export async function bundleCognet(opts: {
     // resolved fact, and a config that somehow still carries a stale name
     // must not win over it.
     const entry = [
-        "// generated by axon — composes identity + plugins + script into the definition.",
-        `import { CognetHost } from ${JSON.stringify(HOST_SPECIFIER)}`,
-        ...plugins.map((p, i) => `import ${specifier(p)} // plugin ${i}`),
-        `import config from ${configImport}`,
-        `import main from "./main.ts"`,
-        `export default CognetHost({ ...config, ...${JSON.stringify(identity)} }, main)`,
+        "// generated by axon — composes identity + plugins + systems + script into the definition.",
+        ...composition({ plugins: plugins, configImport: configImport, identity: identity, systems: systems, definitions: definitions, native: nativeModule ? `./${NATIVE_DIR}/${basename(nativeModule)}` : null, python: pythonProject, sourceDir: opts.sourceDir }),
     ].join("\n")
     const entryPath = join(buildDir, "entry.ts")
     await Bun.write(entryPath, entry)
@@ -418,7 +447,7 @@ export async function bundleCognet(opts: {
     const external = Object.keys(cognetPkg?.dependencies ?? {})
         .filter(name => !name.startsWith("@arcforge/"))
 
-    const result = await runBundleWorker(entryPath, external)
+    const result = await runBundleWorker(entryPath, external, schemaDir)
     if (!result.ok) {
         throw err("COGNET_BUILD_FAILED", { detail: result.message, context: { sourceDir: opts.sourceDir } })
     }
@@ -441,8 +470,10 @@ export async function bundleCognet(opts: {
         name: definition.name,
         version: definition.version,
         abi: definition.abi,
+        mode: definition.mode,
         ...(definition.wakeOn ? { wakeOn: definition.wakeOn } : {}),
         ...(definition.stimuli ? { stimuli: definition.stimuli } : {}),
+        ...(uses ? { uses: uses } : {}),
         path: outFile,
         hash,
     }
@@ -457,6 +488,15 @@ export async function bundleCognet(opts: {
     await publishSharedArtifact(inputHash, outFile, blueprint)
 
     return { blueprint }
+}
+
+/** Each use the config declares, with the interface it names as compiled — what the kernel grants and serves by. */
+function joined(uses: Readonly<Record<string, ServiceUse>>, interfaces: readonly Described[]): Record<string, CognetUse> {
+    return Object.fromEntries(Object.entries(uses).map(([name, use]) => {
+        const compiled = interfaces.find(one => one.written === use.interface)
+        if (!compiled) throw err("INTERFACE_NOT_FOUND", { detail: `uses.${name}: ${use.interface} was not compiled`, context: { use: name, interface: use.interface } })
+        return [name, { ...use, named: compiled.name, methods: compiled.methods, ...(compiled.conformance ? { conformance: compiled.conformance } : {}) }]
+    }))
 }
 
 // ── machine-wide artifact cache ───────────────────────────────────────────────
@@ -513,10 +553,11 @@ async function publishSharedArtifact(
     const pending = `${final}.pending-${crypto.randomUUID().slice(0, 8)}`
     try {
         await Bun.write(join(pending, "cognet.mjs"), Bun.file(outFile))
-        // `path` is deliberately dropped — it names the frame of whichever
-        // project happened to compile first, and every consumer overwrites it
-        // with its own. Storing it would invite someone to trust it.
-        const { path: _local, ...portable } = blueprint
+        // `path` and `uses` are deliberately dropped — they name the frame and
+        // the conformance cases of whichever project happened to compile
+        // first, and every consumer writes its own. Storing them would invite
+        // someone to trust them.
+        const { path: _local, uses: _uses, ...portable } = blueprint
         await Bun.write(join(pending, "blueprint.json"), JSON.stringify(portable))
         await rename(pending, final)
     } catch {
@@ -544,8 +585,21 @@ async function publishSharedArtifact(
  * graph would be tighter, but a false MISS only costs a recompile while a
  * false HIT ships the wrong brain — so when in doubt, rebuild.
  */
-async function hashCognetInputs(sourceDir: string, agentRoot: string): Promise<string> {
+/**
+ * The shape of a cached artifact's blueprint. Bump it whenever a field is
+ * added to, or removed from, what the bundle writes: every entry written
+ * before then is then a miss, rebuilt, rather than read without the field.
+ *
+ *   2 — `mode`, so a client knows what kind of mind it is talking to
+ */
+const ARTIFACT_FORMAT = "artifact/2"
+
+async function hashCognetInputs(sourceDir: string, agentRoot: string, schemaDir: string, native: string | null): Promise<string> {
     const hash = createHash("sha256")
+    // What a cached entry HOLDS is an input too: an entry written in an older shape is a miss, never a blueprint missing a field.
+    hash.update(`${ARTIFACT_FORMAT}\0`)
+    // The entry loads its native module by name, and the name is the module's content: a new one is a new bundle.
+    hash.update(`native\0${native ?? ""}\0`)
 
     hash.update(`${HOST_SPECIFIER}@${await hostVersion(agentRoot)}\0`)
 
@@ -554,9 +608,15 @@ async function hashCognetInputs(sourceDir: string, agentRoot: string): Promise<s
     // version above, not on their bytes).
     const walked = await fsx.walk(sourceDir, { skipDirs: ["node_modules", ".cognet", ".git"] })
     const files = walked
-        .filter(({ relPath }) => /\.(ts|tsx|js|mjs|json)$/.test(relPath))
+        .filter(({ relPath }) => /\.(ts|tsx|js|mjs|json|rs|py|toml|lock|proto)$/.test(relPath))
         .map(({ absPath }) => absPath)
         .sort()
+
+    // What the schemas generated is compiled too — and differs whenever the generator does, whatever the schemas say.
+    for (const file of existsSync(schemaDir) ? (await fsx.walk(schemaDir)).map(({ absPath }) => absPath).sort() : []) {
+        const text = await Bun.file(file).text()
+        hash.update(`${SCHEMA_SPECIFIER}${relative(schemaDir, file)}\0${text}`)
+    }
 
     for (const file of files) {
         const text = await Bun.file(file).text().catch(() => null)
@@ -590,6 +650,25 @@ async function readCachedArtifact(manifestFile: string, outFile: string, inputHa
 }
 
 // ── the wrap transform ────────────────────────────────────────────────────────
+
+/** The script of a brain that has none: its systems are the whole program. */
+const NO_SCRIPT = [
+    "// generated by axon — this brain has no main.ts; its systems are the whole program.",
+    "export default async function __cognet_main(): Promise<void> {}",
+].join("\n")
+
+/** The raw script, made callable — imports hoisted, body deferred to load(). */
+function script(mainPath: string, sourceDir: string): string {
+    const { imports, body } = splitImports(readFileSync(mainPath, "utf8"), dirname(mainPath))
+    return [
+        `// generated by axon — the raw script ${relative(sourceDir, mainPath)}, made callable.`,
+        "// imports hoisted; body runs once at load(), after kernel binds.",
+        imports,
+        "export default async function __cognet_main(): Promise<void> {",
+        body,
+        "}",
+    ].join("\n")
+}
 
 /**
  * Split a raw script into its top-level import statements and everything
@@ -639,25 +718,151 @@ function reanchor(statement: string, sourceDir: string): string {
     })
 }
 
-// ── plugin discovery ──────────────────────────────────────────────────────────
+// ── discovery ─────────────────────────────────────────────────────────────────
+
+/** Directories no discovered file lives under: installed code and build output. */
+const SKIP_DIRS = ["node_modules", ".git", ".cognet", ".agent"]
+
+/** `export const flow = component<Flow>(...)` / `export const tracked = query({...})` / `export const world = frame({...})` */
+const DEFINITION = /^export\s+const\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*(?:component|query|frame)\s*[<(]/gm
+
+/** A file under the cognet root that defines components or queries, and the exports it defines. */
+type DefinitionFile = { absPath: string; relPath: string; names: string[]; named: string }
+
+/** A `*.system.ts` file under the cognet root. */
+type SystemFile = { absPath: string; relPath: string }
+
+const discover = {
+    /**
+     * Absolute paths of the cognet's lifecycle plugins — plugins/*.ts, sorted
+     * for deterministic import order. Imported AFTER the host (so definePlugin
+     * exists) and BEFORE main (so hooks register before "boot" fires).
+     *
+     * No plugins folder is an ordinary brain. Any OTHER failure to read it —
+     * permissions, a file where the folder should be — throws: returning
+     * "no plugins" there compiles a brain silently missing its tick driver.
+     */
+    async plugins(sourceDir: string): Promise<string[]> {
+        const dir = join(sourceDir, "plugins")
+        if (!existsSync(dir)) return []
+        const names = await readdir(dir)
+        return names
+            .filter(n => n.endsWith(".ts") && !n.endsWith(".d.ts") && !n.endsWith(".test.ts"))
+            .sort()
+            .map(n => join(dir, n))
+    },
+
+    /**
+     * Every `*.system.ts` under the cognet, wherever it sits. Convention over
+     * config: the suffix IS the registration, and the schedule orders them
+     * from their data, so where a system lives is the author's choice.
+     */
+    async systems(sourceDir: string): Promise<SystemFile[]> {
+        const walked = await fsx.walk(sourceDir, { skipDirs: SKIP_DIRS })
+        return walked.filter(({ relPath }) => relPath.endsWith(".system.ts"))
+    },
+
+    /**
+     * Every file defining components or queries, with the exports it defines.
+     *
+     * Read as text, not executed: a definition's NAME is its folder plus its
+     * export name, which is a fact about the source. The generated entry
+     * imports each file and names exactly these exports; a handle defined any
+     * other way stays unnamed and throws the first time a system uses it.
+     */
+    async definitions(sourceDir: string, named: (relPath: string) => string): Promise<DefinitionFile[]> {
+        if (!existsSync(sourceDir)) return []
+        const walked = await fsx.walk(sourceDir, { skipDirs: SKIP_DIRS })
+        const found: DefinitionFile[] = []
+        for (const file of walked) {
+            if (!file.relPath.endsWith(".ts") || file.relPath.endsWith(".d.ts") || file.relPath.endsWith(".test.ts")) continue
+            const source = readFileSync(file.absPath, "utf8")
+            const names = [...source.matchAll(DEFINITION)].map(match => match[1]!)
+            if (names.length > 0) found.push({ ...file, names: names, named: named(file.relPath) })
+        }
+        return found
+    },
+}
 
 /**
- * Absolute paths of the cognet's lifecycle plugins — plugins/*.ts, sorted
- * for deterministic import order. Each is imported into the entry AFTER the
- * host (so definePlugin exists) and BEFORE main (so hooks are registered
- * before "boot" fires). Convention over config: no manifest, the folder IS
- * the registry — same as agents/modules.
+ * The path a file is NAMED by. A cognet that keeps its code under `src/`
+ * names everything from there — `L0/sense/vestibular/velocity`, not
+ * `src/L0/…` — because `src/` is where the code lives, not part of what it
+ * means. Files outside `src/` keep their path from the cognet root; a clash
+ * between the two is refused by `Discovered` like any other.
  */
-async function discoverPlugins(sourceDir: string): Promise<string[]> {
-    const dir = join(sourceDir, "plugins")
-    let names: string[]
-    try {
-        names = await readdir(dir)
-    } catch {
-        return []
+function naming(sourceDir: string): (relPath: string) => string {
+    const hasSource = existsSync(join(sourceDir, "src"))
+    return relPath => hasSource && relPath.startsWith("src/") ? relPath.slice("src/".length) : relPath
+}
+
+/**
+ * The generated entry's body — import order IS the wiring.
+ *
+ * Host first (installs the ambient globals — definePlugin, component, query,
+ * defineSystem), then plugins, config, the definition and system files, the
+ * script, and finally the composition. `Discovered` is imported only when
+ * there are systems: it exists only in hosts that can run them, so a new CLI
+ * against an old installed host fails HERE, at build, instead of shipping a
+ * brain whose systems never run. A loop-only brain stays buildable against
+ * either.
+ */
+function composition(opts: {
+    plugins: string[]
+    configImport: string
+    identity: Record<string, unknown>
+    systems: SystemFile[]
+    definitions: DefinitionFile[]
+    /** Where the cognet's Rust systems' module sits, relative to the bundle; null when it has none. */
+    native: string | null
+    python: { systems: PythonSystem[]; executable: string } | null
+    sourceDir: string
+}): string[] {
+    const hasSystems = opts.systems.length > 0 || opts.native !== null || opts.python !== null
+
+    // One namespace import per file, shared when a system file also defines.
+    const namespaces = new Map<string, string>()
+    for (const file of [...opts.definitions, ...opts.systems]) {
+        if (!namespaces.has(file.absPath)) namespaces.set(file.absPath, `__m${namespaces.size}`)
     }
-    return names
-        .filter(n => n.endsWith(".ts") && !n.endsWith(".d.ts") && !n.endsWith(".test.ts"))
-        .sort()
-        .map(n => join(dir, n))
+
+    const lines = [
+        `import { CognetHost${hasSystems ? ", Discovered" : ""}${opts.python ? ", Python" : ""} } from ${JSON.stringify(HOST_SPECIFIER)}`,
+        ...opts.plugins.map((p, i) => `import ${specifier(p)} // plugin ${i}`),
+        `import config from ${opts.configImport}`,
+        ...[...namespaces].map(([path, name]) => `import * as ${name} from ${specifier(path)}`),
+        `import main from "./main.ts"`,
+        // Loaded beside the bundle, relative to it — on the main thread and in every worker the bundle becomes.
+        ...(opts.native ? [`import { createRequire } from "node:module"`, `const native = createRequire(import.meta.url)(${JSON.stringify(opts.native)})`] : []),
+        ...(opts.python ? [
+            `import { fileURLToPath } from "node:url"`,
+            `const python = Python({ project: fileURLToPath(new URL("./python/", import.meta.url)), executable: ${JSON.stringify(opts.python.executable)}, systems: ${JSON.stringify(opts.python.systems)} })`,
+            `definePlugin(({ hooks }) => { hooks.on("shutdown", () => python.close()) })`,
+        ] : []),
+    ]
+
+    if (!hasSystems) {
+        return [...lines, `export default CognetHost({ ...config, ...${JSON.stringify(opts.identity)} }, main)`]
+    }
+
+    const named = naming(opts.sourceDir)
+    const definitions = opts.definitions.map(file =>
+        `        { file: ${JSON.stringify(file.named)}, module: ${namespaces.get(file.absPath)}, names: ${JSON.stringify(file.names)} },`)
+    const systems = opts.systems.map(file =>
+        `        { file: ${JSON.stringify(named(file.relPath))}, module: ${namespaces.get(file.absPath)} },`)
+
+    return [
+        ...lines,
+        "const discovered = Discovered({",
+        "    definitions: [",
+        ...definitions,
+        "    ],",
+        "    systems: [",
+        ...systems,
+        "    ],",
+        ...(opts.native ? ["    native: native,"] : []),
+        ...(opts.python ? ["    python: python,"] : []),
+        "})",
+        `export default CognetHost({ ...config, ...${JSON.stringify(opts.identity)}, systems: discovered.systems }, main)`,
+    ]
 }

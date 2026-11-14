@@ -7,6 +7,11 @@ type ActivitiesOpts = {
     execution: ExecutionT
 }
 
+type ActivityOpts = {
+    /** A detached process outlives its creating script, so it settles itself. */
+    autoSettle?: boolean
+}
+
 /**
  * Activities — the sandbox side of the semantic activity channel. Owns the
  * ambient axon.activity() verb: emits a "declared" event the moment a tool
@@ -29,7 +34,7 @@ export function Activities(opts: ActivitiesOpts) {
     /** Open (declared, unsettled) activities per command — settle fns keyed by activity id. */
     const open = new Map<string, Map<string, (error?: string) => void>>()
 
-    function activity<T extends ActivityType>(type: T, data: Partial<ActivityPayloads[T]> = {}): ActivityHandle<T> {
+    function activity<T extends ActivityType>(type: T, data: Partial<ActivityPayloads[T]> = {}, activityOpts: ActivityOpts = {}): ActivityHandle<T> {
         const commandId = execution.current?.id ?? null
         const id = crypto.randomUUID()
         let settled = false
@@ -43,7 +48,7 @@ export function Activities(opts: ActivitiesOpts) {
             wire.emit("process:activity", { commandId, id, activity: type, phase, data: settleData, ...(error !== undefined ? { error } : {}) })
         }
 
-        if (commandId) {
+        if (commandId && activityOpts.autoSettle !== false) {
             let perCommand = open.get(commandId)
             if (!perCommand) {
                 perCommand = new Map()
@@ -53,8 +58,15 @@ export function Activities(opts: ActivitiesOpts) {
         }
 
         return {
+            update(updateData: Partial<ActivityPayloads[T]>): void {
+                if (settled) return
+                wire.emit("process:activity", { commandId, id, activity: type, phase: "declared", data: updateData })
+            },
             done(settleData: Partial<ActivityPayloads[T]> = {}): void {
                 settleWith("done", settleData)
+            },
+            fail(settleData: Partial<ActivityPayloads[T]>, error: string): void {
+                settleWith("failed", settleData, error)
             },
         }
     }

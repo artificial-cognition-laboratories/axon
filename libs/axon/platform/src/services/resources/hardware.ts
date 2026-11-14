@@ -1,4 +1,5 @@
 import { totalmem } from "node:os"
+import { ask } from "../probe"
 
 /**
  * What this machine can offer local inference.
@@ -40,21 +41,17 @@ function fromMiB(text: string): number | null {
  * report one line each; the FIRST is used rather than the sum, because a
  * model loads onto one card and a total across cards would advertise room no
  * single load can use.
+ *
+ * Asked, never waited on: a synchronous spawn of nvidia-smi once wedged a
+ * test worker on its un-reaped child for hours (see probe/ask.ts). The first
+ * reading is "unknown" — which means unbounded, never empty — and the real
+ * one lands a moment later.
  */
 function nvidiaVram(): number | null {
-    try {
-        const probe = Bun.spawnSync([
-            "nvidia-smi",
-            "--query-gpu=memory.total",
-            "--format=csv,noheader,nounits",
-        ])
-        if (probe.exitCode !== 0) return null
-
-        const first = probe.stdout.toString().trim().split("\n")[0]
-        return first ? fromMiB(first) : null
-    } catch {
-        return null
-    }
+    const probe = ask(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+    if (probe.exitCode !== 0) return null
+    const first = probe.stdout.toString().trim().split("\n")[0]
+    return first ? fromMiB(first) : null
 }
 
 /**
@@ -72,12 +69,12 @@ function appleVram(): number | null {
 }
 
 /**
- * Read this machine once.
+ * Read this machine, as last measured.
  *
- * Synchronous and cheap enough to call per boot: one subprocess on NVIDIA,
- * arithmetic everywhere else. Not cached here — a caller that wants it cached
- * holds it, and a long-running process re-reading after a driver change is a
- * feature rather than a cost.
+ * Synchronous and cheap: the NVIDIA reading is the last answer of a probe
+ * refreshed in the background, arithmetic everywhere else. Read it per use
+ * rather than holding it — the first reading may be "unknown" until the probe
+ * answers, and a driver change is a reading worth seeing.
  */
 export function probeHardware(): Hardware {
     const nvidia = nvidiaVram()

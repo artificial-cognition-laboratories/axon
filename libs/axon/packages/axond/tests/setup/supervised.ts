@@ -131,7 +131,7 @@ export function attended(
  * AXON_NO_NETWORK_INFERENCE guard in buildProvider() is the backstop that makes
  * a miss loud rather than billed.
  */
-function seedMockProvider(store: string): void {
+export function seedMockProvider(store: string): void {
     // Keyed by EMAIL, which is what `store.profiles` names a profile
     // directory — not the uuid. TEST_USER is the only profile these suites
     // create, so its root is known before the profile exists, which is the

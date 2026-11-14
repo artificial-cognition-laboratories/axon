@@ -1,3 +1,5 @@
+import type { EngineEffort } from "./engine"
+
 /**
  * Inference requirements and supply — the contract between what a cognet
  * NEEDS and what a user HAS.
@@ -49,16 +51,33 @@ export type EngineType = "generate" | "transform" | "stream"
  * `in: "audio"`, and the output is the only thing that separates them — and
  * an image encoder and an object detector both take `in: "image"`.
  */
-export type Modality =
-    | "text"
-    | "image"
-    | "audio"
-    | "video"
-    | "vector"
-    | "score"
-    | "depth"
+export const MODALITIES = [
+    "text",
+    "image",
+    "audio",
+    "video",
+    "vector",
+    "score",
+    "depth",
     /** Located things: a box, a label and a confidence each. */
-    | "detections"
+    "detections",
+    /**
+     * A descriptor per patch of an image, on the grid the encoder tiles it
+     * with — not one pooled `vector`. What a perception stack stacks with its
+     * other fields; an encoder that can only pool cannot fill a role asking
+     * for this.
+     */
+    "features",
+    /** Regions of an image, one per prompt point, each with how sure the model is of it. */
+    "masks",
+] as const
+
+/**
+ * One member of `MODALITIES`. The list is a value so that anything checking
+ * stored or declared metadata checks against THIS list — a second copy is
+ * how a new modality ends up refused as invalid by a reader nobody updated.
+ */
+export type Modality = typeof MODALITIES[number]
 
 /**
  * An image, as it crosses to an engine.
@@ -79,6 +98,73 @@ export type ImageInput = {
     channels: 3
     /** Row-major RGB bytes, base64. */
     data: string
+}
+
+/**
+ * A tensor, as it comes back from an engine.
+ *
+ * Binary, base64, for the reason `ImageInput` is: a feature grid is ~900k
+ * numbers, which as a JSON array is ~9MB of text to write and parse per call
+ * and as float32 bytes is 3.5MB. Little-endian, row-major, `dims` outermost
+ * first.
+ */
+export type TensorOutput = {
+    kind: "tensor"
+    dims: number[]
+    dtype: "float32" | "uint8"
+    /** Row-major bytes, little-endian, base64. */
+    data: string
+}
+
+/**
+ * What a `features` engine returns for an `ImageInput`: one descriptor per
+ * patch, `[rows, cols, dim]`, at the image's OWN size — never resized or
+ * cropped to what the encoder was trained at. The caller chose the size
+ * because the grid it gets back has to line up with everything else it
+ * measures; an adapter that cropped to 224px would hand back descriptors of
+ * a picture nobody asked about.
+ *
+ * `patch` is how many image pixels one cell covers, so the caller can place
+ * the grid without knowing which model filled the role. The image's sides
+ * must be multiples of it; an image that is not is refused, not padded.
+ */
+export type FeatureGrid = {
+    kind: "features"
+    patch: number
+    grid: TensorOutput
+}
+
+/** What a `masks` engine takes: an image, and the points to find a region at. */
+export type SegmentInput = {
+    kind: "segment"
+    image: ImageInput
+    /** In the image's own pixels. Each yields one mask. */
+    points: Array<{ x: number; y: number }>
+}
+
+/**
+ * What a `masks` engine returns: one region per point, in point order. Each
+ * mask is `[rows, cols]` of 0/1 covering the WHOLE image (coarser than it —
+ * scale by width/cols), with `score` the model's own estimate of its
+ * quality, 0..1.
+ */
+export type Masks = {
+    kind: "masks"
+    masks: Array<{ mask: TensorOutput; score: number }>
+}
+
+/**
+ * What a `depth` engine returns for an `ImageInput`: how near each part of
+ * the picture is, `[rows, cols]` float32 covering the WHOLE image (coarser
+ * than it — scale by width/cols).
+ *
+ * RELATIVE and INVERSE, as a monocular model gives it: a larger number is
+ * nearer, there is no unit, and the scale of one answer says nothing about
+ * the scale of the next. Ordering within one answer is all it claims.
+ */
+export type DepthMap = {
+    kind: "depth"
+    depth: TensorOutput
 }
 
 /**
@@ -121,6 +207,13 @@ export type EngineRequirement = {
      * error the resolver ignores rather than fails on.
      */
     context?: number
+
+    /**
+     * The models that may fill it, by registry id, in order of preference —
+     * the first one the catalogue offers wins. Absent: any model that fits.
+     * Matched against a capability's own id, exactly, on any route.
+     */
+    model?: readonly string[]
 
     /** The reply must be parseable as structured output (AIR blocks, JSON mode). */
     structured?: boolean
@@ -244,6 +337,8 @@ export type ResolvedEngineFacts = {
 }
 
 export type EngineBinding = {
+    /** Reasoning effort reported by the live driver; absent when unknown or inapplicable. */
+    effort?: EngineEffort
     role: string
     requirement: EngineRequirement
     capability: EngineCapability
@@ -340,4 +435,13 @@ const PIPELINE_TAGS: Record<string, ModelShape> = {
 export function shapeOfPipelineTag(tag: string | undefined): ModelShape | null {
     if (!tag) return null
     return PIPELINE_TAGS[tag.toLowerCase()] ?? null
+}
+
+/** Supervisor-side model selection; inventory may change while an agent runs. */
+export type EngineSelection = {
+    readonly primary: string | null
+    has(role: string): boolean
+    get(role: string): { binding: EngineBinding }
+    refresh(provider: string): Promise<void>
+    select(model: string): EngineCapability | null | Promise<EngineCapability | null>
 }

@@ -25,20 +25,22 @@ import type { EngineRequirements } from "../inference"
  * - "invocation" — invoked once per admitted stimulus arrival, handed the
  *   full diff accumulated since the last invocation (may be more than one
  *   stimulus if several arrived while the previous wake was running).
- * - "continuous" — invoked by a clock the BODY owns, regardless of whether
- *   anything arrived; an empty diff is the ordinary steady state, not an
- *   edge case.
+ * - "continuous" — invoked on its own clock, `hz` times a second, regardless
+ *   of whether anything arrived; an empty diff is the ordinary steady state,
+ *   not an edge case.
  *
- * Continuous carries no rate. It declares the SHAPE of the cognet — "tick
- * me, don't hand me a chat prompt" — which is what `stream()` and `tick()`
- * reject against, and nothing more. A `tickMs` lived here once and was
- * wrong in the same way a `salience` field on a stimulus is wrong: it had
- * the brain asserting how fast its world turns, which it cannot know and
- * must never assume. The rate lives with whatever drives `axon.tick()`.
+ * `hz` is the MIND'S rate — how often it is worth thinking — never the
+ * world's. How fast frames arrive is the body's, and the body only ever emits
+ * stimuli. The rate lived in the kernel once (`tickMs`, read by the
+ * scheduler: the runtime owning the brain's clock) and in the body once
+ * (`axon.tick()`: the body deciding how often a mind thinks); both were wrong
+ * for the same reason. It is declared HERE because this is the brain's own
+ * config, and the cognet host drives `kernel.wake()` at it. Every slower
+ * rhythm in the mind is a division of it — a system's own `rate`.
  */
 export type CognetSchedule =
     | { kind: "invocation" }
-    | { kind: "continuous" }
+    | { kind: "continuous"; hz: number }
 
 /**
  * When this brain can consume one input modality.
@@ -172,6 +174,41 @@ export type CognetConfig = {
      * the bytes.
      */
     models?: Readonly<Record<string, ModelRef>>
+
+    /**
+     * The services this mind needs, by the names IT calls them, each bound to
+     * the interface that says what it means.
+     *
+     * ```ts
+     * uses: {
+     *     main:  { interface: "chat@1", requires: { context: { min: 100_000 } } },
+     *     depth: { interface: "depth-metric@1", optional: true },
+     *     scene: { interface: "./interfaces/scene@1" },
+     * }
+     * ```
+     *
+     * The cognet names a contract, never a provider: the agent grants what
+     * fills each use. A required use with nothing to fill it fails at prepare;
+     * an optional one is unavailable, and a system asks before calling it.
+     */
+    uses?: Readonly<Record<string, ServiceUse>>
+
+    /** A provider the cognet recommends for a use — offered to the agent, never required. */
+    suggests?: Readonly<Record<string, string>>
+
+    /**
+     * Worker threads for systems that declare `thread: "worker"`.
+     *
+     * `"auto"` (the default) is two fewer than the machine's cores, at most
+     * four — the main thread and the rest of the machine keep the remainder.
+     * `0` runs every worker system on the main thread, in order: the same
+     * results, one core. A number is that many threads.
+     *
+     * Results never depend on this. Systems run in parallel only where the
+     * declared data says they cannot see each other, so one thread and four
+     * compute the same tick.
+     */
+    threads?: "auto" | number
 }
 
 /**
@@ -222,7 +259,10 @@ export type ModelRef =
  * This is what the generated entry hands CognetHost — never the author's
  * cognet.config.ts on its own.
  */
-export type CognetIdentity = Omit<CognetConfig, "abi"> & {
+export type CognetIdentity = Omit<CognetConfig, "abi" | "uses"> & {
+    /** What the cognet uses, each joined to its interface as compiled — the compile step's, never the author's. */
+    uses?: Readonly<Record<string, CognetUse>>
+
     /** Package name — from the cognet's package.json, never authored. */
     name: string
 
@@ -247,4 +287,55 @@ export type CognetDefinition = CognetIdentity & {
 
     /** Brain off. Nothing durable to flush — durable writes already happened at commit time. */
     unload?(): Promise<void> | void
+}
+
+/** One service a cognet needs: the interface it means, and what breaks it when unmet. */
+export type ServiceUse = {
+    /** `chat@1`, `depth-metric@1` — or the cognet's own, `./interfaces/scene@1`. */
+    interface: string
+    /** The mind runs without it. Absent: required. */
+    optional?: boolean
+    /** Bounds on what the provider's `describe()` reports, field by field. */
+    requires?: Readonly<Record<string, ServiceRequirement>>
+    /**
+     * The model that fills it, by the registry's id (`anthropic/claude-haiku-4.5`):
+     * one, or candidates in order, the first that some route of the user's
+     * carries being the one bound. Names WHAT model, never who serves it.
+     * Only for an interface the machine's engines serve.
+     *
+     * The author's default, never the last word: what the agent grants the
+     * use, and the user's pick for the primary, override it. A cognet can
+     * choose its models; it can't overrule the person whose machine it runs on.
+     */
+    model?: string | readonly string[]
+    /**
+     * The use the user's model picker changes. At most one per cognet, across
+     * `engines` and `uses`. A role or use named `main` is the primary when
+     * none says so.
+     */
+    primary?: boolean
+    /**
+     * The most calls it would make at once. A request, never a threshold: a
+     * machine with fewer slots serves them one after another, and
+     * `describe().slots` says how many it got.
+     */
+    parallel?: number
+}
+
+/** What one field of `describe()` must be: exactly a value, within bounds, or holding each of a list. */
+export type ServiceRequirement =
+    | string
+    | number
+    | boolean
+    | { min?: number; max?: number }
+    | { includes: ReadonlyArray<string | number> }
+
+/** One use, as the runtime holds it: what the cognet declared, and its interface as compiled. */
+export type CognetUse = ServiceUse & {
+    /** The interface's full name: `chat@1`, or `@cody/terry/scene@1` for the cognet's own. */
+    named: string
+    /** Each method's kind, and its parameters' names — the object a call's arguments are keyed by. */
+    methods: Readonly<Record<string, { kind: "describe" | "call" | "stream" | "session"; params: readonly string[] }>>
+    /** Where its conformance cases are, on this machine — absent for an interface that ships none. */
+    conformance?: string
 }

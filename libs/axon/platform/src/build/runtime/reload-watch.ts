@@ -66,11 +66,10 @@ export type ReloadWatchOpts = {
 /**
  * Start watching. Returns the stop function.
  *
- * Never throws and never rejects into the caller: a watcher is an accelerant,
- * and an agent whose boot failed because a file could not be watched would be
- * strictly worse than one that simply needs `:reload`.
+ * Starting the watcher is part of starting a watched agent. Failure must reach
+ * the caller rather than leaving an agent that silently never reloads.
  */
-export function ReloadWatch(opts: ReloadWatchOpts): () => void {
+export async function ReloadWatch(opts: ReloadWatchOpts): Promise<() => void> {
     let running = false
     let deafUntil = 0
 
@@ -96,20 +95,17 @@ export function ReloadWatch(opts: ReloadWatchOpts): () => void {
         })()
     })
 
-    // Fire-and-forget: start() walks the tree, and a slow walk must not hold
-    // up the agent that is already running. The release is captured so this
-    // runtime cannot stop a prepared-build cache's watcher when it exits.
-    let release: (() => void) | null = null
-    let stopped = false
-    void opts.watcher.retain().then(value => {
-        release = value
-        if (stopped) release()
-    })
+    let release: () => void
+    try {
+        release = await opts.watcher.retain()
+    } catch (cause) {
+        stop()
+        throw cause
+    }
 
     return () => {
-        stopped = true
         stop()
-        release?.()
+        release()
     }
 }
 

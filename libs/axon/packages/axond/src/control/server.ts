@@ -1,3 +1,4 @@
+import { Stream } from "./stream"
 import { existsSync, mkdirSync, rmSync } from "node:fs"
 import { dirname } from "node:path"
 import { err, isAxonError } from "@arcforge/err"
@@ -13,7 +14,12 @@ type ServerOpts = {
      * dispatch it is supposed to be. It knows a path and an argument; what
      * those mean is the root's business.
      */
-    dispatch: (path: readonly string[], arg: unknown) => Promise<unknown>
+    dispatch: (path: readonly string[], arg: unknown, signal?: AbortSignal) => Promise<unknown>
+    /**
+     * Requests addressed to an agent on another machine, carried there as
+     * HTTP. Null for anything else, which is then a verb call.
+     */
+    tunnel: (request: Request) => Promise<Response | null>
 }
 
 /**
@@ -73,14 +79,21 @@ export function Server(opts: ServerOpts) {
             try {
                 server = Bun.serve({
                     unix: opts.paths.socket,
+                    // Model loading and prompt evaluation can be silent for minutes.
+                    // The inference signal and client disconnect own cancellation.
+                    idleTimeout: 0,
                     fetch: async request => {
-                        const body = (await request.json()) as { path?: unknown; arg?: unknown }
-                        if (!Array.isArray(body.path)) {
-                            return Response.json({ ok: false, error: "malformed request: path must be an array" }, { status: 400 })
-                        }
-
                         try {
-                            const value = await opts.dispatch(body.path as string[], body.arg)
+                            const tunnelled = await opts.tunnel(request)
+                            if (tunnelled !== null) return tunnelled
+                            const body = (await request.json()) as { path?: unknown; arg?: unknown }
+                            if (!body || !Array.isArray(body.path)) return Response.json({ ok: false, error: "malformed request: path must be an array" }, { status: 400 })
+                            if (!body.path.every(segment => typeof segment === "string")) throw new Error("invalid verb path")
+                            const controller = new AbortController()
+                            const value = await opts.dispatch(body.path, body.arg, controller.signal)
+                            if (isStream(value)) {
+                                return Stream({ iterator: value, controller: controller }).response()
+                            }
                             return Response.json({ ok: true, value: value })
                         } catch (cause) {
                             /*
@@ -134,3 +147,17 @@ export function Server(opts: ServerOpts) {
 }
 
 export type ServerT = ReturnType<typeof Server>
+
+function isStream(value: unknown): value is AsyncIterable<unknown> {
+    return value !== null && typeof value === "object" && Symbol.asyncIterator in value && typeof value[Symbol.asyncIterator] === "function"
+}
+
+// Bun supports idleTimeout for Unix sockets, but bun-types exposes it only
+// on TCP options. The real Unix stream regression verifies this boundary.
+declare module "bun" {
+    namespace Serve {
+        interface UnixServeOptions<WebSocketData> {
+            idleTimeout?: number
+        }
+    }
+}

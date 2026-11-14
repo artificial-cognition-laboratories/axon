@@ -1,14 +1,6 @@
-import type {
-    ComponentRegistry,
-    ComponentStore,
-    ComponentType,
-    ComponentWatcher,
-    EntityId,
-    QueryDescriptor,
-    Read,
-    Stamp,
-    WorldQueryResult,
-} from "./types"
+import { definitions, type Component } from "./handle"
+import { History } from "./history"
+import type { ComponentStore, ComponentWatcher, EntityId, QueryObservation, Read, Stamp, Write } from "./types"
 
 export type StateOpts = {
     /** The clock's stamp — world mutations are attributed to a tick, phase and system. */
@@ -18,31 +10,45 @@ export type StateOpts = {
 }
 
 /**
- * State — the single owner of everything shared inside the world:
- * entity set, component stores, and watchers. Component() and Entity() are
- * views over this; nothing else holds the maps.
+ * State — the single owner of everything shared inside the world: entity set,
+ * component stores, watchers, and the observation in progress. Component() and
+ * Entity() are views over this; nothing else holds the maps.
  *
- * The world clock does NOT live here. tick/phase belong to Clock(), which
- * every cognet has whether or not it holds a world — see ../clock.ts. State
- * receives a stamp function so world mutations can be attributed to the tick
- * and phase they happened in without owning the counters.
+ * Stores are keyed by component NAME. Handles are the authoring surface; the
+ * name is what the log, the lineage and the store agree on.
  */
 export function State(opts: StateOpts) {
     const entities = new Set<EntityId>()
-    const components = new Map<ComponentType, ComponentStore>()
-    const watchers = new Map<ComponentType, Set<ComponentWatcher>>()
+    const components = new Map<string, ComponentStore>()
+    const watchers = new Map<string, Set<ComponentWatcher>>()
+    /** The rev of each component's most recent CHANGE — set, update or removal. */
+    const changes = new Map<string, number>()
     let revs = 0
-    /** Reads seen during the current observation, keyed so each value is recorded once. Null when nobody is observing. */
-    let observed: Map<string, Read> | null = null
+    /** What the current observation has seen. Null when nobody is observing. */
+    let observed: { reads: Map<string, Read>; writes: Map<string, Write>; looked: Set<string>; queries: QueryObservation[] } | null = null
 
-    function record(type: ComponentType, entity: EntityId, rev: number): void {
+    function record(component: string, entity: EntityId, rev: number): void {
         if (!observed) return
-        observed.set(`${entity}\0${type}`, { entity: entity, component: type, rev: rev })
+        observed.reads.set(`${entity}\0${component}`, { entity: entity, component: component, rev: rev })
     }
 
+    /**
+     * Note that a component was looked at, whether or not a value was there.
+     * Separate from record(): a read that found nothing has no rev to be a
+     * causal parent, but it is still an access — and enforcement that only
+     * saw successful reads would pass or fail depending on timing.
+     */
+    function look(component: string): void {
+        observed?.looked.add(component)
+    }
+
+    /** Every write to a streamed component, until each reader has taken it. */
+    const history = History()
+
     return {
-        entities,
-        components,
+        entities: entities,
+        components: components,
+        history: history,
 
         /** The next change id. World-monotonic, so a rev names one change uniquely. */
         nextRev(): number {
@@ -50,153 +56,167 @@ export function State(opts: StateOpts) {
             return revs
         },
 
+        /** The latest rev handed out — a point in the world's history to compare against. */
+        rev(): number {
+            return revs
+        },
+
+        /** Record that a component changed, at this rev. */
+        changed(component: string, rev: number): void {
+            changes.set(component, rev)
+        },
+
+        /** Whether a component has changed since a point in the world's history. */
+        changedSince(component: string, rev: number): boolean {
+            return (changes.get(component) ?? 0) > rev
+        },
+
         /** Note that a value was read, if a run is being observed. */
         record: record,
 
+        /** Note that a component was accessed, found or not. */
+        look: look,
+
+        /** Record a query's final matches after its predicates have run. */
+        query(input: { required: string[]; optional: string[]; where?: unknown; filtered: boolean; candidates: number; rows: readonly Entry[] }): void {
+            if (!observed) return
+            const names = [...input.required, ...input.optional]
+            observed.queries.push({
+                ordinal: observed.queries.length,
+                required: input.required,
+                optional: input.optional,
+                ...(input.where === undefined ? {} : { where: input.where }),
+                filtered: input.filtered,
+                candidates: input.candidates,
+                count: input.rows.length,
+                matched: input.rows.slice(0, 24).map(row => ({
+                    entity: row.id,
+                    values: names.flatMap(component => {
+                        const rev = row.meta[definitions.key(definitions.find(component))]?.rev
+                        return rev === undefined ? [] : [{ entity: row.id, component: component, rev: rev }]
+                    }),
+                })),
+            })
+        },
+
+        /** Note that a value was written, if a run is being observed. */
+        wrote(component: string, entity: EntityId): void {
+            if (!observed) return
+            observed.writes.set(`${entity}\0${component}`, { entity: entity, component: component })
+        },
+
         /**
-         * Runs `fn` and returns every value it read, with the change each one was.
+         * Runs `fn` and returns every value it read, every write it made, and
+         * every component it looked at — found or not.
          *
          * Synchronous on purpose: a system run is, and an observation that
-         * spanned an await would attribute another caller's reads to this one.
-         * Not re-entrant for the same reason — nesting throws rather than
-         * silently merging two runs' causes.
+         * spanned an await would attribute another caller's accesses to this
+         * one. Not re-entrant for the same reason.
          */
-        observe<T>(fn: () => T): { result: T; reads: Read[] } {
-            if (observed) throw new Error("ecs.observe() is already recording — a nested observation would mix two runs' reads")
-            observed = new Map()
+        observe<T>(fn: () => T): { result: T; reads: Read[]; writes: Write[]; looked: string[]; queries: QueryObservation[] } {
+            if (observed) throw new Error("ecs.observe() is already recording — a nested observation would mix two runs' accesses")
+            observed = { reads: new Map(), writes: new Map(), looked: new Set(), queries: [] }
             try {
                 const result = fn()
-                return { result: result, reads: [...observed.values()] }
+                return {
+                    result: result,
+                    reads: [...observed.reads.values()],
+                    writes: [...observed.writes.values()],
+                    looked: [...observed.looked],
+                    queries: observed.queries,
+                }
             } finally {
                 observed = null
             }
         },
 
-        /** tick/phase stamp merged into every world event payload. */
+        /** An isolated async run owns this private snapshot until its promise settles. */
+        async observeAsync<T>(fn: () => Promise<T>): Promise<{ result: T; reads: Read[]; writes: Write[]; looked: string[]; queries: QueryObservation[] }> {
+            if (observed) throw new Error("ecs.observeAsync() is already recording")
+            observed = { reads: new Map(), writes: new Map(), looked: new Set(), queries: [] }
+            try {
+                const result = await fn()
+                return { result: result, reads: [...observed.reads.values()], writes: [...observed.writes.values()], looked: [...observed.looked], queries: observed.queries }
+            } finally {
+                observed = null
+            }
+        },
+
+        /** tick/phase/system stamp merged into every world event payload. */
         stamp: opts.stamp,
 
         /** Wall clock at the moment of a write. */
         now: opts.now,
 
-        /**
-         * Subscribe to writes on a specific component type.
-         * Called synchronously after every write of that component.
-         * Returns an unsubscribe function.
-         */
-        watch(type: ComponentType, handler: ComponentWatcher): () => void {
-            let set = watchers.get(type)
+        /** Subscribe to writes on one component. Returns an unsubscribe function. */
+        watch(component: Component<any>, handler: ComponentWatcher): () => void {
+            let set = watchers.get(component.name)
             if (!set) {
                 set = new Set()
-                watchers.set(type, set)
+                watchers.set(component.name, set)
             }
             set.add(handler)
             return () => {
-                watchers.get(type)?.delete(handler)
+                watchers.get(component.name)?.delete(handler)
             }
         },
 
         /** Fire watchers for a component write. A throwing watcher is a bug — it propagates. */
-        notify(type: ComponentType, entity: EntityId, data: unknown) {
-            const set = watchers.get(type)
+        notify(component: string, entity: EntityId, data: unknown): void {
+            const set = watchers.get(component)
             if (!set) return
             for (const watcher of set) watcher(entity, data)
         },
 
-        query<
-            const W extends readonly string[] = [],
-            const WO extends readonly string[] = [],
-            Reg extends Record<string, any> = ComponentRegistry,
-        >({
-            with: withComponents = [] as unknown as W,
-            without: withoutComponents = [] as unknown as WO,
-            where,
-            filter,
-        }: QueryDescriptor<W, WO, Reg>): WorldQueryResult<W, Reg> {
-            const stores = components as Map<string, ComponentStore>
+        /**
+         * Every entity holding all of `members`, one object each, in entity
+         * order: its `id`, each component's value under the component's
+         * export name, and under `meta` when each was written. An `optional`
+         * component is there when the entity holds it and undefined when it
+         * does not. Each value returned is recorded as read.
+         */
+        rows(members: readonly Component<any>[], optional: readonly Component<any>[] = []): Entry[] {
+            if (members.length === 0) throw new Error("a query names no components — `optional` adds to the entities `components` finds")
+            const every = [...members, ...optional]
+            const keys = every.map(member => definitions.key(member))
+            if (new Set(keys).size !== keys.length) throw new Error(`a query names two components called the same — ${every.map(member => member.name).join(", ")} — and a row has one value under each name`)
+            for (const member of every) look(member.name)
 
-            const withStores: Map<EntityId, any>[] = []
-            for (const c of withComponents) {
-                const store = stores.get(c)
-                if (!store) return [] as WorldQueryResult<W, Reg>
-                withStores.push(store)
+            const stores: ComponentStore[] = []
+            for (const member of members) {
+                const store = components.get(member.name)
+                if (!store) return []
+                stores.push(store)
             }
 
-            // Intersect starting from the smallest store
-            withStores.sort((a, b) => a.size - b.size)
+            // Intersect from the smallest store.
+            const [smallest, ...rest] = [...stores].sort((a, b) => a.size - b.size)
+            const matched = [...smallest!.keys()].filter(entity => rest.every(store => store.has(entity))).sort()
 
-            let candidates: EntityId[] = []
-            const [smallest, ...rest] = withStores
-            if (smallest) {
-                candidates = [...smallest.keys()].filter(e => rest.every(store => store.has(e)))
-            } else {
-                const all = new Set<EntityId>()
-                for (const store of stores.values()) {
-                    for (const e of store.keys()) all.add(e)
-                }
-                candidates = [...all]
-            }
-
-            if (withoutComponents.length > 0) {
-                candidates = candidates.filter(e =>
-                    withoutComponents.every(c => !stores.get(c)?.has(e))
-                )
-            }
-
-            if (where) {
-                candidates = candidates.filter(e =>
-                    Object.entries(where).every(([component, expected]) => {
-                        const store = stores.get(component)
-                        if (!store?.has(e)) return false
-                        return sameValue(store.get(e)!.data, expected)
-                    })
-                )
-            }
-
-            let results: WorldQueryResult<W, Reg> = candidates.map(e => {
-                const comps: Record<string, any> = {}
-                for (const c of withComponents) {
-                    comps[c] = stores.get(c)!.get(e)!.data
-                }
-                return { entity: e, components: comps as any }
+            return matched.map(entity => {
+                const meta: Record<string, Meta | undefined> = {}
+                const result: Entry = { id: entity, meta: meta }
+                every.forEach((member, index) => {
+                    // A required member is held by every matched entity; an optional one may not be, and is then undefined.
+                    const entry = components.get(member.name)?.get(entity)
+                    result[keys[index]!] = entry?.data
+                    meta[keys[index]!] = entry && { at: entry.at, rev: entry.rev }
+                    if (entry) record(member.name, entity, entry.rev)
+                })
+                return result
             })
-
-            if (filter) {
-                results = results.filter(entry => filter(entry as any))
-            }
-
-            // What the caller was handed is what it read — recorded after the
-            // filter, because a filtered-out entity influenced nothing.
-            for (const entry of results) {
-                for (const c of withComponents) record(c as ComponentType, entry.entity, stores.get(c)!.get(entry.entity)!.rev)
-            }
-
-            return results
         },
     }
 }
 
-export type StateT = ReturnType<typeof State>
+/** One entity as a query returns it, before it is typed: its id, and a value per component asked for. */
+export type Entry = { id: EntityId; meta: Record<string, Meta | undefined>; [component: string]: unknown }
 
 /**
- * Structural equality for `where`.
- *
- * Reference equality was the original implementation and silently matched
- * nothing for any component holding an object — which is most of them. A
- * filter that can never match and never complains is worse than one that
- * throws, so it compares by value.
+ * What the store knows about one value besides the value: when it was last
+ * written (epoch ms — a reaffirming write counts), and `rev`, which change
+ * it is. Two reads with the same `rev` saw the same value.
  */
-function sameValue(a: unknown, b: unknown): boolean {
-    if (Object.is(a, b)) return true
-    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false
+export type Meta = { at: number; rev: number }
 
-    if (Array.isArray(a) || Array.isArray(b)) {
-        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
-        return a.every((item, index) => sameValue(item, b[index]))
-    }
-
-    const left = a as Record<string, unknown>
-    const right = b as Record<string, unknown>
-    const keys = Object.keys(left)
-    if (keys.length !== Object.keys(right).length) return false
-    return keys.every(key => Object.hasOwn(right, key) && sameValue(left[key], right[key]))
-}
+export type StateT = ReturnType<typeof State>

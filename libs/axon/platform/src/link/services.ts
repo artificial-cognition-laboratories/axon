@@ -1,10 +1,10 @@
 import { err } from "@arcforge/err"
 import { AxonSession } from "@arcforge/session"
 import { AxonBus } from "@arcforge/core"
-import type { AxonBlueprint, AxonEngineRawEvent, EngineCapability, InferCall } from "@arcforge/types"
+import type { AxonBlueprint, AxonEngineRawEvent, EngineCapability, InferCall, ResolvedEngineFacts, TransformCall } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 import { Inference } from "@arcforge/core"
-import type { EnginesT } from "@arcforge/engines/catalogue"
+import type { LocalRuntime, EnginesT } from "@arcforge/engines/catalogue"
 
 /**
  * What the SUPERVISOR holds on a confined agent's behalf.
@@ -28,7 +28,7 @@ type ServicesOpts = {
     /** Where the log lives. Opened here, on the supervisor's side. */
     sessionId: string
     /** The daemon-owned local inference bridge for this machine. */
-    local?: { catalogue(): Promise<EngineCapability[]>; run(model: string, prompt: string): Promise<string> }
+    local?: LocalRuntime
 }
 
 export async function SupervisorSideServices(opts: ServicesOpts) {
@@ -80,7 +80,46 @@ export async function SupervisorSideServices(opts: ServicesOpts) {
         return resolving
     }
 
+    const selection = {
+        get current() { return engines },
+        get primary() { return engines?.primary ?? null },
+        has: (role: string) => engines?.has(role) ?? false,
+        get(role: string) {
+            if (!engines) throw err("ENGINE_ROLE_UNBOUND_LINK", { detail: "inference has not been resolved" })
+            return engines.get(role)
+        },
+        async refresh(provider: string): Promise<void> {
+            const current = await resolve()
+            if (!current) throw err("ENGINE_ROLE_UNBOUND_LINK", { detail: "this agent declares no inference roles" })
+            await current.refresh(provider)
+        },
+        async select(model: string): Promise<EngineCapability | null> {
+            const current = await resolve()
+            return current ? current.select(model) : null
+        },
+        /**
+         * What each BOUND role got, as the facts a confined agent may know —
+         * type, modalities, context, slots; never a provider or a model. What
+         * lets `kernel.engine.has()` inside the box tell a filled optional
+         * role from an empty one.
+         */
+        async facts(): Promise<Record<string, ResolvedEngineFacts>> {
+            const current = await resolve()
+            const facts: Record<string, ResolvedEngineFacts> = {}
+            for (const binding of current?.resolution.bound ?? []) {
+                facts[binding.role] = {
+                    type: binding.requirement.type,
+                    ...(binding.capability.context !== undefined ? { context: binding.capability.context } : {}),
+                    modalities: { in: [...binding.capability.in], out: [...binding.capability.out] },
+                    slots: binding.slots,
+                }
+            }
+            return facts
+        },
+    }
+
     return {
+        engines: selection,
         session,
 
         /** Where a surface watches this agent — the linked counterpart of runtime.bus. */
@@ -100,6 +139,27 @@ export async function SupervisorSideServices(opts: ServicesOpts) {
                 if (signal.aborted) break
                 yield event
             }
+        },
+
+        /**
+         * One transform, performed here, its result sent back whole.
+         *
+         * Traced agent-side, where the kernel brackets every transform; this
+         * side only performs it. The wake's signal crossed with the call, so a
+         * wake that ends stops the wait — the model's own work cannot be
+         * cancelled mid-graph and finishes unobserved.
+         */
+        async transform(call: TransformCall, signal: AbortSignal): Promise<unknown> {
+            const bound = (await resolve())?.get(call.role)
+            if (!bound) {
+                throw err("ENGINE_ROLE_UNBOUND_LINK", { detail: `no engine bound to "${call.role}"`, context: { role: call.role } })
+            }
+            const driver = bound.driver
+            if (driver.kind !== "transform") {
+                throw err("ENGINE_KIND_MISMATCH_LINK", { detail: `role "${call.role}" is bound to a ${driver.kind ?? "generate"} driver, not a transform`, context: { role: call.role, kind: driver.kind ?? "generate" } })
+            }
+            signal.throwIfAborted()
+            return await driver.transform(call.input, { signal: signal })
         },
 
         async close() {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { dirname, join, relative, resolve } from "node:path"
-import type { AxonPartialBlueprint, EngineRequirements } from "@arcforge/types"
-import { err } from "@arcforge/err"
+import type { AxonPartialBlueprint, CognetConfig, EngineRequirements } from "@arcforge/types"
+import { err, errorMap, isAxonError } from "@arcforge/err"
 import { fsx } from "../../utils/fs"
 import { merge } from "./collisions"
 import { workspaceRoot } from "./workspace"
@@ -14,9 +14,12 @@ import { Knowledge } from "./scan/knowledge"
 import { Routes } from "./scan/routes"
 import { Middleware } from "./scan/middleware"
 import { Scripts } from "./scan/scripts"
+import { Providers } from "./scan/providers"
+import { checkGrants } from "@arcforge/core"
 import { Tools } from "./scan/tools"
-import { Cognet, cognetSourceOf, readCognetModels, readCognetEngines, type CognetT } from "./cognet"
+import { Cognet, cognetSourceOf, CognetConfigFile } from "./cognet"
 import { Models } from "../project/models"
+import { Manifest } from "../project/manifest"
 import { Frame } from "../frame"
 import type { LoadedConfig } from "./scan/config"
 import type { ScanWarning } from "./types"
@@ -107,6 +110,16 @@ export function Blueprint(opts: BlueprintOpts) {
              * Absent means no ceiling, which is the honest state for a
              * deployment and for `axon run` outside a profile.
              */
+            /**
+             * What the INVOCATION says, over and above the agent's own `.env`.
+             *
+             * One run's facts, not the agent's: `axon <ref> -c world://…`
+             * puts the world address here, so the same agent can be sent to a
+             * different world without editing a file. Carried like `models`
+             * and `profilePolicy` — this module knows a directory, and whoever
+             * invoked knows what they asked for.
+             */
+            env?: Readonly<Record<string, string>>
             profilePolicy?: AxonPartialBlueprint["profilePolicy"]
             /**
              * The inference sources the owning profile declares.
@@ -152,7 +165,7 @@ export function Blueprint(opts: BlueprintOpts) {
             if (loadOpts.compile) await cognet.compile(cognetSourceOf(config))
 
             // Agent surfaces + modules, plus workspace prompts/scripts when available.
-            const [prompts, scripts, tools, routes, plugins, middleware, knowledge, boot, modules, brain, workspacePrompts, workspaceScripts] = await Promise.all([
+            const [prompts, scripts, tools, routes, plugins, middleware, knowledge, boot, modules, brain, workspacePrompts, workspaceScripts, serviceProviders] = await Promise.all([
                 Prompts(root),
 
                 Scripts(root),
@@ -179,6 +192,7 @@ export function Blueprint(opts: BlueprintOpts) {
                     // They remain namespaced so a repo cannot silently replace
                     // an agent-owned script with the same filename.
                     : Scripts(workspace, { prefix: "workspace", dir: "scripts", required: false }),
+                Providers(root),
             ])
             for (const scanned of [prompts, scripts, tools, routes, plugins, middleware, knowledge, workspacePrompts, workspaceScripts]) warnings.push(...scanned.warnings)
             warnings.push(...boot.warnings, ...modules.warnings, ...brain.warnings)
@@ -235,14 +249,19 @@ export function Blueprint(opts: BlueprintOpts) {
             // Weights: whatever the caller resolved, or resolve them here.
             // A brain that declared models and received none is broken in a
             // way that only shows up at first inference.
-            const models = loadOpts.models ?? await resolveDeclaredModels(cognet, config)
+            const declared = declaredConfig(cognet, config)
+            const models = loadOpts.models ?? await resolveDeclaredModels(declared)
 
             // The roles this brain needs, read from its own config at build
             // time so the runtime can resolve them BEFORE loading the bundle.
             // A required role nothing can fill has to stop the boot, and a
             // brain that has already loaded is one that will reach for a
             // missing engine mid-wake.
-            const engines = await resolveDeclaredEngines(cognet, config)
+            const engines: EngineRequirements = declared?.engines ?? {}
+
+            // What can be known of the agent's grants before it runs: each names a use the cognet declares,
+            // a provider it wrote, or a route an engine may serve. Whether a route answers is the boot's to find.
+            if (brain.entry) checkGrants(brain.entry.uses ?? {}, config.value.services, serviceProviders)
 
             const agent = await identity(root)
 
@@ -252,7 +271,7 @@ export function Blueprint(opts: BlueprintOpts) {
                 ...("bootFilePath" in boot ? { bootFilePath: boot.bootFilePath } : {}),
                 config: config.value,
                 ...(loadOpts.profilePolicy ? { profilePolicy: loadOpts.profilePolicy } : {}),
-                ...(loadOpts.profileProviders?.length ? { profileProviders: loadOpts.profileProviders } : {}),
+                ...(loadOpts.profileProviders !== undefined ? { profileProviders: loadOpts.profileProviders } : {}),
                 // absent = unprepared agent; core's normalizer refuses loudly (NO_COGNET)
                 ...(brain.entry
                     ? {
@@ -263,7 +282,10 @@ export function Blueprint(opts: BlueprintOpts) {
                         },
                     }
                     : {}),
-                env: await resolvedEnv(root),
+                // The agent's own `.env`, with what this invocation said laid
+                // over it — the address an agent was SENT to beats the one it
+                // was last configured with.
+                env: { ...await Manifest({ root: root }).env.values(), ...loadOpts.env },
                 // The supervisor's own credentials — read from the host here,
                 // where the CLI legitimately owns process.env, and deliberately
                 // NOT merged into `env`, which is what reaches the box.
@@ -271,6 +293,7 @@ export function Blueprint(opts: BlueprintOpts) {
                 tools: mergedTools.merged,
                 prompts: mergedPrompts.merged,
                 scripts: mergedScripts.merged,
+                serviceProviders: serviceProviders,
                 knowledge: mergedKnowledge,
                 modules: modules.modules,
                 server: {
@@ -295,50 +318,33 @@ export function Blueprint(opts: BlueprintOpts) {
 export type BlueprintT = ReturnType<typeof Blueprint>
 
 /**
- * The cognet's declared weights, resolved to absolute paths.
- *
- * Reads the same textual declaration prepare does, then resolves through the
- * shared cache. In the ordinary case everything is already there and this is
- * pure filesystem work — prepare fetched and verified it. A cognet that
- * declares nothing costs one file read.
+ * What the agent's cognet declares — null when it has no config, or when the
+ * brain isn't installed. That one absence is not raised here: the normalizer
+ * raises it, once, and reporting it from two layers only makes the first
+ * wrong. Every other failure — a config that won't read — is this layer's.
  */
-async function resolveDeclaredModels(
-    cognet: CognetT,
-    config: LoadedConfig,
-): Promise<Readonly<Record<string, string>>> {
+function declaredConfig(cognet: ReturnType<typeof Cognet>, config: LoadedConfig): CognetConfig | null {
     let sourceDir: string
     try {
         sourceDir = cognet.sourceDir(cognetSourceOf(config))
-    } catch {
-        // No resolvable cognet source — the missing-brain error belongs to
-        // the normalizer, not here.
-        return {}
+    } catch (error) {
+        if (isAxonError(error) && error.code === errorMap.COGNET_NOT_FOUND.code) return null
+        throw error
     }
-
-    const declared = await readCognetModels(sourceDir)
-    if (Object.keys(declared).length === 0) return {}
-
-    const { paths } = await Models().resolve(declared)
-    return paths
+    return CognetConfigFile({ sourceDir: sourceDir }).read()
 }
 
 /**
- * The `engines:` a cognet declares, or none.
+ * The cognet's declared weights, resolved to absolute paths.
  *
- * Mirrors resolveDeclaredModels exactly, including its silence when the
- * source cannot be located: a missing brain is the normalizer's error to
- * raise, and reporting it twice from two layers would only make the first
- * one wrong.
+ * Resolves through the shared cache. In the ordinary case everything is
+ * already there and this is pure filesystem work — prepare fetched and
+ * verified it.
  */
-async function resolveDeclaredEngines(
-    cognet: CognetT,
-    config: LoadedConfig,
-): Promise<EngineRequirements> {
-    try {
-        return await readCognetEngines(cognet.sourceDir(cognetSourceOf(config)))
-    } catch {
-        return {}
-    }
+async function resolveDeclaredModels(declared: CognetConfig | null): Promise<Readonly<Record<string, string>>> {
+    if (!declared?.models || Object.keys(declared.models).length === 0) return {}
+    const { paths } = await Models().resolve(declared.models)
+    return paths
 }
 
 // ─── Identity ─────────────────────────────────────────────────────────────────
@@ -424,25 +430,3 @@ function hostEnv(): Record<string, string> {
     return out
 }
 
-async function resolvedEnv(root: string): Promise<Record<string, string>> {
-    const content = await fsx.readText(join(root, ".env"))
-    return content ? parseDotenv(content) : {}
-}
-
-/** Parse key=value pairs from a .env file's contents. Comments and blank lines skipped. */
-function parseDotenv(content: string): Record<string, string> {
-    const result: Record<string, string> = {}
-    for (const line of content.split(/\r?\n/)) {
-        const trimmed = line.trim()
-        if (!trimmed || trimmed.startsWith("#")) continue
-        const eqIdx = trimmed.indexOf("=")
-        if (eqIdx < 0) continue
-        const key = trimmed.slice(0, eqIdx).trim()
-        let val = trimmed.slice(eqIdx + 1).trim()
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-            val = val.slice(1, -1)
-        }
-        if (key) result[key] = val
-    }
-    return result
-}

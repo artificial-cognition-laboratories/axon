@@ -37,7 +37,7 @@ export function CodexBackend(opts: CodexBackendOpts) {
                 if (err instanceof HttpError && err.data?.code === "VAULT_CONNECTION_NOT_FOUND" && err.data.provider === "openai") {
                     throw failure({
                         code: "AUTH_NOT_CONNECTED",
-                        message: "Codex subscription not connected — run :provider codex connect and try again",
+                        message: "Codex subscription not connected — run :providers codex connect and try again",
                         retryable: false,
                         provider: "codex",
                         model: opts.model,
@@ -174,7 +174,7 @@ async function fetchResponses(
     if (!response.ok) {
         const text = await response.text().catch(() => "")
         const common = { provider: "codex", model: opts.model, status: response.status }
-        if (response.status === 401) throw failure({ ...common, code: "AUTH", message: "Codex: authentication failed — reconnect via `:provider openai connect`.", retryable: false })
+        if (response.status === 401) throw failure({ ...common, code: "AUTH", message: "Codex: authentication failed — reconnect via `:providers codex connect`.", retryable: false })
         if (response.status === 429) throw failure({ ...common, code: "RATE_LIMIT", message: "Codex: usage limit reached. Check your ChatGPT subscription.", retryable: true, ...retryAfter(response) })
         const message = `Codex: ${response.status} ${response.statusText}${text ? ` — ${text}` : ""}`
         throw failure({ ...common, code: response.status >= 500 ? "TRANSPORT" : "INVALID_REQUEST", message, retryable: response.status >= 500 })

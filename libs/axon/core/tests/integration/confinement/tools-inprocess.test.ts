@@ -18,7 +18,7 @@ import { defineCognet } from "@arcforge/cognet"
  * still a typed error the model can reason about rather than a syscall failure
  * it cannot.
  */
-const remote: () => AxonEngineDriver = () => ({
+const generate: () => AxonEngineDriver = () => ({
     async *stream(): AsyncGenerator<AxonEngineRawEvent> {
         yield {
             type: "done",
@@ -51,7 +51,7 @@ function boot(over: { tools?: AxonTool[]; policy?: Record<string, unknown> } = {
     return AxonRuntime({
         // `remote` is what puts this runtime on the confined path: inference
         // comes from outside, and tools load in this heap.
-        remote,
+        remote: { generate: generate, transform: () => ({ kind: "transform", transform: async () => { throw new Error("no transform in this test") } }) },
         blueprint: {
             profileProviders: [],
             cognet: { name: "idle", version: "1.0.0", abi: KERNEL_ABI_VERSION, definition: idle },

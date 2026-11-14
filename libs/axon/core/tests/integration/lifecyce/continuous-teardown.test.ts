@@ -29,7 +29,7 @@ function TickingCognet(opts: { onWakeError: (error: unknown) => void; hz: number
         name: "ticking",
         version: "1.0.0",
         abi: KERNEL_ABI_VERSION,
-        mode: { kind: "continuous" },
+        mode: { kind: "continuous", hz: 100 },
 
         load(abi) {
             kernel = abi
@@ -106,7 +106,7 @@ describe("Continuous cognet teardown", () => {
                         name: "counting",
                         version: "1.0.0",
                         abi: KERNEL_ABI_VERSION,
-                        mode: { kind: "continuous" },
+                        mode: { kind: "continuous", hz: 100 },
                         load(abi) {
                             kernel = abi
                             clock = setInterval(() => { try { void kernel!.wake() } catch { /* counted below */ } }, 5)

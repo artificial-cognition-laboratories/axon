@@ -40,6 +40,7 @@ async function withProfile(fn: (ctx: Fixture) => Promise<void>): Promise<void> {
 
         const platform = Platform({ ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
         await platform.profile.ensure()
+        await writeFile(join(platform.profile.root, "profile.config.ts"), "export default defineProfile({ extensions: [] })\n")
 
         await fn({
             platform,

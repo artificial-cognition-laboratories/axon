@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { arch, hostname, platform } from "node:os"
 import type { MachineIdentity } from "./types"
-import { ask } from "./ask"
+import { ask } from "@arcforge/platform/services/probe"
 
 /**
  * Identity — who this machine is.

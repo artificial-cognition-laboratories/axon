@@ -1,5 +1,6 @@
 import { dirname, join, relative, resolve, sep } from "node:path"
-import { cp, mkdir, rm } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { cp, mkdir, readdir, rm } from "node:fs/promises"
 import { axonBaseRef, type AxonConfig } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import { Config, flatten } from "../../blueprint"
@@ -134,7 +135,7 @@ export function Agent(opts: AgentOpts) {
                 // state — neither belongs to anyone but this one installation.
                 // The published-files table in the docs has always said
                 // `data/knowledge/ ✓ included`; this is what makes that true.
-                const entries = ["src", "server", "modules", INLINE_COGNET_DIR, join("data", "knowledge")]
+                const entries = ["src", "server", "modules", "providers", INLINE_COGNET_DIR, join("data", "knowledge")]
                     .filter(dir => fsx.exists(join(stageDir, dir)))
                 // Tarball-relative, matching what stageCognet() laid down.
                 entries.push(
@@ -223,7 +224,8 @@ async function copyTree(root: string, stageDir: string, target: BundleTarget): P
     // registry's source view and uneditable by anyone who clones it. An agent
     // with a registry cognet simply has no such directory, so this is a
     // no-op there.
-    for (const dir of ["src", "server", "modules", INLINE_COGNET_DIR]) {
+    // `providers` is the agent's own code too — what fills the uses its grants name.
+    for (const dir of ["src", "server", "modules", "providers", INLINE_COGNET_DIR]) {
         const source = join(root, dir)
         if (fsx.exists(source)) await cp(source, join(stageDir, dir), { recursive: true })
     }
@@ -326,22 +328,29 @@ async function stageCognet(frame: FrameT, bundleDir: string, stageDir: string): 
     const target = join(shipped, BUNDLE_COGNET_DIR)
     await cp(frame.path("cognet"), target, { recursive: true })
 
-    // Strip everything the compile step scratches into the cognet dir.
+    // Ship what runs, and nothing the compile step scratches beside it.
     //
-    // `.build` is the bundler's own workspace. `.instances` is per-RUNTIME
-    // scratch: core copies the compiled cognet to a unique physical path per
-    // booted agent (module scope is one brain's resident RAM, so two runtimes
-    // must not share a module instance) and removes it on dispose. A `kill -9`
-    // skips that dispose, so a developer's crashed local runs leave copies
-    // behind — and they were being published.
-    //
-    // Shipping them is not cosmetic: each is a multi-hundred-KB duplicate of a
-    // file already in the tarball, named with a hash and a UUID from the
-    // publisher's machine, and long enough (130 chars) that GNU tar emits a
-    // `@LongLink` pseudo-entry for it — which is what surfaced in the
-    // registry's file tree as unexplained `@LongLink` rows.
-    for (const scratch of [".build", ".instances"]) {
+    // `.build` and `.schema` are the bundler's and the schema compiler's
+    // workspaces; `schema/` is the TypeScript generated from the cognet's
+    // schemas, already compiled into the bundle; `native/` holds the Rust
+    // crate the build generates — its sources and a `target/` of hundreds of
+    // MB — beside the one content-named `.node` the bundle loads, which is all
+    // of it that ships. A `cognet.<hash>.mjs` is a hot reload's copy a crashed
+    // process left. (`.instances` is where older runtimes copied the bundle per
+    // boot; one still lying in a developer's frame must not be published —
+    // each is a multi-hundred-KB duplicate whose 130-char name made GNU tar
+    // emit the `@LongLink` rows seen in the registry's file tree.)
+    for (const scratch of [".build", ".schema", "schema", ".instances"]) {
         await rm(join(target, scratch), { recursive: true, force: true })
+    }
+    for (const entry of await readdir(target)) {
+        if (/^cognet\.[0-9a-f]+\.mjs$/.test(entry)) await rm(join(target, entry), { force: true })
+    }
+    const native = join(target, "native")
+    if (existsSync(native)) {
+        for (const entry of await readdir(native)) {
+            if (!entry.endsWith(".node")) await rm(join(native, entry), { recursive: true, force: true })
+        }
     }
 
     // The brain's path AS THE DEPLOYED CONTAINER WILL SEE IT — built from the

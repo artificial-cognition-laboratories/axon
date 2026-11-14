@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 import { err } from "@arcforge/err"
-import type { AxonBlueprint as AxonBlueprintT, AxonConfig, AxonPartialBlueprint } from "@arcforge/types"
+import type { AxonBlueprint as AxonBlueprintT, AxonConfig, AxonPartialBlueprint, CognetBlueprint, CognetBlueprintInput } from "@arcforge/types"
 
 /**
  * Config every agent starts from before its own axon.config.ts is merged in.
@@ -70,11 +70,12 @@ export function AxonBlueprint(input?: AxonPartialBlueprint): AxonBlueprintT {
 
         // the brain, constructed by the CLI (or a test) and carried in live.
         // REQUIRED: an agent without a brain is not an agent — checked below.
-        cognet: partial.cognet,
+        cognet: moded(partial.cognet),
 
         tools: partial.tools ?? [],
         prompts: partial.prompts ?? [],
         scripts: partial.scripts ?? [],
+        serviceProviders: partial.serviceProviders ?? [],
         knowledge: partial.knowledge ?? [],
 
         server: {
@@ -198,4 +199,17 @@ export function mergeBlueprint(
     if (bootFilePath !== undefined) merged.bootFilePath = bootFilePath
 
     return AxonBlueprint(merged)
+}
+
+/**
+ * The cognet slot with its mode. A bundled brain's blueprint carries it; a
+ * live definition says its own, and is read here — the one seam where a slot
+ * becomes the strict shape every consumer trusts.
+ */
+function moded(slot: CognetBlueprintInput): CognetBlueprint {
+    if ("path" in slot) return slot
+    if (slot.mode !== undefined && slot.mode.kind !== slot.definition.mode.kind) {
+        throw err("COGNET_INVALID", { detail: `the blueprint says the cognet is ${slot.mode.kind}, but its definition says ${slot.definition.mode.kind}` })
+    }
+    return { ...slot, mode: slot.definition.mode }
 }

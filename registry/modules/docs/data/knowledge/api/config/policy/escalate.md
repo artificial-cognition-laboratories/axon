@@ -34,9 +34,8 @@ When a call escalates, the agent's execution is suspended. The TUI shows the fun
 name, module, and arguments and waits for a response. Approving lets the call proceed.
 Denying throws in the capsule and the agent is told the call was blocked.
 
-In headless execution with no TUI attached, unresolved escalations fail closed after the
-timeout. Default is 30 seconds — configurable via
-[`resources.escalationTimeoutMs`](/docs/v2/api/config/policy/resources).
+Interactive escalations wait indefinitely for an answer, including while queued.
+In headless execution with no decision surface attached, escalations fail closed immediately.
 
 ## Pattern escalation vs function escalation
 

@@ -1,0 +1,188 @@
+// cognet — what a cognet's schema can say about its world, beyond types.
+//
+// A cognet declares its world in `.proto` files: messages and enums are the
+// TYPES its values have; a message marked `components` lists the folder's
+// COMPONENTS — each field a name bound to a type, its comment the
+// component's documentation, its options what the runtime and a viewer need
+// to know; a message marked `frames` lists the folder's FRAMES the same way.
+// `axon prepare` generates each language's types and handles from them, so a
+// component is declared once, in no language.
+//
+// Every option here mirrors the runtime's own types (`ComponentOpts`,
+// `ComponentDescriptor`, `FrameDescriptor` in `@arcforge/cognet/ecs`).
+// A value a viewer reads as a word — a domain, an archetype — is an enum
+// whose generated text is its name in lowerCamel, or its `text` option.
+
+syntax = "proto3";
+
+package cognet;
+
+import "google/protobuf/descriptor.proto";
+
+// ── components ──────────────────────────────────────────────────────────────
+
+// What a component is, beyond its type.
+message Component {
+  // Once public, open, probe and resident: removed, so a component is its type alone.
+  reserved 1, 2, 3, 4;
+  reserved "public", "open", "probe", "resident";
+  // How a reader should render the value. Absent: shown raw.
+  Display display = 5;
+}
+
+// How a viewer draws a component.
+message Display {
+  Domain domain = 1;
+  Shape shape = 2;
+  string unit = 3;
+  // [low, high]; empty for none.
+  repeated double range = 4;
+  repeated string labels = 5;
+  repeated string options = 6;
+  Instrument instrument = 7;
+  // The frame its value lives in, by its full name (`sense/L1-align/world`) —
+  // or the bare name when one frame alone is called that. Empty: no
+  // positional claim.
+  string frame = 8;
+  Archetype archetype = 9;
+  // Whether the belief belongs to the workspace attention may draw from.
+  bool workspace = 10;
+}
+
+// What a value is indexed by.
+enum Domain {
+  DOMAIN_UNSPECIFIED = 0;
+  DOMAIN_POINT = 1;
+  DOMAIN_SPACE = 2;
+  DOMAIN_TIME = 3;
+  DOMAIN_SEQUENCE = 4;
+  DOMAIN_TREE = 5;
+  DOMAIN_SET = 6;
+}
+
+enum Shape {
+  SHAPE_UNSPECIFIED = 0;
+  SHAPE_SCALAR = 1;
+  SHAPE_VECTOR = 2;
+  SHAPE_CATEGORICAL = 3;
+  SHAPE_RECORD = 4;
+}
+
+// How a viewer draws a value in its frame.
+enum Archetype {
+  ARCHETYPE_UNSPECIFIED = 0;
+  ARCHETYPE_POINT = 1;
+  ARCHETYPE_BOX = 2;
+  ARCHETYPE_ARROW = 3;
+  ARCHETYPE_PATH = 4;
+  ARCHETYPE_CLOUD = 5;
+  ARCHETYPE_GRID = 6;
+  ARCHETYPE_RASTER = 7;
+  ARCHETYPE_VIEW = 8;
+  ARCHETYPE_SERIES = 9;
+  ARCHETYPE_TRANSFORM = 10;
+  ARCHETYPE_SPAN = 11;
+}
+
+// Physical meaning, for a cockpit instrument.
+enum Instrument {
+  INSTRUMENT_UNSPECIFIED = 0;
+  INSTRUMENT_VELOCITY = 1;
+  INSTRUMENT_ACCELERATION = 2;
+  INSTRUMENT_ANGULAR_VELOCITY = 3 [(text) = "angular-velocity"];
+  INSTRUMENT_ALTITUDE = 4;
+  INSTRUMENT_JOINT_POSITION = 5 [(text) = "joint-position"];
+  INSTRUMENT_JOINT_EFFORT = 6 [(text) = "joint-effort"];
+  INSTRUMENT_POWER = 7;
+  INSTRUMENT_TEMPERATURE = 8;
+}
+
+// ── frames ──────────────────────────────────────────────────────────────────
+
+// The type of a `frames` message's fields: a frame holds no value of its own.
+message Frame {}
+
+// A space beliefs can be positioned in.
+message Space {
+  Kind kind = 1;
+  // Physical unit of the axes, for metric frames.
+  string unit = 2;
+  // Size along each axis.
+  repeated double extent = 3;
+  // The frame this one is expressed relative to, by name as `Display.frame`.
+  string relative_to = 4;
+  // Where the parent's origin sits in this frame's axes.
+  repeated double origin = 5;
+  // Parent units per unit of this frame.
+  optional double scale = 6;
+  // Which way is up, along this frame's axes.
+  repeated double up = 7;
+  // The sense whose space this frame is — `"/vision"`.
+  string sensor = 8;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_METRIC2D = 1;
+    KIND_METRIC3D = 2;
+    KIND_GRAPH = 3;
+    KIND_TREE = 4;
+    KIND_SEQUENCE = 5;
+  }
+}
+
+// ── interfaces ──────────────────────────────────────────────────────────────
+
+// What a call that answers with nothing answers with.
+message Nothing {}
+
+// ── the options ─────────────────────────────────────────────────────────────
+
+extend google.protobuf.MessageOptions {
+  // This message's fields are the folder's components.
+  bool components = 50001;
+  // This message's fields are the folder's frames, each of type `Frame`.
+  bool frames = 50002;
+  // This message is one of several: its single `oneof` lists them, each a
+  // message, and a value is one of them tagged with this field — `kind` makes
+  // `{ kind: "perspective", fov: 70 }` of a `perspective` member.
+  string union = 50003;
+  // An opaque handle by this name: something a provider keeps, crossing only
+  // as its id, valid for the use that made it.
+  string handle = 50004;
+}
+
+extend google.protobuf.ServiceOptions {
+  // This service is an interface, by its full name and major version:
+  // `chat@1`, `@cody/terry/scene@1`. Its methods' streaming says their kind —
+  // neither: a call; the answer: a stream; both: a session.
+  string interface = 50001;
+}
+
+extend google.protobuf.FieldOptions {
+  // A field of a `components` message: what the component is.
+  Component component = 50001;
+  // A field of a `frames` message: what space it is.
+  Space frame = 50002;
+  // A repeated field of exactly this many: `[f64; 3]`, `[number, number, number]`.
+  uint32 fixed = 50003;
+  // A map whose keys are the values of this enum, by its name: a record with
+  // a slot for each, any of which may be absent.
+  string keys = 50004;
+  // A repeated or map field that may be absent altogether, as `optional` lets
+  // any other field be.
+  bool optional = 50005;
+  // A field that may hold null: "none", said outright — not absent.
+  bool nullable = 50006;
+  // A repeated number held as one block of memory, not a list of numbers:
+  // `Float64Array` for double, `Float32Array` for float, `Int32Array` for
+  // int32, `Uint32Array` for uint32 — `cognet::Array<T>` in Rust. What a
+  // picture, a cloud or a map is held as: it crosses to a worker or a native
+  // system as memory, never number by number. (`bytes` is always one:
+  // `Uint8Array`.)
+  bool array = 50007;
+}
+
+extend google.protobuf.EnumValueOptions {
+  // The value's text, when it is not its name in lowerCamel.
+  string text = 50001;
+}

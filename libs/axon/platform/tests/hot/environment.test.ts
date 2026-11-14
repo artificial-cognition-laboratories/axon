@@ -61,8 +61,6 @@ describe("Axon distribution environment", () => {
         const net = Transport()
         const originalConnectToken = process.env.AXON_CONNECT_TOKEN
         const originalApiKey = process.env.AXON_API_KEY
-        process.env.AXON_CONNECT_TOKEN = "stale-development-token"
-        process.env.AXON_API_KEY = "stale-development-key"
         let requested = ""
         net.use(stubFetch(async input => {
             requested = String(input)
@@ -74,16 +72,26 @@ describe("Axon distribution environment", () => {
         }))
 
         try {
-            const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store, distribution: "production", fetch: net.fetch })
-            expect(platform.cloud.client.user.auth.token).toBeUndefined()
-            expect(platform.cloud.client.user.auth.apiKey).toBeUndefined()
-            await platform.cloud.client.cloud.releases.axon()
+            // Environment overrides must never span an await: other files
+            // share this process and may be making authenticated requests.
+            process.env.AXON_CONNECT_TOKEN = "stale-development-token"
+            process.env.AXON_API_KEY = "stale-development-key"
+            const request = (() => {
+                try {
+                    const platform = Platform({ version: TEST_VERSION, ...TEST_FRAMEWORK, store: store, distribution: "production", fetch: net.fetch })
+                    expect(platform.cloud.client.user.auth.token).toBeUndefined()
+                    expect(platform.cloud.client.user.auth.apiKey).toBeUndefined()
+                    return platform.cloud.client.cloud.releases.axon()
+                } finally {
+                    if (originalConnectToken === undefined) delete process.env.AXON_CONNECT_TOKEN
+                    else process.env.AXON_CONNECT_TOKEN = originalConnectToken
+                    if (originalApiKey === undefined) delete process.env.AXON_API_KEY
+                    else process.env.AXON_API_KEY = originalApiKey
+                }
+            })()
+            await request
             expect(requested).toBe(`${PRODUCTION_API_BASE}/api/releases/axon`)
         } finally {
-            if (originalConnectToken === undefined) delete process.env.AXON_CONNECT_TOKEN
-            else process.env.AXON_CONNECT_TOKEN = originalConnectToken
-            if (originalApiKey === undefined) delete process.env.AXON_API_KEY
-            else process.env.AXON_API_KEY = originalApiKey
             await rm(store, { recursive: true, force: true })
         }
     })

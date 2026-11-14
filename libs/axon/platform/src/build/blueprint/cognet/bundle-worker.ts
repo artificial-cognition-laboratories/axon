@@ -44,6 +44,8 @@ if (!entryPath) {
  * so it is the author's declaration doing the work, not a guess here.
  */
 const external = (process.argv[3] ?? "").split(",").map(s => s.trim()).filter(Boolean)
+/** Where `#schema/…` imports resolve: the agent frame's generated schema modules. Absent, a `#schema/` import fails to resolve, loudly. */
+const schemaDir = process.argv[4] ?? ""
 
 // Bun.build() reports most failures on the result (success:false + logs),
 // but THROWS on others — an unresolvable import being the common one. An
@@ -60,6 +62,15 @@ try {
         sourcemap: "external",
         minify: false,
         ...(external.length ? { external } : {}),
+        plugins: [{
+            name: "cognet-schema",
+            setup(builder) {
+                builder.onResolve({ filter: /^#schema\// }, args => {
+                    if (!schemaDir) throw new Error(`${args.path} is a cognet schema module, but this bundle was given no schema directory`)
+                    return { path: `${schemaDir}/${args.path.slice("#schema/".length)}.ts` }
+                })
+            },
+        }],
     })
 } catch (cause) {
     const detail = cause instanceof AggregateError

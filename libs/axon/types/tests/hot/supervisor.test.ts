@@ -107,6 +107,7 @@ describe("wire — agent → supervisor", () => {
     function supervisor(over: Partial<AgentToSupervisor> = {}): AgentToSupervisor {
         return {
             async *infer() {},
+            transform: async () => { throw new Error("transform is not wired in this test") },
             commit: () => {},
             escalate: async () => ({ allow: false }),
             ...over,

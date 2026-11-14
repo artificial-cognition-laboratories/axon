@@ -1,4 +1,4 @@
-import { settled } from "../../src/machine/ask"
+import { settled } from "@arcforge/platform/services/probe"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"

@@ -87,11 +87,11 @@ export function Registry(opts: RegistryOpts = {}) {
     let debounce: ReturnType<typeof setTimeout> | null = null
 
     /** Every live record, reaping dead ones as it reads. */
-    function snapshot(): AxonInstance[] {
+    function snapshot(roots: readonly string[] = readRoots): AxonInstance[] {
         const found: AxonInstance[] = []
         const seen = new Set<string>()
 
-        for (const root of readRoots) {
+        for (const root of roots) {
             if (!existsSync(root)) continue
 
             for (const name of readdirSync(root)) {
@@ -139,7 +139,14 @@ export function Registry(opts: RegistryOpts = {}) {
         roots: readRoots as readonly string[],
 
         /** Every live instance, newest first. Dead records are collected as a side effect. */
-        list: snapshot,
+        list: () => snapshot(),
+
+        /**
+         * Only the instances THIS store registered — agents booted by this
+         * distribution's daemon. What the machine network advertises: an
+         * observer reads every store, an owner speaks only for its own.
+         */
+        written: () => snapshot([writeRoot]),
 
         /** One instance by session id, or null when it is not running. */
         get(sessionId: string): AxonInstance | null {

@@ -40,9 +40,11 @@ export function OnnxAdapter(runtimes?: RuntimesT): ModelAdapter {
 
     async function load(): Promise<OnnxModule | null> {
         runtime ??= runtimes
-            ? runtimes.install("onnx").then(() => runtimes.import("onnx") as Promise<OnnxModule | null>)
-            : optionalImport("onnxruntime-node").then(module => module as OnnxModule | null).catch(() => null)
-        return await runtime
+            ? runtimes.import("onnx") as Promise<OnnxModule | null>
+            : optionalImport("onnxruntime-node").then(module => module as OnnxModule | null)
+        const result = await runtime
+        if (!result) runtime = null
+        return result
     }
 
     return {
@@ -145,7 +147,7 @@ export function OnnxAdapter(runtimes?: RuntimesT): ModelAdapter {
                 async unload(): Promise<void> {
                     // Release is best-effort: an already-released session
                     // throwing must not make unloading twice an error.
-                    await session.release?.().catch(() => {})
+                    await session.release?.()
                 },
             }
         },

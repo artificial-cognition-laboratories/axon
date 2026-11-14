@@ -1,5 +1,5 @@
 import type { AxonEngineDef, EngineEffort, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
-import { Collect } from "../shared"
+import { Collect, UsageDriver, failure } from "../shared"
 import { OpenRouterBackend } from "./backend"
 
 export type OpenRouterOptions = {
@@ -15,7 +15,7 @@ export type OpenRouterOptions = {
  * OpenRouter engine — routes inference through the user's own OpenRouter
  * account (BYOK). The key comes from the agent's resolved env
  * (OPENROUTER_API_KEY) when set, otherwise from the account vault
- * (`:provider openrouter connect`) — minted per request through the cloud
+ * (`:providers openrouter connect`) — minted per request through the cloud
  * client, so rotation never rebuilds the driver.
  *
  * ```ts
@@ -36,13 +36,16 @@ export function OpenRouter(options: OpenRouterOptions): AxonEngineDef {
 
         create({ env, cloud }): AxonEngineDriver {
             // Explicit agent env wins; otherwise the account vault supplies
-            // the key per request (connected via `:provider openrouter
+            // the key per request (connected via `:providers openrouter
             // connect`). Neither being set fails loudly at first use with
             // the vault's VAULT_NOT_CONNECTED — construction stays wiring.
             const envKey = env.OPENROUTER_API_KEY
             const key = envKey !== undefined
                 ? async () => envKey
-                : async () => (await cloud.user.vault.connections.openrouter.token()).accessToken
+                : async () => {
+                    if (options.baseUrl !== undefined) throw failure({ code: "INVALID_REQUEST", message: "A custom OpenRouter endpoint requires an explicit key; account credentials cannot be sent to an override.", retryable: false, provider: "openrouter", model: options.model })
+                    return (await cloud.user.vault.connections.openrouter.token()).accessToken
+                }
 
             const backend = OpenRouterBackend({
                 key,
@@ -50,7 +53,7 @@ export function OpenRouter(options: OpenRouterOptions): AxonEngineDef {
                 ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
             })
 
-            return {
+            const driver: AxonEngineDriver = {
                 async *stream(req: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> {
                     const collect = Collect({ provider: "openrouter", model: options.model })
 
@@ -62,6 +65,7 @@ export function OpenRouter(options: OpenRouterOptions): AxonEngineDef {
                     yield collect.done({ ...(req.signal ? { signal: req.signal } : {}) })
                 },
             }
+            return UsageDriver({ driver: driver, cloud: cloud, provider: "openrouter", model: options.model, source: envKey !== undefined ? "explicit" : "account" })
         },
     }
 }

@@ -1,6 +1,6 @@
 import { err } from "@arcforge/err"
 import type { ModelRef } from "@arcforge/types"
-import { fetchManifest, fetchModel } from "./fetch"
+import { Fetch } from "./fetch"
 import { parseModels, type ParsedModel } from "./specifier"
 import { ModelStore, type ModelStoreT, type StoredModel } from "./store"
 
@@ -32,6 +32,7 @@ export type ResolveResult = {
 
 export function Models(opts: ModelsOpts = {}) {
     const store = opts.store ?? ModelStore()
+    const fetcher = Fetch({ store: store })
 
     return {
         get store() {
@@ -77,17 +78,13 @@ export function Models(opts: ModelsOpts = {}) {
             files: string[],
             primary: string,
             resolveOpts: {
+                signal?: AbortSignal
                 onDownload?: (model: ParsedModel) => void
                 onProgress?: (progress: { model: ParsedModel; received: number; total: number | null }) => void
                 traits?: ParsedModel["traits"]
             } = {},
         ): Promise<StoredModel> {
-            return await fetchManifest(repo, files, primary, {
-                store,
-                ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
-                ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
-                ...(resolveOpts.traits ? { traits: resolveOpts.traits } : {}),
-            })
+            return await fetcher.manifest({ repo: repo, files: files, primary: primary, options: resolveOpts, traits: resolveOpts.traits })
         },
 
         /**
@@ -102,6 +99,7 @@ export function Models(opts: ModelsOpts = {}) {
             models: Record<string, ModelRef> | undefined,
             resolveOpts: {
                 frozen?: boolean
+                signal?: AbortSignal
                 onDownload?: (model: ParsedModel) => void
                 /** Bytes as they arrive. Forwarded straight to the fetcher — see FetchOpts. */
                 onProgress?: (progress: { model: ParsedModel; received: number; total: number | null }) => void
@@ -130,41 +128,16 @@ export function Models(opts: ModelsOpts = {}) {
 
             for (const model of parsed) {
                 if (model.set) {
-                    const stored = await fetchManifest(
-                        { host: model.host, repo: model.repo, rev: model.rev, key: model.key },
-                        [],
-                        "",
-                        {
-                            store,
-                            ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
-                            ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
-                        },
-                        model.traits,
-                    )
+                    const stored = await fetcher.manifest({
+                        repo: { host: model.host, repo: model.repo, rev: model.rev, key: model.key },
+                        files: [], primary: "", options: resolveOpts, traits: model.traits,
+                    })
                     paths[model.key] = stored.path
                     if (stored.path) fetched.push(model.key)
                     continue
                 }
 
-                if (model.set) {
-                    const stored = await fetchManifest(
-                        { host: model.host, repo: model.repo, rev: model.rev, key: model.key },
-                        [],
-                        "",
-                        {
-                            store,
-                            ...(resolveOpts.onDownload ? { onDownload: resolveOpts.onDownload } : {}),
-                            ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
-                        },
-                        model.traits,
-                    )
-                    paths[model.key] = stored.path
-                    fetched.push(model.key)
-                    continue
-                }
-
-                const stored = await fetchModel(model, {
-                    store,
+                const stored = await fetcher.file(model, {
                     onDownload: m => {
                         fetched.push(m.key)
                         resolveOpts.onDownload?.(m)
@@ -172,7 +145,8 @@ export function Models(opts: ModelsOpts = {}) {
                     // Threaded rather than dropped: the fetcher reports bytes as
                     // they land, and a caller that cannot see them can only show
                     // a spinner for a five-gigabyte transfer.
-                    ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
+                    ...(resolveOpts.signal ? { signal: resolveOpts.signal } : {}),
+                ...(resolveOpts.onProgress ? { onProgress: resolveOpts.onProgress } : {}),
                     ...(model.traits ? { traits: model.traits } : {}),
 
                 })

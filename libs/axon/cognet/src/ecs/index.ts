@@ -1,16 +1,26 @@
-// ecs — the cognet's world. Opt-in: a cognet that never queries an entity
+// ecs — the cognet's world. Opt-in: a cognet that never touches an entity
 // doesn't need this module. The world clock lives in ../clock.ts and is
 // always present.
 export { Ecs, type EcsT, type EcsOpts, type EcsEmit } from "./ecs"
-export type { StateOpts } from "./state"
-export { Schema, type SchemaT, type SchemaOpts, type ComponentDescriptor, type FrameDescriptor } from "./schema"
-export type {
-    ComponentRegistry,
-    ComponentType,
-    ComponentWatcher,
-    EntityId,
-    QueryDescriptor,
-    Read,
-    Stamp,
-    WorldQueryResult,
-} from "./types"
+export type { StateOpts, StateT } from "./state"
+export { Schema, type SchemaT, type SchemaOpts, type Archetype, type ComponentDescriptor, type FrameDescriptor, type DeclaredComponent, type DeclaredFrame } from "./schema"
+export {
+    component,
+    query,
+    frame,
+    definitions,
+    type Component,
+    type ComponentOpts,
+    type Definition,
+    type Frame,
+    type Identity,
+    type Named,
+    type Query,
+    type QueryOpts,
+    type QueryShape,
+} from "./handle"
+export type { ComponentWatcher, EntityId, QueryObservation, Read, Stamp, Write, ComponentEntry } from "./types"
+export type { Change } from "./isolation"
+export type { Match, Row, Select, Short, Where, Writing } from "./named"
+export type { Meta } from "./state"
+export type { Written } from "./history"

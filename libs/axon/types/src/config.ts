@@ -3,6 +3,7 @@ import { DeployConfig } from "./deploy"
 import { ModuleEntry } from "./module"
 import { CognetConfig } from "./cognet/cognet"
 import type { ProviderEntry } from "./tui"
+import type { ServiceGrant } from "./services"
 
 /**
  * Authoring configuration for an Axon agent.
@@ -70,9 +71,9 @@ export type AxonConfig<EventMap extends Record<string, unknown> = Record<string,
      * falls back to ordinary ranking when the user's providers cannot supply
      * it — so a published agent stays runnable by someone who has no Codex
      * connection, rather than carrying its author's account setup as a hard
-     * dependency. The role's declared requirements still govern: a pin that
-     * names a model too small for the cognet's context is ignored, not
-     * honoured into a broken run.
+     * dependency. An explicit pin overrides context and structured-output
+     * recommendations, consistently with live selection. Input/output
+     * compatibility is still required.
      *
      * A STRING, not a constructor call, because this is the one inference
      * decision a user makes by hand and a picker edits by machine. The old
@@ -109,6 +110,23 @@ export type AxonConfig<EventMap extends Record<string, unknown> = Record<string,
      * from the user who is running it.
      */
     providers?: ProviderEntry[]
+
+    /**
+     * What fills each use the cognet declares, by the cognet's own name for it.
+     *
+     * ```ts
+     * services: {
+     *     main: { provider: "anthropic:claude-sonnet-5-5", limit: { calls: 600, per: "hour" } },
+     *     depth: "auto",
+     *     features: "./providers/features",
+     *     hear: "off",
+     * }
+     * ```
+     *
+     * Absent, every use is `"auto"`. The agent decides — the cognet only says
+     * what it needs, and never learns what answered.
+     */
+    services?: Readonly<Record<string, ServiceGrant>>
 
     /**
      * @deprecated Removed — use `model:` for a pin, `providers:` for sources.

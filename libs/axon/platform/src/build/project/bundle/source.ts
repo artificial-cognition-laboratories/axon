@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { err } from "@arcforge/err"
-import { readCognetAbi } from "../../blueprint"
+import { CognetConfigFile } from "../../blueprint"
 import { fsx } from "../../../utils/fs"
 import { KINDS } from "../kinds"
 import { Frame } from "../../frame"
@@ -82,7 +82,7 @@ export function Source(opts: SourceOpts) {
             // neither declares a kernel contract, and the field is omitted for
             // both, so the registry row stays NULL rather than carrying a
             // number nobody asserted.
-            const abi = kind === "cognet" ? await readCognetAbi(root) : null
+            const abi = kind === "cognet" ? CognetConfigFile({ sourceDir: root }).read()?.abi ?? null : null
 
             const image: SourceImage = {
                 kind,

@@ -1,6 +1,6 @@
-import { join } from "node:path"
+import { isAbsolute, join, relative, sep } from "node:path"
 import { homedir } from "node:os"
-import { cp, mkdir, mkdtemp, readdir, readlink, rename, rm } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, realpath, rename, rm } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { resolveAbsoluteLinks } from "./links"
 
@@ -359,8 +359,12 @@ export function TreeCache(opts: TreeCacheOpts = {}) {
                     continue // project gone, or has no node_modules any more
                 }
                 for (const entry of entries) {
-                    const link = await readlink(join(modules, entry)).catch(() => null)
-                    if (link?.startsWith(`${treeDir}/`)) return true
+                    // Resolve junctions too: Windows readlink returns a device-prefixed
+                    // path (\\\\?\\C:\\...), not a string starting with treeDir.
+                    const target = await realpath(join(modules, entry)).catch(() => null)
+                    if (target === null) continue
+                    const within = relative(treeDir, target)
+                    if (within && within !== ".." && !within.startsWith(`..${sep}`) && !isAbsolute(within)) return true
                 }
             }
         } catch {

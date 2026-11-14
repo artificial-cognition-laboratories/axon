@@ -1,5 +1,6 @@
-// schedule — systems, their rates, and the data lineage between them. Opt-in
-// alongside ./ecs: a control loop with no world has nothing to schedule.
-export { Schedule, type ScheduleT, type ScheduleOpts } from "./schedule"
-export type { LineageT } from "./lineage"
-export type { LineageEntry, ScheduleTrace, SystemContext, SystemSpec } from "./types"
+export { Schedule, type ScheduleOpts, type ScheduleT } from "./schedule"
+export { Lineage, type LineageOpts, type LineageT } from "./lineage"
+export { defineSystem, systems } from "./system"
+export { clock, stimuli, type Input } from "./input"
+export { access, type Streamed } from "./access"
+export type { AuthoredSystem, AuthoredSystemSpec, LineageEntry, NamedSystem, Readable, Run, ScheduleThreads, ScheduleTrace, System, SystemSpec, ThreadResult, Tick, Trigger } from "./types"

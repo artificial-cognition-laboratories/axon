@@ -193,6 +193,24 @@ const SHARED_BODY = `\
      */
     function defineProps<T extends Record<string, unknown>>(): void
 
+    /**
+     * A provider this agent writes — the default export of
+     * \`providers/<name>.provider.ts\`. It implements one interface: name it,
+     * and write each method as the interface does. Granted to a use in
+     * \`services:\` as \`"./providers/<name>"\`.
+     *
+     * @see https://axon.arclabs.it/docs/v2/cognets/api/interfaces
+     */
+    const defineProvider: typeof import("@arcforge/types").defineProvider
+
+    /** Interface vocabulary — what a provider's values are written in, as an interface writes them. */
+    type u32 = number
+    type i32 = number
+    type f32 = number
+    type f64 = number
+    type Handle<Name extends string> = import("@arcforge/cognet/schema").Handle<Name>
+    type Session<Push, Answer> = import("@arcforge/cognet/schema").Session<Push, Answer>
+
     // ── Server plugin registration ────────────────────────────────────────
 
     /**

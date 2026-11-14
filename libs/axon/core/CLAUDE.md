@@ -54,6 +54,29 @@ every transitive dependency, and no editor `.d.ts` could be generated. What can
 run, what the model is told it can call, and what an editor typechecks against
 are one list by construction.
 
+**Grants: what fills each use, decided at boot, on the agent's side.**
+`runtime/grants.ts` fills every use the cognet declares (`blueprint.cognet.uses`)
+from the agent's `services:` — `off`, a route (`"anthropic:…"`), one of the
+agent's own `providers/*.provider.ts`, or `auto` (its one provider of that
+interface, else the engine bound to the use) — then holds it to the use's
+`requires` against `describe()` and wraps any call limit. A required use
+nothing fills throws SERVICE_UNAVAILABLE before the kernel exists. The
+standard interfaces the machine's engines can serve are a TABLE
+(`runtime/services/standard.ts`): each row is the engine requirement a use
+resolves by and an adapter from the driver's shapes to the interface's.
+`Inference` resolves those requirements as roles named by the use, beside
+the cognet's own engine roles (a name used for both is refused). What every
+use decides alike (`optional`, `primary`, its `model` list, whether it fans out)
+is added once by `engineRoles`, never per row. A use's `model` narrows and orders
+the candidates by registry id, on any route; a grant and the user's primary pick
+reach past it. `parallel` caps the slots `describe()` reports. A route
+granted by name is a GRANT to the resolver, not a preference: it binds that
+route or the use is unfilled. A confined agent's grants are built inside the
+box from the remote drivers and the role facts the supervisor sent; its own
+providers load there too (the project root is mounted). `checkGrants` is the
+static half, run at prepare: grants name declared uses, existing providers,
+and no route for an interface no engine serves.
+
 ## Key Interfaces
 
 ```ts

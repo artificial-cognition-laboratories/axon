@@ -7,7 +7,7 @@ import { isControlFrame, type TuiSurface } from "./protocol"
  * ControlClient — the editor end of the control channel.
  *
  * Dials a running TUI using the port and token on its instance record.
- * There is no discovery here on purpose: `Running()` already answers "what
+ * There is no discovery here on purpose: the daemon's registry already answers "what
  * is running right now", and the extension already watches it. This turns
  * one record into one connection, nothing more.
  *

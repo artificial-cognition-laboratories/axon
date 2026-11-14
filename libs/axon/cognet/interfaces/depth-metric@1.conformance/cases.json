@@ -1,0 +1,8 @@
+[
+    {
+        "name": "answers in metres for the whole picture: never below 0, 0 only where it has no answer",
+        "call": "estimate",
+        "given": { "picture": { "$picture": { "width": 64, "height": 48, "fill": [120, 96, 72] } } },
+        "expect": { "width": { "min": 1 }, "height": { "min": 1 }, "metres": { "length": "width*height", "each": { "min": 0 } } }
+    }
+]

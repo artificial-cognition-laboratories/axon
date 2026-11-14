@@ -39,6 +39,7 @@ describe("spawn — a real agent process over the link", () => {
     async function boot(services: Partial<SupervisorServices> = {}, env: Record<string, string> = {}) {
         const full: SupervisorServices = {
             async *infer() {},
+            transform: async () => { throw new Error("transform is not wired in this test") },
             commit: (type, data) => { committed.push({ type: type as string, data }) },
             ...services,
         }
@@ -174,7 +175,7 @@ describe("spawn — a boot failure reports its own cause", () => {
             sessionId: `bootfail-${Date.now()}`,
             blueprint: { paths: { root }, tools: [] } as never,
             policy: { process: { spawn: true, run: true }, isolation: "none" } as never,
-            services: { async *infer() {}, commit: () => {} },
+            services: { async *infer() {}, transform: async () => { throw new Error("transform is not wired in this test") }, commit: () => {} },
             // The platform owns agent-main.ts — see agentEntrypoints(). A test in
             // the transport package has to name that directory itself.
             entrypoint: agentEntrypoint(agentEntrypoints(PLATFORM_LINK_DIR)),

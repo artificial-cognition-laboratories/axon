@@ -45,7 +45,7 @@ type CredentialOpts = {
  * in on a machine whose installed CLI is authenticated.
  */
 export function Credential(opts: CredentialOpts = {}) {
-    let wired: { store: ReturnType<typeof Store>; cloud: ReturnType<typeof Cloud> } | null = null
+    let wired: { store: ReturnType<typeof Store>; cloud: ReturnType<typeof Cloud>; login: string } | null = null
 
     /**
      * The store and the client built from it, on first use.
@@ -59,10 +59,18 @@ export function Credential(opts: CredentialOpts = {}) {
         if (!wired) {
             const build = distribution()
             const store = Store({ root: opts.store ?? storeRoot(build) })
-            wired = {
-                store: store,
-                cloud: Cloud({ store: store, distribution: build, release: opts.version ?? "0.0.0" }),
-            }
+            wired = { store: store, cloud: Cloud({ store: store, distribution: build, release: opts.version ?? "0.0.0" }), login: login(store) }
+        }
+        /*
+         * The client is keyed on the login it was built from, and rebuilt when
+         * the store holds a different one. `Cloud()` reads the profile once, and
+         * a daemon outlives logins: one started signed out kept a keyless client
+         * after `axon login`, got a 401, and its 401 handler scrubbed the login
+         * the person had just made.
+         */
+        const now = login(wired.store)
+        if (now !== wired.login) {
+            wired = { store: wired.store, cloud: Cloud({ store: wired.store, distribution: distribution(), release: opts.version ?? "0.0.0" }), login: now }
         }
         return wired
     }
@@ -111,6 +119,18 @@ export function Credential(opts: CredentialOpts = {}) {
          * check. A stale credential still surfaces — as a failure from the
          * command that used it, which is where it can actually be acted on.
          */
+        /**
+         * The signed-in account's id, or null when nobody is signed in.
+         *
+         * What the machine network binds this machine to. Unlike `identity()`
+         * a store that cannot be read throws here: enrolling a machine, or
+         * deciding who may call it, on a guessed account is not an answer.
+         */
+        account(): { id: string } | null {
+            const profile = built().store.profiles.current()
+            return profile ? { id: profile.record.user.id } : null
+        },
+
         identity(): { signedIn: boolean; email: string | null } {
             try {
                 const profile = built().store.profiles.current()
@@ -152,3 +172,10 @@ export function Credential(opts: CredentialOpts = {}) {
 }
 
 export type CredentialT = ReturnType<typeof Credential>
+
+/** Which login the store holds right now: the active profile and the credential it carries. */
+function login(store: ReturnType<typeof Store>): string {
+    const profile = store.profiles.current()
+    if (profile === null) return ""
+    return `${profile.id}\n${profile.record.auth.apiKey ?? ""}\n${profile.record.auth.accessToken ?? ""}`
+}

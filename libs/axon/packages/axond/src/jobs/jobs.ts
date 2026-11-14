@@ -5,7 +5,7 @@ import { fold, open as isOpen, terminal } from "./fold"
 import { Log, type LogT } from "./log"
 import { isValidCron } from "./cron"
 import { Blobs } from "./blobs"
-import type { Actor, Attachment, ChangeSet, Job, JobCheck, JobEvent, JobRunOutcome, JobRunTrigger, JobSchedule, JobVerdict, JobsState } from "./types"
+import type { Actor, Attachment, JobEntry, ChangeSet, Job, JobCheck, JobEvent, JobRunOutcome, JobRunTrigger, JobSchedule, JobVerdict, JobsState } from "./types"
 
 export type JobsOpts = {
     /** Where job logs are written. */
@@ -333,7 +333,7 @@ export function Jobs(opts: JobsOpts) {
          * person answers a question with it. A human turn on a BLOCKED job is
          * what unblocks it — see `fold`.
          */
-        say(input: { ref: string; text: string; by: Actor; attach?: readonly string[]; attachments?: readonly Attachment[]; anchor?: { run: string; quote?: string } }): Job {
+        say(input: { ref: string; text: string; by: Actor; attach?: readonly string[]; attachments?: readonly Attachment[]; anchor?: { run: string; quote?: string }; entry?: JobEntry }): Job {
             const job = need(input.ref)
             const said = String(input.text || "").trim()
             const files = attach(input.attach, input.attachments)
@@ -350,6 +350,7 @@ export function Jobs(opts: JobsOpts) {
                 text: said,
                 ...(files.length ? { attachments: files } : {}),
                 ...(input.anchor ? { anchor: input.anchor } : {}),
+                ...(input.entry ? { entry: input.entry } : {}),
             })
             return need(job.id)
         },

@@ -5,19 +5,27 @@
   "private": false,
   "type": "module",
   "dependencies": {
-    "@arcforge/types": "2.0.214",
-    "@arcforge/engines": "2.0.214",
+    "@arcforge/types": "file:/home/cody/git/arclabs/libs/axon/types",
+    "@arcforge/engines": "file:/home/cody/git/arclabs/libs/axon/packages/engines",
     "h3": "^1.13.0",
-    "@arcforge/cognet": "2.0.214",
-    "@arcforge/air": "2.0.214",
+    "@arcforge/cognet": "file:/home/cody/git/arclabs/libs/axon/cognet",
+    "@arcforge/air": "file:/home/cody/git/arclabs/libs/axon/packages/air",
     "@axon/zero": "1.0.54",
     "@axon/fs": "^0.1.7",
     "@axon/subagent": "^0.1.5",
-    "@axon/docs": "^1.0.1"
+    "@axon/docs": "^1.0.1",
+    "@arcforge/err": "file:/home/cody/git/arclabs/libs/axon/packages/err"
   },
   "axon": {
     "trackedFrom": {
-      "@axon/zero": "https://axon-api-t53zrgvpga-ew.a.run.app"
+      "@axon/zero": "http://127.0.0.1:3099"
     }
+  },
+  "overrides": {
+    "@arcforge/types": "file:/home/cody/git/arclabs/libs/axon/types",
+    "@arcforge/engines": "file:/home/cody/git/arclabs/libs/axon/packages/engines",
+    "@arcforge/cognet": "file:/home/cody/git/arclabs/libs/axon/cognet",
+    "@arcforge/air": "file:/home/cody/git/arclabs/libs/axon/packages/air",
+    "@arcforge/err": "file:/home/cody/git/arclabs/libs/axon/packages/err"
   }
 }

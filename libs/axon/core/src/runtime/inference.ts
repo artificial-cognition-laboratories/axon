@@ -1,7 +1,9 @@
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonEventMap, AxonSpanName, EngineCapability, EngineCloud } from "@arcforge/types"
+import type { AxonBlueprint, AxonEventMap, AxonSpanName, EngineCapability, EngineCloud, EngineRequirements } from "@arcforge/types"
+import { engineRoles, granted } from "./services"
 import { buildProvider, providerPool } from "@arcforge/engines/providers"
 import { Engines, gather, type AxonProvider, type Catalogue, type EnginesT, type LocalRuntime } from "@arcforge/engines/catalogue"
+import { Accounts } from "./accounts"
 
 type InferenceOpts = {
     blueprint: AxonBlueprint
@@ -45,13 +47,11 @@ export type InferenceReporter = {
  * migration every author has to perform.
  */
 export async function Inference(opts: InferenceOpts): Promise<EnginesT | undefined> {
-    const carriedSlot = opts.blueprint.cognet
-    const declared = carriedSlot.engines
-        ?? ("definition" in carriedSlot ? carriedSlot.definition.engines : undefined)
+    const declared = roles(opts.blueprint).requirements
 
     // No roles declared: nothing to resolve and nothing worth a span. Every
     // agent published before roles existed takes this path.
-    if (!declared || Object.keys(declared).length === 0) return undefined
+    if (Object.keys(declared).length === 0) return undefined
     if (!opts.session) return (await resolveRoles(opts)).engines
 
     const resolved = await opts.session.span(
@@ -67,6 +67,30 @@ export async function Inference(opts: InferenceOpts): Promise<EnginesT | undefin
     )
 
     return resolved.engines
+}
+
+/**
+ * Every role to resolve: the engines the cognet declares, and one for each use
+ * of a standard interface the machine's engines may serve — named as the use
+ * is — with the routes the agent granted by name.
+ *
+ * Two carriers, one answer for the engines. The CLI form stamps requirements
+ * onto the blueprint slot at prepare (so resolution can run without importing
+ * a bundle); the live-definition form — tests, embedded hosts — has them only
+ * on the definition itself.
+ */
+function roles(blueprint: AxonBlueprint): { requirements: EngineRequirements; pins: Record<string, string> } {
+    const carried = blueprint.cognet
+    const engines = carried.engines ?? ("definition" in carried ? carried.definition.engines : undefined) ?? {}
+    const uses = carried.uses ?? {}
+    const services = engineRoles(uses, granted(uses, blueprint.config.services))
+    const clash = Object.keys(services.requirements).find(name => name in engines)
+    if (clash) throw err("SERVICE_INVALID", { detail: `"${clash}" is both an engine role and a use — name one of them something else`, context: { use: clash } })
+    // What the agent's own providers need of the machine, each as `<provider>/<engine>`. Optional to the
+    // resolver: a provider nothing grants needs nothing, and Grants refuses one that is granted without them.
+    const provided = Object.fromEntries((blueprint.serviceProviders ?? []).flatMap(provider =>
+        Object.entries(provider.engines).map(([name, requirement]) => [`${provider.name}/${name}`, { ...requirement, optional: true }])))
+    return { requirements: { ...engines, ...services.requirements, ...provided }, pins: services.pins }
 }
 
 /**
@@ -92,15 +116,15 @@ async function resolveRoles(opts: InferenceOpts): Promise<Resolved> {
     // only on the definition itself. Reading both keeps a test cognet and a
     // published one on the same path, which is the whole point of the
     // definition escape hatch existing.
-    const carried = opts.blueprint.cognet
-    const requirements = carried.engines
-        ?? ("definition" in carried ? carried.definition.engines : undefined)
+    const { requirements, pins } = roles(opts.blueprint)
 
-    if (!requirements || Object.keys(requirements).length === 0) {
+    if (Object.keys(requirements).length === 0) {
         return { engines: undefined, providers: 0, failures: 0, cached: false }
     }
 
-    const pool = providerPool(opts.blueprint.profileProviders, opts.blueprint.config.providers)
+    const accounts = Accounts({ connections: opts.cloud.user.vault.connections, auth: opts.cloud.user.auth, profile: opts.blueprint.profileProviders })
+    const account = await accounts.list()
+    const pool = providerPool(opts.blueprint.profileProviders, opts.blueprint.config.providers, account)
 
     const providers = new Map<string, AxonProvider>()
 
@@ -122,6 +146,8 @@ async function resolveRoles(opts: InferenceOpts): Promise<Resolved> {
         // The agent's declared cortex choice. A preference on the primary
         // role, never a constraint — see AxonConfig.model.
         ...(opts.blueprint.config.model !== undefined ? { model: opts.blueprint.config.model } : {}),
+        // What the agent granted its uses by name — not preferences: see resolveEngines.
+        granted: pins,
     })
 
     // A required role with nothing to fill it stops here, naming what was
@@ -198,15 +224,24 @@ async function gatherTraced(
             const spanId = crypto.randomUUID()
             return session.span(
                 "axon:inference:provider",
-                { provider: provider.name, spanId } as never,
-                () => provider.catalogue(),
-                (capabilities: EngineCapability[]) => ({
-                    provider: provider.name,
-                    spanId,
-                    capabilities: capabilities.length,
-                    cached: catalogueWasCached(provider),
-                }) as never,
-            )
+                { provider: provider.name, spanId: spanId },
+                async () => {
+                    const [result] = await Promise.allSettled([provider.catalogue()])
+                    if (!result) throw new Error("The provider catalogue observation returned no outcome")
+                    return result
+                },
+                result => ({
+                    provider: provider.name, spanId: spanId,
+                    capabilities: result.status === "fulfilled" ? result.value.length : 0,
+                    cached: result.status === "fulfilled" && catalogueWasCached(provider),
+                    ...(result.status === "rejected" ? { failure: { message: result.reason instanceof Error ? result.reason.message : String(result.reason) } } : {}),
+                }),
+            ).then(result => {
+                // Discovery failures remain catalogue data; a missing required
+                // binding is the boundary that turns them into an agent error.
+                if (result.status === "rejected") throw result.reason
+                return result.value
+            })
         },
     })))
 

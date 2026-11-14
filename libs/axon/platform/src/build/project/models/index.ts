@@ -5,5 +5,6 @@
 export { Models, type ModelsT, type ResolveResult } from "./models"
 export { ModelStore, type ModelStoreT, type StoredModel } from "./store"
 export { parseModel, parseModels, downloadUrl, basenameOf, type ParsedModel } from "./specifier"
-export { fetchModel, fetchManifest } from "./fetch"
+export { Fetch } from "./fetch"
 export type { ModelFile } from "./store"
+export { onnx } from "./onnx"

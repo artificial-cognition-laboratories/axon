@@ -38,14 +38,9 @@ export type EscalationsT = ReturnType<typeof Escalations>
  *   2. A SURFACE is attached  → prompt, and wait for the answer.
  *   3. NOTHING is attached    → deny immediately.
  *
- * (3) is the one worth stating. The capsule's own fallback is a 30-second
- * timeout, which turns every escalation in a headless run — CI, a cron, a
- * deployment — into a 30-second stall before the same denial. Failing fast is
- * both quicker and more honest: the request is recorded, the call gets a
- * denial naming it, and approving it later writes a grant the NEXT attempt
- * reads. "Answer later" cannot mean "the call waits" — the wake is blocked
- * inside a tool call, and parking that for hours would freeze the agent
- * mid-turn holding a capsule and a run.
+ * Without a surface, deny immediately and record the request. Approving it
+ * later writes a grant for the next attempt. With a surface attached, wait
+ * indefinitely for its answer, including time spent queued behind other asks.
  *
  * ── Every request is recorded, answered or not ──────────────────────────────
  *

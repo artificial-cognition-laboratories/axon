@@ -6,6 +6,7 @@ import type { AxonSessionT } from "@arcforge/session"
 import type { KernelCognet } from "../contracts"
 import { Wake } from "./wake"
 import { Invocation } from "./invocation"
+import { Ask } from "./ask"
 import { Continuous } from "./continuous"
 
 type SchedulerOpts = {
@@ -17,6 +18,8 @@ type InvokeInput = {
     /** User message committed before the invoke starts. */
     content?: string | string[]
     stimuli?: AxonStimulusInput[]
+    /** The surface the message arrived on — the address the answer goes back to. */
+    channel?: string
 }
 
 /**
@@ -169,6 +172,7 @@ export function Scheduler(opts: SchedulerOpts) {
 
     const invocation = Invocation({ session: opts.session, reserve, release, runWake, interrupt })
     const continuous = Continuous({ session: opts.session, reserve, release, runWake })
+    const ask = Ask({ session: opts.session, bus: opts.bus, interrupt: interrupt })
 
     /**
      * Wake an invocation cognet when the WORLD reaches it — the trigger that
@@ -182,7 +186,7 @@ export function Scheduler(opts: SchedulerOpts) {
      *
      * Three gates, and each rejects for its own reason:
      *
-     *   MODE — continuous cognets own their clock (a cognet plugin drives
+     *   MODE — continuous cognets own their clock (their host drives
      *   kernel.wake()); waking them here would be the runtime asserting a
      *   rhythm it cannot know, which continuous.ts exists to prevent.
      *
@@ -271,8 +275,8 @@ export function Scheduler(opts: SchedulerOpts) {
 
         /**
          * Advance a continuous cognet by one wake. The clock belongs to the
-         * BRAIN — a cognet plugin driving `kernel.wake()` — never to this
-         * scheduler and never to the body. See KernelAbi.wake.
+         * BRAIN — its host driving `kernel.wake()` at `mode.hz` — never to
+         * this scheduler and never to the body. See KernelAbi.wake.
          *
          * Resolves with the wake's ordinal on admission, not completion.
          */
@@ -289,14 +293,20 @@ export function Scheduler(opts: SchedulerOpts) {
             return { wakes: continuous.wakes }
         },
 
-        /** Invoke on a stimulus admission (invocation mode) — no-op shape for continuous cognets, which never call this. */
+        /**
+         * A request: the message in, the answer streamed back, ended when the
+         * answer is over. An invocation mind wakes for it, and the wake ending
+         * ends it; a continuous mind keeps its own clock, and the request ends
+         * when the mind has settled the message — see Ask.
+         */
         stream(input: InvokeInput = {}) {
             if (!cognet) throw err("NO_COGNET_LOADED")
-            if (cognet.mode.kind === "continuous") {
-                throw err("SCHEDULER_MODE_MISMATCH", { detail: "continuous cognets are invoked by the scheduler's own clock, never by stream()" })
-            }
+            if (cognet.mode.kind === "continuous") return ask.stream(input)
             return invocation.stream(input)
         },
+
+        /** The mind is done with these stimuli — what ends a request to a continuous mind. */
+        settled: ask.settled,
 
         /**
          * The currently running wake's correlation — run addressing is

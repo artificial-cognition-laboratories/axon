@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import { isEntryEvent, type AxonAgentHandle, type AxonBlueprint, type AxonEntry, type AxonStimulusEntry } from "@arcforge/types"
+import { isEntryEvent, type AxonAgentHandle, type AxonBlueprint, type AxonEntry, type AxonIngest, type AxonStimulusEntry } from "@arcforge/types"
 import { Mirror } from "./mirror"
 import type { Supervised } from "./supervise"
 
@@ -36,8 +36,8 @@ export function DirectHandle(live: Supervised): AxonAgentHandle {
     return {
         sessionId: live.sessionId,
 
-        ingest(entry: AxonStimulusEntry) {
-            return live.link.ingest(entry)
+        ingest(input: AxonIngest) {
+            return live.link.ingest(input)
         },
         stimulus(entry: AxonStimulusEntry) {
             return live.link.stimulus(entry)

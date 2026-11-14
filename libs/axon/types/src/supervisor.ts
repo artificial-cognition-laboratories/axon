@@ -90,7 +90,7 @@ export type SupervisorToAgent = {
      * is not running gets started by the scheduler's own subscription. So a
      * caller racing the end of a wake never has to know which side it landed.
      */
-    ingest(entry: AxonStimulusEntry): Promise<void>
+    ingest(input: AxonIngest): Promise<void>
 
     /** Hot reload: a re-normalised blueprint replaces the live one. */
     update(blueprint: AxonBlueprint): Promise<void>
@@ -147,10 +147,11 @@ export type SupervisorToAgent = {
      * the bound port comes BACK rather than being assumed — a caller
      * printing a URL must print the one that answers.
      *
-     * Idempotent: serving an already-served agent returns the live port
-     * rather than binding a second socket.
+     * Idempotent for the same terms: serving an already-served agent returns
+     * the live port rather than binding a second socket. Different terms are
+     * refused (AGENT_SERVE_CONFLICT). See ServeInput for `host` and `token`.
      */
-    serve(port: number): Promise<{ port: number }>
+    serve(input: ServeInput): Promise<{ port: number }>
 
     /**
      * Execute code in the agent's scope — the console/devtools eval.
@@ -212,6 +213,17 @@ export type InferCall = {
     request: AxonEngineRequest
 }
 
+/**
+ * One transform call, as it crosses the wire: a role and its input, one
+ * result back. The input and the result are as opaque here as they are to
+ * the driver — an image in, a feature grid out — and like inference, the
+ * agent names a ROLE and never learns what model filled it.
+ */
+export type TransformCall = {
+    role: string
+    input: unknown
+}
+
 export type AgentToSupervisor = {
     /**
      * Stream inference for one call. THE hot path.
@@ -225,6 +237,13 @@ export type AgentToSupervisor = {
      * agent-side: it is the consumer, and it is the thing that must not hang.
      */
     infer(call: InferCall, signal: AbortSignal): AsyncGenerator<AxonEngineRawEvent>
+
+    /**
+     * One transform — features, masks, speech, depth — performed where the
+     * engines are. On the data channel beside `infer`: it IS inference, and
+     * a multi-megabyte result must not hold up an interrupt on control.
+     */
+    transform(call: TransformCall, signal: AbortSignal): Promise<unknown>
 
     /**
      * Append one event to the session log.
@@ -279,3 +298,25 @@ export type AgentTransport = {
     /** Data: the infer stream and the commit log. */
     data: "data"
 }
+
+/**
+ * How an agent's HTTP surface is bound.
+ *
+ * `host` is a decision every caller makes, never a default: `all` puts the
+ * agent on the network, and the local gate (no deployment key) is otherwise
+ * open. `token`, when set, is required on every request as
+ * `Authorization: Bearer <token>` — how a supervisor reaches an agent's
+ * surface without anyone else on the box being able to.
+ */
+export type ServeInput = {
+    port: number
+    host: "loopback" | "all"
+    token: string | null
+}
+
+/**
+ * What a person says to a running mind, as ingest carries it: the words, and
+ * the surface they arrived on — which is also where a reply goes back. Text
+ * only; nothing else crosses on this verb.
+ */
+export type AxonIngest = { content: string | string[]; channel: string }

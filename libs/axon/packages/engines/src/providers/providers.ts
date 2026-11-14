@@ -1,7 +1,7 @@
 import type { EngineCloud, ProviderEntry } from "@arcforge/types"
 import { HostedProvider, OllamaProvider, type AxonProvider, type LocalRuntime } from "../catalogue"
 import { EngineFailure } from "../shared"
-import { AxonDriver, CodexDriver, OllamaDriver, OpenRouterDriver, MockDriver } from "../drivers"
+import { AxonDriver, CodexDriver, OllamaDriver, MockDriver } from "../drivers"
 import { DIRECT_PROVIDERS } from "../aisdk/catalogue"
 import { DirectProvider } from "../aisdk"
 import type { MockInput, MockReply } from "../mock"
@@ -154,9 +154,9 @@ export function Mock(script?: MockInput | MockReply | ProviderOptions): Provider
  *
  * Credentials come from the agent's resolved environment (the variable each
  * vendor's own tooling already uses) or from `{ key }` on the declaration.
- * Unlike `OpenRouter()` and `Codex()`, these are NOT vaulted yet: a deployed
- * agent needs the key in its deployment environment, or should use a vaulted
- * route instead.
+ * Credentials use explicit keys, resolved environment, then the account vault.
+ * The AI SDK owns their inference transport and account key rotation is picked
+ * up at request time, without rebuilding an agent.
  */
 
 /** Anthropic's API, with your own key. `ANTHROPIC_API_KEY`. */
@@ -306,14 +306,6 @@ export function buildProvider(declared: ProviderEntry, opts: BuildOpts): AxonPro
                 ...(slots !== undefined ? { slots } : {}),
             })
 
-        case "openrouter":
-            return HostedProvider({
-                name: "openrouter",
-                cloud: opts.cloud,
-                driver: model => OpenRouterDriver({ model }).create({ env: opts.env, cloud: opts.cloud }),
-                ...(slots !== undefined ? { slots } : {}),
-            })
-
         case "local":
             return LocalProvider(opts.local, slots)
 
@@ -377,6 +369,7 @@ function LocalProvider(local: LocalRuntime | undefined, slots: number | undefine
     const empty: LocalRuntime = {
         catalogue: async () => [],
         run: async () => { throw new Error("LOCAL_RUNTIME_UNAVAILABLE") },
+        stream: async function* () { throw new Error("LOCAL_RUNTIME_UNAVAILABLE") },
     }
     const runtime = local ?? empty
 
@@ -401,16 +394,7 @@ function LocalProvider(local: LocalRuntime | undefined, slots: number | undefine
             }
 
             return {
-                async *stream(request) {
-                    const { Collect } = await import("../shared")
-                    const { extractUserText } = await import("../mock")
-                    const collect = Collect({ provider: "local", model: capability.id })
-                    const result = await runtime.run(capability.id, extractUserText(request))
-                    const text = typeof result === "string" ? result : JSON.stringify(result)
-                    const event = collect.feed({ type: "text:delta", content: text })
-                    if (event) yield event
-                    yield collect.done({ ...(request.signal ? { signal: request.signal } : {}) })
-                },
+                stream: request => runtime.stream(capability.id, request),
             }
         },
     }

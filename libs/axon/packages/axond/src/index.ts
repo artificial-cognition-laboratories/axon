@@ -5,6 +5,7 @@
  * consumer holds. See CLAUDE.md for why they mirror.
  */
 export { Axond } from "./axond"
+export { MachineAxond } from "./machine-axond"
 export type { AxondOpts, AxondT } from "./axond"
 export { AxonDaemon } from "./client"
 
@@ -42,8 +43,14 @@ export type { AgentRecord, AgentsState, AxonInstance } from "./agents/index"
 export { RepositoryJobs, RepositoryWork, Workspaces } from "./jobs/index"
 export { Credential } from "./agents/index"
 export type { CredentialT } from "./agents/index"
-export type { Actor, Attachment, ChangeSet, ChangedFile, JobCheck, Job, JobEvent, JobRun, JobRunOutcome, JobRunStatus, JobRunTrigger, JobSchedule, JobVerdict, RepositoryJobsT, RepositoryWorkT, WorkspacesT } from "./jobs/index"
+export type { Actor, Attachment, ChangeSet, ChangedFile, JobCheck, Job, JobEntry, JobEvent, JobRun, JobRunOutcome, JobRunStatus, JobRunTrigger, JobSchedule, JobVerdict, RepositoryJobsT, RepositoryWorkT, WorkspacesT } from "./jobs/index"
 export type { ModelRecord, ModelRuntime, ModelsState } from "./models/index"
-export { parseSpecifier } from "./models/index"
-export type { BodyInfo, BodyState, Lease, LeaseGrant, ModState, Notice, RunningWorld, WorldFile, WorldsState } from "./worlds/index"
+export { parseSpecifier, Artifacts, MODEL_PROTOCOL } from "./models/index"
+/**
+ * `LAB_IDS` is a VALUE, not only a type: every surface that has to cover each
+ * lab — Fleet's sidebar, its console panes — iterates it, so adding a lab is
+ * one entry in the daemon rather than an edit in each consumer.
+ */
+export { LAB_IDS } from "./labs/contract/index"
+export type { AtriumAction, BodyClient, BodyInfo, BodyState, Imported, LibraryEntry, BridgeState, Embodiment, LabAction, LabActionResult, LabIntervention, LabId, LabState, LabT, Lease, LeaseInput, MinecraftAction, MinecraftPlace, MinecraftPlayer, Notice, Observer, RunningWorld, StudioOpened, StudioPlace, ScenarioEvent, ScenarioProgress, ScenarioRun, TerrariaAction, WorldInfo } from "./labs/index"
 export type { ParsedSpecifier } from "./models/index"

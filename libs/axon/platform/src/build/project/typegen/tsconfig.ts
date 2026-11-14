@@ -1,9 +1,9 @@
-import { join } from "node:path"
+import { join, relative, sep } from "node:path"
 import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { err } from "@arcforge/err"
 import { Tree } from "../tree"
 import { Frame, FRAME } from "../../frame"
-import { INLINE_COGNET_DIR, inlineCognetDir } from "../../blueprint/cognet"
+import { INLINE_COGNET_DIR, inlineCognetDir, SCHEMA_DIR, SCHEMA_SPECIFIER } from "../../blueprint/cognet"
 import { COGNET_GLOBALS } from "./cognet-dts"
 import { KINDS, type ProjectKind } from "../kinds"
 import { writeIfChanged } from "./write"
@@ -216,11 +216,14 @@ export function ensureProjectTsConfig(root: string, kind: ProjectKind): void {
     // Written only when the folder exists, so an agent without one carries no
     // config pointing at an empty directory.
     if (inlineCognet) {
+        const schemaRel = relative(typesDir, join(frame.path("cognet"), SCHEMA_DIR)).split(sep).join("/")
         writeIfChanged(
             join(typesDir, "cognet.tsconfig.json"),
             JSON.stringify({
                 extends: TSCONFIG_BASE,
-                include: rebase(INLINE_COGNET_INCLUDE),
+                // The modules generated from the cognet's schemas, imported as `#schema/…` — the bundler resolves the same.
+                compilerOptions: { paths: { [`${SCHEMA_SPECIFIER}*`]: [`${schemaRel}/*`] } },
+                include: [...rebase(INLINE_COGNET_INCLUDE), `${schemaRel}/**/*.ts`],
                 // Everything generated for the AGENT. Listed by name rather
                 // than by a glob, because `./**/*.d.ts` in the include above is
                 // what picks up the cognet's own declarations — an exclusion

@@ -35,6 +35,6 @@ export { Frame, type FrameT, type FrameArea } from "../frame"
 
 // Model weights — declared by a cognet, fetched and verified here, handed to
 // the brain as absolute paths. An asset store that happens to be used for ML.
-export { Models, ModelStore, parseModel, parseModels, downloadUrl, basenameOf, fetchModel } from "./models"
+export { Models, ModelStore, parseModel, parseModels, downloadUrl, basenameOf, Fetch, onnx } from "./models"
 export type { ModelsT, ResolveResult, ModelStoreT, StoredModel, ParsedModel } from "./models"
 export { parseSpecifier } from "./specifier"

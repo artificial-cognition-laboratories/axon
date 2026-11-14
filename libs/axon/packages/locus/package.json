@@ -1,0 +1,31 @@
+{
+    "name": "@arcforge/locus",
+    "version": "2.0.219",
+    "description": "Memory as geometry \u2014 records stored at a coordinate in a manifest conceptual space, queried by predicate and ranked by distance.",
+    "type": "module",
+    "private": true,
+    "main": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts",
+        "./pure": "./src/pure.ts"
+    },
+    "files": [
+        "src"
+    ],
+    "scripts": {
+        "test": "bun run test:full",
+        "test:hot": "bun test --parallel=4 tests/hot",
+        "test:full": "bun test --parallel=4 tests/hot tests/full",
+        "lab": "bun run lab/run.ts"
+    },
+    "dependencies": {
+        "@arcforge/err": "workspace:*",
+        "@arcforge/types": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    }
+}

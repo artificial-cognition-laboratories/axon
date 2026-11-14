@@ -1,3 +1,5 @@
+import { HttpError, type EngineCloud } from "@arcforge/types"
+import { EngineFailure } from "../../src"
 import { AxonDriver as Axon } from "../../src/drivers"
 
 /**
@@ -44,4 +46,36 @@ describe("Axon() engine def", () => {
     it("omits the model when the account default is wanted", () => {
         expect("model" in Axon()).toBe(false)
     })
+})
+
+
+function cloudFailure(error: Error): EngineCloud {
+    return {
+        user: { vault: { connections: {
+            openai: { token: async () => { throw new Error("unused") } },
+            openrouter: { token: async () => { throw new Error("unused") } },
+        } } },
+        cloud: { engine: {
+            async *stream() { yield* []; throw error },
+            request: async () => { throw error },
+        } },
+    }
+}
+
+describe("Axon managed inference faults", () => {
+    for (const [status, code, retryable] of [[503, "TRANSPORT", true], [402, "QUOTA", false], [401, "AUTH", false], [429, "RATE_LIMIT", true]] as const) {
+        it(`classifies HTTP ${status} as ${code}, rather than an internal kernel crash`, async () => {
+            const original = new HttpError(status, "/api/engine/stream", "Readable service message")
+            const driver = Axon({ model: "fixture/model" }).create({ env: {}, cloud: cloudFailure(original) })
+            try {
+                await Array.fromAsync(driver.stream({ messages: [{ role: "user", content: "hello" }] }))
+                throw new Error("expected failure")
+            } catch (error) {
+                expect(error).toBeInstanceOf(EngineFailure)
+                if (!(error instanceof EngineFailure)) throw error
+                expect(error.fault).toMatchObject({ code: code, retryable: retryable, status: status, provider: "axon", message: original.message })
+                expect(error.cause).toBe(original)
+            }
+        })
+    }
 })

@@ -1,7 +1,8 @@
 import { err } from "@arcforge/err"
 import type { AxonEntry, AxonStimulusEntry, CognetWake } from "@arcforge/types"
-import { ENTRY_EVENT_PREFIXES } from "@arcforge/types"
 import type { KernelBus } from "../contracts"
+import { Channel } from "./channel"
+import { isEntry } from "./entry"
 import type { AxonSessionT } from "@arcforge/session"
 import type { KernelCognet } from "../contracts"
 
@@ -13,22 +14,6 @@ type WakeOpts = {
     abort: AbortController
 }
 
-/**
- * Entry vocabulary — the families are defined WITH AxonEntryEvent, never
- * duplicated here.
- *
- * Shape-checked on `type` and `time.seq`, which is every enveloped event's
- * identity (see AxonEvent). This used to require a string `id`; when that
- * field was removed from the envelope the predicate rejected every entry
- * ever emitted, and a wake produced no output at all — a reminder that a
- * structural guard is only as correct as the shape it was written against.
- */
-function isEntry(event: unknown): event is AxonEntry {
-    if (typeof event !== "object" || event === null) return false
-    const e = event as { type?: string; time?: { seq?: number } }
-    if (typeof e.type !== "string" || typeof e.time?.seq !== "number") return false
-    return ENTRY_EVENT_PREFIXES.some(prefix => (e.type as string).startsWith(prefix))
-}
 
 /**
  * One execution of one wake: fires cognet.wake() exactly once and owns
@@ -124,50 +109,3 @@ export function Wake(opts: WakeOpts) {
 }
 
 export type WakeT = ReturnType<typeof Wake>
-
-// ── Channel ───────────────────────────────────────────────────────────────────
-
-/**
- * Bridges the wake (which cannot yield) to the caller's async iterator.
- * push() during execution, close() on clean stop, fail() rethrows at the
- * consumer.
- */
-function Channel<T>() {
-    const buffer: T[] = []
-    let notify: (() => void) | null = null
-    let done = false
-    let failed = false
-    let failure: unknown = null
-
-    function wakeConsumer() {
-        notify?.()
-        notify = null
-    }
-
-    return {
-        push(value: T) {
-            buffer.push(value)
-            wakeConsumer()
-        },
-        close() {
-            done = true
-            wakeConsumer()
-        },
-        fail(cause: unknown) {
-            failed = true
-            failure = cause
-            done = true
-            wakeConsumer()
-        },
-        async *[Symbol.asyncIterator](): AsyncGenerator<T> {
-            while (true) {
-                while (buffer.length > 0) yield buffer.shift()!
-                if (done) {
-                    if (failed) throw failure
-                    return
-                }
-                await new Promise<void>((resolve) => { notify = resolve })
-            }
-        },
-    }
-}

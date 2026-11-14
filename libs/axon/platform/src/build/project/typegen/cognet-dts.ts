@@ -1,12 +1,14 @@
-import { join } from "node:path"
-import { readFileSync } from "node:fs"
+import { join, relative, sep } from "node:path"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { Frame, type ProjectKind } from "../../frame"
 import type { EngineType } from "@arcforge/types"
 import { writeIfChanged } from "./write"
+import { CognetConfigFile, contractOf, SCHEMA_DIR } from "../../blueprint/cognet"
 
 /**
  * The ambient authoring surface for cognet source — what the compile step's
- * host installs at runtime (defineCognet, loop, kernel, phase, system, ecs), typed
+ * host installs at runtime (defineCognet, definePlugin, defineSystem, component,
+ * query, frame, loop, kernel, phase, system, ecs), typed
  * here for the editor. Written into the owning project's `types/` area by
  * `axon prepare`: a standalone cognet's own frame, or the AGENT's frame when
  * the brain is inline at `<agent>/cognet/`.
@@ -24,9 +26,22 @@ import type {
     KernelAbi,
     EngineType,
 } from "@arcforge/types"
-import type { EcsT } from "@arcforge/cognet/ecs"
+import type { Component as EcsComponent, ComponentOpts, Definition, EcsT, Frame as EcsFrame, FrameDescriptor, Query, QueryOpts, QueryShape } from "@arcforge/cognet/ecs"
+import type { Component as SchemaComponent, ComponentOptions, Frame as SchemaFrame, FrameOptions, Handle as SchemaHandle, Session as SchemaSession, u32 as SchemaU32, i32 as SchemaI32, f32 as SchemaF32, f64 as SchemaF64 } from "@arcforge/cognet/schema"
+import type { AuthoredSystem, AuthoredSystemSpec, Input, Readable, Run, Trigger } from "@arcforge/cognet/schedule"
 
 declare global {
+    /** Schema vocabulary for authored type files. Erased after schema generation. */
+    type Component<Value, Options extends ComponentOptions> = SchemaComponent<Value, Options>
+    type Frame<Options extends FrameOptions> = SchemaFrame<Options>
+    type u32 = SchemaU32
+    type i32 = SchemaI32
+    type f32 = SchemaF32
+    type f64 = SchemaF64
+    /** Interface vocabulary for interfaces/*.interface.ts: what a provider keeps, and pushes that share state. */
+    type Handle<Name extends string> = SchemaHandle<Name>
+    type Session<Push, Answer> = SchemaSession<Push, Answer>
+
     /** what this brain declares (mode, wakeOn, engines) — cognet.config.ts only.
      *  Identity is NOT declared: name and version come from package.json. */
     function defineCognet<T extends CognetConfig>(config: T): T
@@ -40,9 +55,86 @@ declare global {
     function definePlugin(plugin: CognetPlugin): CognetPlugin
 
     /**
-     * THE entry point — declare the tick pipeline once, in src/main.ts.
-     * The kernel wakes it per stimulus batch; ticks run until stop() or
-     * interrupt. Wake-scoped things arrive as args, never as globals.
+     * A system — the default export of any \`*.system.ts\` file, wherever it
+     * sits. Discovered at compile time, and run in a tick only when what runs
+     * it has changed — what it reads, or what it names in \`on\` (\`clock\`:
+     * every tick) — ordered by its data: a system that reads a component runs
+     * after every system that writes it. Everything it touches must be
+     * declared.
+     *
+     * \`async run()\` makes it an async system: the tick does not wait for it,
+     * it reads a snapshot taken when it starts, its writes land at the start
+     * of a later tick, and it is not started again while a run is in flight.
+     * Model calls belong here.
+     */
+    function defineSystem<const U extends readonly (keyof CognetServices & string)[] = []>(spec: Omit<AuthoredSystemSpec, "on" | "reads" | "recalls" | "streams" | "writes" | "uses" | "run"> & {
+        on?: readonly (Trigger | CognetReadableName | "clock")[]
+        reads?: readonly (Readable | CognetReadableName)[]
+        recalls?: readonly (Definition | CognetDefinitionName)[]
+        streams?: readonly (EcsComponent<unknown> | CognetComponentName)[]
+        writes?: readonly (EcsComponent<unknown> | CognetComponentName)[]
+        /** The services it calls, by the names cognet.config.ts gives them. Its run's \`services\` holds these and no others. */
+        uses?: U
+        run(run: Omit<Run, "services"> & { services: { readonly [K in U[number]]: CognetUse<CognetServices[K]> } }): void | Promise<void>
+    }): AuthoredSystem
+
+    /** Every use cognet.config.ts declares, typed by its interface. Generated. */
+    interface CognetServices {
+__COGNET_SERVICES__
+    }
+
+    /**
+     * One use, as a run holds it: its interface's methods, whether something
+     * fills it, and what that reports of itself — null while unavailable.
+     */
+    type CognetUse<I> = Omit<I, "describe"> & {
+        readonly available: boolean
+        describe(): (I extends { describe(): infer D } ? D : never) | null
+    }
+
+    /**
+     * A component — a typed claim an entity can hold. Write it as
+     * \`export const name = component<T>()\`: its name and scope come from
+     * the folder it is defined in. Visible to systems in that folder and
+     * below unless \`public\`; written by one system unless \`open\`.
+     */
+    function component<T>(opts?: ComponentOpts): EcsComponent<T>
+
+    /**
+     * A named group of components, to declare as one in \`reads\`:
+     * \`export const tracked = query({ place: place, travel: travel })\`.
+     * It is a declaration only — a system reads the world with \`ecs.query\`.
+     */
+    function query<const S extends QueryShape>(shape: S, opts?: QueryOpts): Query<S>
+
+    /**
+     * A frame — a space a component's \`display\` places its value in: a
+     * camera's pixels, the body, a map. Write it as
+     * \`export const world = frame({ kind: "metric2d", unit: "px" })\`: named
+     * from its folder like a component, and declared to readers by the
+     * schedule. No system reads or writes it.
+     */
+    function frame(descriptor: FrameDescriptor): EcsFrame
+
+    /**
+     * The mind's input — every stimulus that arrived since the reading system
+     * last ran. Declare it (\`reads: [stimuli]\`) and read \`run({ stimuli })\`;
+     * undeclared, it throws. Buffered between ticks, so a slow system misses
+     * nothing.
+     */
+    const stimuli: Input
+
+    /**
+     * The passing of time: changed on every tick. Named only in \`on\` —
+     * \`on: [clock]\` runs a system every tick, for what must notice time
+     * pass (a silence, a fade) when nothing it reads has changed.
+     */
+    const clock: Input
+
+    /**
+     * OPTIONAL — a script's tick body, declared once in main.ts. Runs after
+     * the systems on every tick, until stop() or interrupt. A brain made only
+     * of systems declares none: each wake is then exactly one tick.
      */
     function loop(body: (ctx: {
         /** stimuli committed since the last wake, in seq order — stimulus:* only, the cognet's whole input contract */
@@ -77,12 +169,38 @@ __COGNET_ENGINE_ROLES__
      * from one tick to the next. Every write commits to the session log with
      * its value, which is what makes the world reconstructible afterwards.
      *
-     * Built on first touch — a cognet that never reaches for it carries no
-     * entity store. Declare a component's shape once with \`ecs.declare()\` so
-     * readers can render it honestly.
+     * A system reads and writes by component name —
+     * \`ecs.query({ components: ["velocity"] })\`,
+     * \`ecs.set({ id: id, components: { velocity: value } })\` — typed
+     * by CognetComponents below. Built on first touch — a cognet that never
+     * reaches for it carries no entity store.
      */
-    const ecs: EcsT
+    const ecs: EcsT<CognetComponents>
+
+    /**
+     * Every component this cognet defines, name to type, generated from its
+     * \`export const name = component<T>()\` lines: each under its full name,
+     * and under its export name alone when no other component shares it.
+     */
+    interface CognetComponents {
+__COGNET_COMPONENTS__
+    }
+
+    interface CognetQueries {
+__COGNET_QUERIES__
+    }
 }
+
+type CognetComponentName = Extract<keyof CognetComponents, string>
+type CognetQueryName = Extract<keyof CognetQueries, string>
+type CognetDefinitionName = CognetComponentName | CognetQueryName
+type CognetReadableName = CognetDefinitionName | "stimuli"
+
+/** A component's value is never null: in \`ecs.set\`, null is what takes a component off. This line fails to compile naming any that is. */
+type CognetNeverNull<Nullable extends never = { [K in keyof CognetComponents]: null extends CognetComponents[K] ? K : never }[keyof CognetComponents]> = Nullable
+
+/** The type a component handle carries. */
+type CognetValue<Handle> = Handle extends EcsComponent<infer T> ? T : never
 
 export {}
 `
@@ -106,59 +224,130 @@ export const COGNET_GLOBALS = "cognet-globals.d.ts"
  * declarations into `.agent/types/` — one brain's authoring surface, reached
  * from whichever frame the source happens to live in.
  */
+/** Each engine role the cognet declares: its name, its type, and what it puts out. */
 function readCognetEngineTypes(root: string): Array<[string, EngineType, string]> {
-    const candidates = [
-        join(root, "cognet.config.ts"),
-        join(root, "cognet", "cognet.config.ts"),
-    ]
-    const source = candidates.map(path => {
-        try { return readFileSync(path, "utf-8") } catch { return null }
-    }).find(value => value !== null)
+    const dir = cognetDir(root)
+    if (!dir) return []
+    const engines = CognetConfigFile({ sourceDir: dir }).read()?.engines ?? {}
+    return Object.entries(engines).map(([name, engine]) => [name, engine.type, [engine.out].flat()[0]!])
+}
 
-    if (!source) return []
+/**
+ * Each use the cognet declares, as a field of CognetServices: its name, typed
+ * by the interface it names — imported from the file that defines it, the
+ * standard library's or the cognet's own.
+ */
+function readCognetServices(root: string, types: string): string[] {
+    const dir = cognetDir(root)
+    if (!dir) return []
+    const uses = CognetConfigFile({ sourceDir: dir }).read()?.uses ?? {}
+    return Object.entries(uses).map(([name, use]) => {
+        const own = use.interface.startsWith("./")
+        const file = own ? join(dir, `${use.interface.slice(2)}.interface.ts`) : Bun.resolveSync(`@arcforge/cognet/interfaces/${use.interface}`, dir)
+        const near = relative(types, file).split(sep).join("/").replace(/\.ts$/, "")
+        const from = own ? (near.startsWith(".") ? near : `./${near}`) : `@arcforge/cognet/interfaces/${use.interface}`
+        return `        ${JSON.stringify(name)}: import(${JSON.stringify(from)}).${contractOf(file)}`
+    })
+}
 
-    const opener = source.indexOf("engines")
-    if (opener < 0) return []
-    const open = source.indexOf("{", opener)
-    let depth = 0
-    let close = -1
-    let quote: string | null = null
-    for (let i = open; i < source.length; i++) {
-        const char = source[i]
-        if (quote) {
-            if (char === quote && source[i - 1] !== "\\") quote = null
-            continue
-        }
-        if (char === "\"" || char === "'" || char === "`") quote = char
-        else if (char === "{") depth++
-        else if (char === "}" && --depth === 0) {
-            close = i
-            break
-        }
-    }
-    if (close < 0) return []
-    const block = source.slice(open + 1, close)
-
-    const roles: Array<[string, EngineType, string]> = []
-    const rolePattern = new RegExp("(?:^|\\n)\\s*([A-Za-z_$][\\w$]*)\\s*:\\s*\\{([\\s\\S]*?)(?=\\n\\s*[A-Za-z_$][\\w$]*\\s*:\\s*\\{|$)", "g")
-    const typePattern = new RegExp("\\btype\\s*:\\s*[\\\"'](generate|transform|stream)[\\\"']")
-    for (const match of block.matchAll(rolePattern)) {
-        const body = match[2] ?? ""
-        const type = typePattern.exec(body)?.[1] as EngineType | undefined
-        const output = body.match(/\bout\s*:\s*["'`](text|image|audio|video|vector|score|depth)["'`]/)?.[1]
-        if (type && output) roles.push([match[1]!, type, output])
-    }
-    return roles
+/** The cognet's source directory: the project itself, or an agent's inline `cognet/`. */
+function cognetDir(root: string): string | undefined {
+    return [root, join(root, "cognet")].find(one => existsSync(join(one, "cognet.config.ts")))
 }
 
 export function generateCognetDts(root: string, kind: ProjectKind = "cognet"): void {
+    const types = Frame({ root: root, kind: kind }).ensure("types")
     const declarations = readCognetEngineTypes(root)
         .map(([name, type, output]) => `        ${name}: { type: "${type}"; out: "${output}" }`)
         .join("\n")
-    const generated = COGNET_DTS.replace("__COGNET_ENGINE_ROLES__", declarations)
+    const generated = COGNET_DTS
+        .replace("__COGNET_ENGINE_ROLES__", declarations)
+        .replace("__COGNET_SERVICES__", readCognetServices(root, types).join("\n"))
+        .replace("__COGNET_COMPONENTS__", components.declare([...components.found(root), ...components.generated(join(Frame({ root: root, kind: kind }).path("cognet"), SCHEMA_DIR))], types))
+        .replace("__COGNET_QUERIES__", components.queries(root))
 
-    writeIfChanged(
-        join(Frame({ root: root, kind: kind }).ensure("types"), COGNET_GLOBALS),
-        generated,
-    )
+    writeIfChanged(join(types, COGNET_GLOBALS), generated)
+}
+
+/** One `export const name = component<T>()` in the cognet's source. */
+type FoundComponent = {
+    /** `L0/sense/vestibular/gravity` — the name the compile step gives it. */
+    name: string
+    /** `gravity` — the export. */
+    exported: string
+    /** The file defining it. */
+    file: string
+}
+
+/** `export const flow = component<Flow>(...)` — the same line the compile step names components from. */
+const COMPONENT = /^export\s+const\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*component\s*[<(]/gm
+const QUERY = /^export\s+const\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*query\s*\(/gm
+
+/** Directories no definition lives under: installed code and build output. */
+const SKIPPED = ["node_modules", ".git", ".cognet", ".agent"]
+
+const components = {
+    /**
+     * Every component the cognet defines, named as the compile step names
+     * them: the folder under `src/` when the cognet has one, then the export.
+     * A project with no cognet source defines none.
+     */
+    found(root: string, pattern: RegExp = COMPONENT): FoundComponent[] {
+        const source = [join(root, "cognet"), root].find(dir => existsSync(join(dir, "cognet.config.ts")) || existsSync(join(dir, "main.ts")) || existsSync(join(dir, "src", "main.ts")))
+        if (!source) return []
+        const nested = existsSync(join(source, "src"))
+        const found: FoundComponent[] = []
+        for (const entry of readdirSync(source, { recursive: true, encoding: "utf8" })) {
+            const path = entry.split(sep).join("/")
+            if (!path.endsWith(".ts") || path.endsWith(".d.ts") || path.endsWith(".test.ts")) continue
+            if (path.split("/").some(part => SKIPPED.includes(part))) continue
+            const file = join(source, entry)
+            const named = nested && path.startsWith("src/") ? path.slice("src/".length) : path
+            const folder = named.includes("/") ? named.slice(0, named.lastIndexOf("/")) : ""
+            for (const match of readFileSync(file, "utf8").matchAll(pattern)) {
+                found.push({ name: folder ? `${folder}/${match[1]!}` : match[1]!, exported: match[1]!, file: file })
+            }
+        }
+        return found.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    },
+
+    /**
+     * Every component the cognet's schemas generated into the frame, named as
+     * the compile step names them: the path the module mirrors — its
+     * schema's — then the export. None before the schemas are first compiled.
+     */
+    generated(dir: string): FoundComponent[] {
+        if (!existsSync(dir)) return []
+        const found: FoundComponent[] = []
+        for (const entry of readdirSync(dir, { recursive: true, encoding: "utf8" })) {
+            const path = entry.split(sep).join("/")
+            if (!path.endsWith(".ts") || path.endsWith(".types.ts")) continue
+            const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""
+            for (const match of readFileSync(join(dir, entry), "utf8").matchAll(COMPONENT)) {
+                found.push({ name: folder ? `${folder}/${match[1]!}` : match[1]!, exported: match[1]!, file: join(dir, entry) })
+            }
+        }
+        return found
+    },
+
+    /** The members of CognetComponents, each typed off the handle its file exports. */
+    declare(found: FoundComponent[], types: string): string {
+        const lines: string[] = []
+        for (const one of found) {
+            const module = relative(types, one.file).split(sep).join("/").replace(/\.ts$/, "")
+            lines.push(`        ${JSON.stringify(one.name)}: CognetValue<typeof import(${JSON.stringify(module.startsWith(".") ? module : `./${module}`)}).${one.exported}>`)
+            const alone = found.filter(other => other.exported === one.exported).length === 1
+            if (alone && one.name !== one.exported) lines.push(`        ${JSON.stringify(one.exported)}: CognetComponents[${JSON.stringify(one.name)}]`)
+        }
+        return lines.join("\n")
+    },
+
+    queries(root: string): string {
+        const found = this.found(root, QUERY)
+        return found.flatMap(one => {
+            const lines = [`        ${JSON.stringify(one.name)}: true`]
+            if (found.filter(other => other.exported === one.exported).length === 1 && one.name !== one.exported) lines.push(`        ${JSON.stringify(one.exported)}: true`)
+            return lines
+        }).join("\n")
+    },
 }

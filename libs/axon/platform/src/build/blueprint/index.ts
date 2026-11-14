@@ -10,11 +10,11 @@ export { Components, type PromptComponent } from "./scan/components"
 
 // The config authority — Project.prepare reads declared modules through the
 // same loader Blueprint composes with. One implementation, promoted on purpose.
-export { Config, invalidateConfig, withProviderGlobals, type LoadedConfig } from "./scan/config"
+export { Config, withProviderGlobals, type LoadedConfig } from "./scan/config"
 
 // The brain toolchain. prepare() gates a cognet's ABI before compiling it;
 // publish() records the declared abi on the version row.
-export { Cognet, cognetSourceOf, inlineCognetDir, INLINE_COGNET_DIR, type CognetT, type CognetSource, type CognetArtifact, DEFAULT_COGNET, cognetName, cognetAbi, readCognetAbi, readCognetModels, readCognetEngines } from "./cognet"
+export { Cognet, cognetSourceOf, inlineCognetDir, INLINE_COGNET_DIR, type CognetT, type CognetSource, type CognetArtifact, DEFAULT_COGNET, cognetName, cognetAbi, CognetConfigFile, type CognetConfigFileT } from "./cognet"
 export { flatten, sourceRoot, type NormalisedEntry } from "./modules/entries"
 
 /**

@@ -24,7 +24,7 @@ type DispatchOpts = {
  * wire adds nothing to it.
  */
 export function Dispatch(opts: DispatchOpts) {
-    return async function dispatch(path: readonly string[], arg: unknown): Promise<unknown> {
+    return async function dispatch(path: readonly string[], arg: unknown, signal?: AbortSignal): Promise<unknown> {
         let target: unknown = opts.domains
         /**
          * What `target` was reached THROUGH, kept so the call below can be a
@@ -58,7 +58,7 @@ export function Dispatch(opts: DispatchOpts) {
             })
         }
 
-        return (target as (this: unknown, input: unknown) => unknown).call(owner, arg)
+        return (target as (this: unknown, input: unknown, signal?: AbortSignal) => unknown).call(owner, arg, signal)
     }
 }
 

@@ -66,6 +66,16 @@ export function Env(opts: EnvOpts) {
         },
 
         /**
+         * The variables this agent's .env sets, as the runtime reads them —
+         * comments, quotes and `export` handled by the one parser. Unvalidated:
+         * a running agent takes what the file says; `production()` is the gate.
+         */
+        async values(): Promise<Record<string, string>> {
+            const content = await fsx.readText(path)
+            return content ? parse(content) : {}
+        },
+
+        /**
          * The variable names this agent's .env defines. Names only — a caller
          * listing keys must never be handed the secrets to render.
          */

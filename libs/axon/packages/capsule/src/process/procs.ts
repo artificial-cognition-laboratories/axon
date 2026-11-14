@@ -6,10 +6,12 @@ import type { CapsuleCommand, LiveProcHandle, ProcRunOptions, ProcRunResult, Pro
 import { wrapEntry, type ProcEntry } from "../sandbox/procs/handle"
 import type { MediatorT } from "./mediator"
 import type { InProcWireT as SandboxWireT } from "../inproc/emitter"
+import { CommandActivity, type CommandActivityT } from "./command-activity"
 
 type ProcsOpts = {
     mediator: MediatorT
     wire: SandboxWireT
+    commandActivity: CommandActivityT
 }
 
 /**
@@ -24,11 +26,13 @@ type ProcsOpts = {
  *             It is ephemeral work rather than a durable background handle.
  */
 export function SandboxProcs(opts: ProcsOpts) {
-    const { mediator, wire } = opts
+    const { mediator, wire, commandActivity } = opts
     const children = new Map<string, ReturnType<typeof nodeSpawn>>()
     const runChildren = new Map<string, ReturnType<typeof nodeSpawn>>()
     const entries = new Map<string, ProcEntry>()
     const subscribers = new Map<string, Set<(line: string) => void>>()
+    const spawnActivities = new Map<string, ReturnType<CommandActivityT["spawn"]>>()
+    const deliberatelyStopped = new Set<string>()
     // procIds killed while still mid-mediation — checked once the await
     // resolves so a kill() that races the spawn is never silently lost.
     const killedBeforeSpawn = new Set<string>()
@@ -98,6 +102,8 @@ export function SandboxProcs(opts: ProcsOpts) {
      */
     function spawn(command: string, spawnOpts?: ProcSpawnOptions & { procId?: string }): LiveProcHandle {
         const procId = spawnOpts?.procId ?? randomUUID()
+        const activity = commandActivity.spawn(command, procId)
+        spawnActivities.set(procId, activity)
         const entry: ProcEntry = {
             procId,
             kind: "managed",
@@ -114,12 +120,12 @@ export function SandboxProcs(opts: ProcsOpts) {
         }
         entries.set(procId, entry)
 
-        void mediateAndSpawn(entry, command, spawnOpts)
+        void mediateAndSpawn(entry, command, spawnOpts, activity)
 
         return wrapEntry(entry, impl(procId))
     }
 
-    async function mediateAndSpawn(entry: ProcEntry, command: string, spawnOpts?: ProcSpawnOptions): Promise<void> {
+    async function mediateAndSpawn(entry: ProcEntry, command: string, spawnOpts: ProcSpawnOptions | undefined, activity: ReturnType<CommandActivityT["spawn"]>): Promise<void> {
         const procId = entry.procId
 
         // Two gates, because spawning is two privileges: may this PROGRAM run
@@ -133,6 +139,8 @@ export function SandboxProcs(opts: ProcsOpts) {
             killedBeforeSpawn.delete(procId)
             wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "killed before it could spawn", context: { procId, command } }) })
             markExited(entry, -1, "killed before it could spawn")
+            activity.fail({ procId: procId }, "killed before it could spawn")
+            spawnActivities.delete(procId)
             return
         }
 
@@ -145,6 +153,8 @@ export function SandboxProcs(opts: ProcsOpts) {
                 : shellDenial(decision)
             wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: reason, context: { procId, command } }) })
             markExited(entry, -1, reason)
+            activity.fail({ procId: procId }, reason)
+            spawnActivities.delete(procId)
             return
         }
 
@@ -174,6 +184,8 @@ export function SandboxProcs(opts: ProcsOpts) {
         if (child.pid === undefined) {
             wire.emit("process:proc:denied", { procId, command, error: capsuleFault("CAPSULE_PROC_DENIED", { message: "spawn failed", context: { procId, command } }) })
             markExited(entry, -1, "spawn failed")
+            activity.fail({ procId: procId }, "spawn failed")
+            spawnActivities.delete(procId)
             return
         }
 
@@ -181,6 +193,7 @@ export function SandboxProcs(opts: ProcsOpts) {
         // The pid is real and the child is live — this is the ONE transition
         // that makes the handle's `running` true rather than assumed.
         markStarted(entry, child.pid)
+        activity.update({ procId: procId, pid: child.pid })
         wire.emit("process:proc:start", { procId, pid: child.pid, command, cwd: entry.cwd, kind: "managed" })
 
         if (killedBeforeSpawn.has(procId)) {
@@ -194,12 +207,14 @@ export function SandboxProcs(opts: ProcsOpts) {
 
         child.stdout?.on("data", (chunk: Buffer) => {
             const data = chunk.toString()
+            activity.output(data)
             entry.stdout.push(data)
             notify(procId, data)
             wire.emit("process:proc:stdout", { procId, data })
         })
         child.stderr?.on("data", (chunk: Buffer) => {
             const data = chunk.toString()
+            activity.output(data)
             entry.stderr.push(data)
             wire.emit("process:proc:stderr", { procId, data })
         })
@@ -208,7 +223,10 @@ export function SandboxProcs(opts: ProcsOpts) {
         // forever and the entry never leaves the live process list.
         child.on("error", cause => {
             children.delete(procId)
+            deliberatelyStopped.delete(procId)
             markExited(entry, -1)
+            spawnActivities.get(procId)?.fail({ exitCode: -1 }, cause.message)
+            spawnActivities.delete(procId)
             wire.emit("process:proc:failed", {
                 procId,
                 error: capsuleFault("CAPSULE_PROC_FAILED", {
@@ -222,6 +240,10 @@ export function SandboxProcs(opts: ProcsOpts) {
         child.on("exit", code => {
             children.delete(procId)
             markExited(entry, code ?? -1)
+            const stopped = deliberatelyStopped.delete(procId)
+            if (code === 0 || stopped) spawnActivities.get(procId)?.done({ exitCode: code ?? -1, stopped: stopped })
+            else spawnActivities.get(procId)?.fail({ exitCode: code ?? -1 }, `exit ${code ?? -1}`)
+            spawnActivities.delete(procId)
             wire.emit("process:proc:complete", { procId, code: code ?? -1, durationMs: Date.now() - entry.startedAt })
         })
     }
@@ -233,6 +255,7 @@ export function SandboxProcs(opts: ProcsOpts) {
      */
     async function run(command: string, runOpts?: ProcRunOptions, signal?: AbortSignal): Promise<ProcRunResult> {
         if (signal?.aborted) throw abortError()
+        const activity = commandActivity.open(command)
         const decision = await mediator.shell(splitCommand(command), command)
         const allowed = decision.verdict === "allow"
         if (signal?.aborted) throw abortError()
@@ -240,7 +263,9 @@ export function SandboxProcs(opts: ProcsOpts) {
             // The REASON, not just "denied": a model that tried `sh -c` can
             // rewrite the call if it is told that shells are off, and cannot if
             // it is told only that something was denied.
-            return { ok: false, exitCode: -1, stdout: "", stderr: "", err: shellDenial(decision) }
+            const err = shellDenial(decision)
+            activity.fail({ exitCode: -1 }, err)
+            return { ok: false, exitCode: -1, stdout: "", stderr: "", err }
         }
 
         return new Promise<ProcRunResult>((resolve, reject) => {
@@ -257,6 +282,7 @@ export function SandboxProcs(opts: ProcsOpts) {
             })
 
             if (child.pid === undefined) {
+                activity.fail({ exitCode: -1 }, "spawn failed")
                 resolve({ ok: false, exitCode: -1, stdout: "", stderr: "", err: "spawn failed" })
                 return
             }
@@ -304,17 +330,21 @@ export function SandboxProcs(opts: ProcsOpts) {
                 fn()
             }
             const onAbort = () => {
+                if (settled) return
                 killTree(child)
+                activity.fail({}, "interrupted")
                 settle(() => reject(abortError()))
             }
             child.stdout?.on("data", (chunk: Buffer) => {
                 const data = chunk.toString()
+                activity.output?.(data)
                 stdout += data
                 entry.stdout.push(data)
                 wire.emit("process:proc:stdout", { procId, data })
             })
             child.stderr?.on("data", (chunk: Buffer) => {
                 const data = chunk.toString()
+                activity.output?.(data)
                 stderr += data
                 entry.stderr.push(data)
                 wire.emit("process:proc:stderr", { procId, data })
@@ -334,13 +364,20 @@ export function SandboxProcs(opts: ProcsOpts) {
                     }),
                     durationMs: Date.now() - startedAt,
                 })
-                settle(() => resolve({ ok: false, exitCode: -1, stdout, stderr, err: cause.message }))
+                settle(() => {
+                    activity.fail({ exitCode: -1 }, cause.message)
+                    resolve({ ok: false, exitCode: -1, stdout, stderr, err: cause.message })
+                })
             })
             child.on("exit", code => {
                 runChildren.delete(procId)
                 markExited(entry, code ?? -1)
                 wire.emit("process:proc:complete", { procId, code: code ?? -1, durationMs: Date.now() - startedAt })
-                settle(() => resolve({ ok: code === 0, exitCode: code ?? -1, stdout, stderr }))
+                settle(() => {
+                    if (code === 0) activity.done({ exitCode: 0 })
+                    else activity.fail({ exitCode: code ?? -1 }, `exit ${code ?? -1}`)
+                    resolve({ ok: code === 0, exitCode: code ?? -1, stdout, stderr })
+                })
             })
 
             signal?.addEventListener("abort", onAbort, { once: true })
@@ -352,23 +389,28 @@ export function SandboxProcs(opts: ProcsOpts) {
     }
 
     function kill(procId: string): void {
+        const entry = entries.get(procId)
+        const activity = commandActivity.kill(procId, entry?.command)
         const runChild = runChildren.get(procId)
         if (runChild) {
             killTree(runChild)
+            activity.done()
             return
         }
         const child = children.get(procId)
         if (child) {
             // killTree, not child.kill(): with `shell: true` the handle is the
             // shell, and signalling it alone orphans the command it wraps.
+            deliberatelyStopped.add(procId)
             killTree(child)
+            activity.done()
             return
         }
         // No live child yet — spawn is still mid-mediation. Record the intent
         // so mediateAndSpawn() checks it once the await resolves, instead of
         // silently losing a kill() that raced the spawn.
-        const entry = entries.get(procId)
         if (entry?.status === "pending") killedBeforeSpawn.add(procId)
+        activity.done()
     }
 
     function stdin(procId: string, data: string): void {

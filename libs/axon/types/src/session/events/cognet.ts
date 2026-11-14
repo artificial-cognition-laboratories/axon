@@ -1,7 +1,44 @@
-import type { StimulusRef } from "./stdio/shared"
 import type { AxonError } from "../../error"
 import type { AxonLogEvents } from "./log"
 import type { AxonCancellableSpan, AxonSpan } from "./span"
+
+/** Instrument meaning is declared by the producer; a viewer never infers it from a component name or number count. */
+export type InstrumentRole = "velocity" | "acceleration" | "angular-velocity" | "altitude" | "joint-position" | "joint-effort" | "power" | "temperature"
+
+/**
+ * What a tick opened with. A mind with systems has its ticks run by its
+ * schedule, which says what each one answered — enough to run it again
+ * exactly as it ran. A tick of a `loop()` mind carries only its number.
+ */
+export type CognetTickStart = {
+    tick: number
+    /** The moment the tick stands for — every system's `now` in it. */
+    now?: number
+    /**
+     * How many wakes the tick answers. More than one when wakes arrived
+     * while the tick before it ran: they merge into the one tick waiting.
+     */
+    wakes?: number
+    /**
+     * The stimuli it admitted — every one that arrived since the tick before
+     * it — by their place in the mind's own stream: from its `from`th
+     * stimulus (counting from 0), `count` of them. Not by seq: a confined
+     * agent's events are stamped again by the supervisor that records them,
+     * so the seqs a mind saw are not the log's. Absent: none arrived.
+     */
+    admitted?: { from: number; count: number }
+}
+
+/** How a tick ended. */
+export type CognetTickComplete = {
+    tick: number
+    /**
+     * The time the tick spent waiting on a system rather than running one,
+     * by system, ms: a worker its next system needed, or a lagged run landing
+     * late. What set the tick's length when it ran over.
+     */
+    held?: Array<{ system: string; ms: number }>
+}
 
 /**
  * Cognet telemetry — the cognition artifact's own observability record.
@@ -47,8 +84,8 @@ export type CognetEventMap =
     // end when siblings of the same stem appear in one run.
     & AxonCancellableSpan<
         "cognet:tick",
-        { tick: number },
-        { tick: number },
+        CognetTickStart,
+        CognetTickComplete,
         { tick: number; error: AxonError },
         { tick: number }
     >
@@ -59,14 +96,53 @@ export type CognetEventMap =
         { tick: number; phase: string; error: AxonError },
         { tick: number; phase: string }
     >
-    & AxonCancellableSpan<
-        "cognet:system",
-        { tick: number; phase: string | null; system: string },
-        { tick: number; phase: string | null; system: string },
-        { tick: number; phase: string | null; system: string; error: AxonError },
-        { tick: number; phase: string | null; system: string }
-    >
     & {
+    // ── One system run, whole ────────────────────────────────────────────────
+    //
+    // ONE record per run, emitted when it ends — not a start/reads/complete
+    // triad. Systems run tens of times a tick, and the triad was three events
+    // per run: 77% of every event a continuous mind logged, measured on Terry
+    // at 20Hz, and most of what its log, its link and its debugger carried.
+    // A run's start is a field (`at`), so a reader still draws it as a span.
+    //
+    // `durationMs` is the run's OWN time. For an async system that is the
+    // time it computed beside the tick, not the moment its writes landed —
+    // which is what the triad used to report, and why async systems looked
+    // free.
+    "cognet:system:run": {
+        tick: number
+        phase: string | null
+        system: string
+        /** When the run began, epoch ms. */
+        at: number
+        durationMs: number
+        outcome: "complete" | "failed" | "interrupted"
+        error?: AxonError
+        /** It ran beside the tick; its writes landed at `tick`. */
+        async?: true
+        /** The worker thread it ran on, from 0. Absent: the main thread. */
+        thread?: number
+        /** It started this many ticks before `tick`, the one its writes landed in (see `lag` on the system). */
+        lag?: number
+        /**
+         * What the run actually read — every value, by the rev it was at. The
+         * declared `reads` say what a system may look at; this says what it
+         * did look at, which makes every write in the run a child of exactly
+         * these values — "why is this 0.62?" answered as a chain of real
+         * values, not a guess from declarations. Absent when the runtime could
+         * not observe it (an async run).
+         */
+        reads?: Array<{ entity: string; component: string; rev: number }>
+        /** Query calls in run order: final matches by revision, without duplicating values. */
+        queries?: Array<{ ordinal: number; required: string[]; optional: string[]; where?: unknown; filtered: boolean; candidates: number; count: number; matched: Array<{ entity: string; values: Array<{ entity: string; component: string; rev: number }> }> }>
+        /**
+         * The stimuli this run consumed, by their own seq in this log — where
+         * a chain of causes leaves the mind. Absent for a run that declares no
+         * input.
+         */
+        inputs?: Array<{ seq: number; channel: string }>
+    }
+
     // ── Knowledge mutations ──────────────────────────────────────────────────
     //
     // Emitted by the KERNEL when a cognet writes or removes long-term
@@ -80,6 +156,34 @@ export type CognetEventMap =
     // Traced because "the agent modified its own long-term memory" is exactly
     // the fact you want when behaviour drifts weeks later. Name only, never
     // content — the log records that memory changed, not a second copy of it.
+    /**
+     * A worker thread answered its first job: which OS thread it is. Lets a
+     * reader of per-thread CPU (axon:usage `threads`) name worker N instead
+     * of guessing from thread names. `tid` is null where the OS has no
+     * per-thread ids to give.
+     */
+    "cognet:thread:start": { index: number; pid: number; tid: number | null }
+    /**
+     * A lagged run was still going when the tick it lands in came, and the
+     * tick waited `waitedMs` for it — its work is longer than its lag. The
+     * mind's result is unchanged (it lands where it always would); only the
+     * tick was late.
+     */
+    "cognet:system:overrun": { tick: number; system: string; lag: number; waitedMs: number }
+    /**
+     * What the mind is working on, beside its ticks: the async systems with a
+     * run in flight, by name. Emitted when that set changes — a run starting,
+     * or the last one landing — so a client can show a mind as busy without
+     * asking it anything. Empty: nothing is in flight.
+     */
+    "cognet:activity": { working: string[] }
+    /**
+     * Stimuli the mind is done with, by the seq it received each at: every
+     * system that reads stimuli has taken them, and every run that took them —
+     * and whatever that run started — has ended. Whatever the mind was going
+     * to do about them, it has done. What ends a request to a continuous mind.
+     */
+    "cognet:settled": { seqs: number[] }
     "cognet:knowledge:write": { name: string }
     "cognet:knowledge:remove": { name: string }
 
@@ -110,12 +214,16 @@ export type CognetEventMap =
         shape: "scalar" | "vector" | "categorical" | "record"
         /** Physical unit for scalar/vector readings — "hp", "px/tick", "bool". */
         unit?: string
+        /** Optional physical meaning for cockpit instruments. Requires the matching shape, unit and frame/limits. */
+        instrument?: InstrumentRole
         /** Expected bounds, so a reader can scale without waiting for outliers. */
         range?: [number, number]
         /** Component names, in value order. Vectors only. */
         labels?: string[]
         /** The permitted values. Categoricals only. */
         options?: string[]
+        /** How a viewer draws it in its frame — see `Archetype`. Absent: shown as a value, not drawn. */
+        archetype?: Archetype
         /**
          * The declared frame this value is expressed in, by name.
          *
@@ -167,7 +275,7 @@ export type CognetEventMap =
     // anything.
     "cognet:frame:declare": {
         frame: string
-        kind: "metric2d" | "metric3d" | "graph" | "tree" | "sequence"
+        kind: FrameKind
         /** Physical unit of the axes, for metric frames. */
         unit?: string
         /** Size along each axis, so a reader can scale without waiting for outliers. */
@@ -183,100 +291,10 @@ export type CognetEventMap =
         relativeTo?: string
         origin?: number[]
         scale?: number
-    }
-
-    // ── Probes ───────────────────────────────────────────────────────────────
-    //
-    // A map the mind computed and would like looked at: a motion field, a
-    // depth estimate, an attention map, the error of a prediction.
-    //
-    // NOT a belief, and deliberately not a component: it is per-pixel, arrives
-    // at the rate of the sense it came from, and nothing in the mind reads it.
-    // Retained like a sensation (bounded, evicted, never in the permanent log)
-    // for exactly the reason a frame is — a megabyte a second of instrument
-    // output would drown the record it is meant to explain.
-    //
-    // `frame` positions it, and `source` names the sensation it was computed
-    // from, so a reader scrubbed back to one moment lays the map over the
-    // exact frame it describes rather than the newest one.
-    "cognet:probe:raster": {
-        /** Where this probe publishes, e.g. "/probe/features". One channel is one layer. */
-        channel: string
-        ref: StimulusRef
-        /** The declared frame its pixels are positioned in. */
-        frame: string
-        /** The sensation it explains: that channel, and that entry's seq. */
-        source?: { channel: string; seq: number }
-        width: number
-        height: number
-        /** What the channels mean, e.g. ["motion", "", "screen-fixed"]. Read as a legend. */
-        legend?: string[]
-    }
-
-    // A MEASUREMENT on a grid — the honest form of an instrument, and what
-    // `probe:raster` should be used for only when the answer really is an image.
-    //
-    // A raster forces the mind to pre-colour its own data, and that costs three
-    // things a reader cannot get back: the VALUES (0.37 is unrecoverable from a
-    // red pixel), the SEPARATION (three unrelated questions packed into three
-    // channels composite into colours nobody can decode), and the COLOURMAP
-    // decision, which belongs to whoever is looking rather than to cognition.
-    //
-    // So a field carries numbers and says what they mean, in the same vocabulary
-    // the component schema already uses — `shape`, `range`, `options`, `unit`.
-    // One description system, so anything that can draw a belief can draw a
-    // probe: the reader picks a scale, shows a real key, and can report the
-    // value under the cursor.
-    //
-    // ONE CHANNEL IS ONE QUESTION. `/probe/independent` and `/probe/band` are
-    // two fields, never one image with two channels — that is the whole point.
-    //
-    // Coarse by construction. A field is meant to be scaled, inspected and
-    // reasoned about, so `values` is plain numbers and the grid is expected to
-    // be at most a few thousand cells. Per-pixel output stays a raster, where
-    // the image encoding is what makes it affordable.
-    "cognet:probe:field": {
-        /** Where this field publishes, e.g. "/probe/independent". */
-        channel: string
-        /** The declared frame its cells are positioned in, so a reader can place them. */
-        frame: string
-        /** The sensation it explains: that channel, and that entry's seq. */
-        source?: { channel: string; seq: number }
-        /** The grid, row-major. Cells are stretched across the frame's extent. */
-        cols: number
-        rows: number
-        /**
-         * What one cell is.
-         *
-         * `scalar` — one number per cell, coloured by `range`.
-         * `categorical` — an index into `options`, coloured by identity.
-         * `vector2` — two numbers per cell, drawn as direction and magnitude.
-         */
-        shape: "scalar" | "categorical" | "vector2"
-        /**
-         * A scalar's value range, so a reader scales immediately rather than
-         * waiting for outliers — and so a range spanning zero is recognisably
-         * signed and gets a diverging scale.
-         */
-        range?: [number, number]
-        /** A categorical's values, in index order. `values[i]` selects one. */
-        options?: string[]
-        /** A vector2's two components, e.g. ["dx", "dy"]. */
-        labels?: string[]
-        unit?: string
-        /**
-         * How it composites over the picture.
-         *
-         * `add` is light the eye found in the image — motion energy, salience.
-         * `over` is a judgement ABOUT the image — a classification, a depth
-         * band — and adding those together produces colours that mean nothing.
-         * Declared because only the mind knows which it made.
-         */
-        blend?: "add" | "over"
-        /** One sentence: what this field is, for whoever is looking at it. */
-        meaning?: string
-        /** Row-major. One number per cell, or two for `vector2`. */
-        values: number[]
+        /** Which way is up along these axes (`[0, 1, 0]` when y rises), so a 3D viewer stands the frame upright. Absent: z for a 3D frame, −y for a 2D one (drawn y down, as a picture). */
+        up?: number[]
+        /** The sense whose pixels this frame is (`"/vision"`), so a viewer of that camera knows its frame. */
+        sensor?: string
     }
 
     // ── Schedule ─────────────────────────────────────────────────────────────
@@ -286,32 +304,45 @@ export type CognetEventMap =
     // other — so this data lineage IS the program's structure, and without it
     // a reader can see beliefs change but never what connects them.
     //
-    // Declared once, on the schedule's first run, like the world schema. It is
-    // a claim, not a measurement: the writes each system actually makes arrive
-    // stamped with its name, and a reader comparing the two is how an
-    // undeclared write is caught.
+    // Declared once, on the schedule's first run. The schedule enforces it:
+    // a system that touches a component it did not declare fails its run.
     "cognet:schedule:declare": {
+        /** The process the schedule runs in — whose main thread is the thread with this id. Absent from older runtimes. */
+        pid?: number
+        /** Continuous clock rate. Null for reactive minds; absent from older runtimes. */
+        hz?: number | null
+        /** Every system, in the order the schedule runs them — derived from reads and writes. */
         systems: Array<{
+            /** The system's path under the cognet, without `.system.ts`. */
             name: string
-            phase: string
-            /** Private rate. 0 = every tick. */
-            everyMs: number
+            /**
+             * What runs it, when it names it (\`on\`): components, or \`clock\` —
+             * every tick. Null: what it reads runs it. Absent from runtimes
+             * that paced systems by a declared rate.
+             */
+            on?: string[] | null
+            /** Runs on the first tick only. */
+            once: boolean
+            /** Runs beside the tick: its writes land at the start of a later one. */
+            async: boolean
+            /** Runs on a worker thread when the cognet has threads. */
+            worker: boolean
+            /** Ticks from when a run starts to when its writes land; 0, the tick it ran in. Absent from older runtimes. */
+            lag?: number
+            /** This tick's values — every writer runs first. */
             reads: string[]
+            /** Every value written since it last ran — every writer runs first. Absent from older runtimes. */
+            streams?: string[]
+            /** Last tick's values — no ordering edge. */
+            recalls: string[]
             writes: string[]
+            /** The services it calls, by the names the cognet gave them. Absent from older runtimes. */
+            uses?: string[]
         }>
-    }
-
-    // What one system run actually READ: every value, by the rev it was at.
-    //
-    // The declared `reads` say what a system may look at; this says what it
-    // did look at, this tick. It makes every write in the same run a child of
-    // exactly these values, which is what lets a reader answer "why is this
-    // 0.62?" as a chain of real values rather than a guess from declarations.
-    "cognet:system:reads": {
-        tick: number
-        phase: string | null
-        system: string
-        reads: Array<{ entity: string; component: string; rev: number }>
+        /** Every component a system names, and the folder it is declared in. */
+        components: Array<{ name: string; scope: string }>
+        /** Every query a system names, and the components it is made of. */
+        queries: Array<{ name: string; scope: string; members: string[] }>
     }
 
     // `system` is who made the write — null outside any system bracket (boot
@@ -327,3 +358,21 @@ export type CognetEventMap =
     "cognet:component:update": { tick: number; phase: string | null; system?: string | null; entity: string; component: string; rev?: number; value?: unknown }
     "cognet:component:remove": { tick: number; phase: string | null; system?: string | null; entity: string; component: string }
 }
+
+/**
+ * What kind of space a frame is. Not only metric: a dependency graph, a file
+ * tree and a conversation are spaces too, with positions and neighbours.
+ */
+export type FrameKind = "metric2d" | "metric3d" | "graph" | "tree" | "sequence"
+
+/**
+ * How a component's value is drawn in its frame — the contract between a
+ * mind and every viewer of it, so a viewer draws a belief without knowing
+ * what it means. Each value shape is documented where a mind declares it
+ * (`@arcforge/cognet`'s component schema).
+ *
+ *   span   { from: { seq, at }, to: { seq, at } } — a stretch of the session's text (`TextSpan`),
+ *          in a `sequence` frame. Text perception's position: an atom, a
+ *          mention, a segment. The entity's other components colour it.
+ */
+export type Archetype = "point" | "box" | "arrow" | "path" | "cloud" | "grid" | "raster" | "view" | "series" | "transform" | "span"

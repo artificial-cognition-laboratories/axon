@@ -10,6 +10,7 @@ import { ModelCommands } from "./models"
 import { PreferenceCommands } from "./preferences"
 import { DictationCommands } from "./dictation"
 import { WatchCommands } from "./watch"
+import { WorldCommands } from "./worlds"
 
 /** The daemon's CLI is a flat public grammar assembled from domain handles. */
 export function Cli(opts: { axond: AxondT }) {
@@ -24,9 +25,11 @@ export function Cli(opts: { axond: AxondT }) {
     const preferences = PreferenceCommands({ axond: opts.axond, renderer: renderer, format: format, client: client })
     const dictation = DictationCommands({ axond: opts.axond, renderer: renderer, format: format, client: client })
     const watch = WatchCommands({ axond: opts.axond, renderer: renderer, format: format, client: client })
+    const worlds = WorldCommands({ axond: opts.axond, renderer: renderer, format: format, client: client })
 
     return {
         up: lifetime.up,
+        restart: lifetime.restart,
         down: lifetime.down,
         boot: lifetime.boot,
         status: lifetime.status,
@@ -69,6 +72,13 @@ export function Cli(opts: { axond: AxondT }) {
         preference: preferences.preference,
         dictate: dictation.dictate,
         watch: watch.watch,
+        worlds: worlds.worlds,
+        world: worlds.world,
+        place: worlds.place,
+        runStart: worlds.runStart,
+        runCancel: worlds.runCancel,
+        worn: worlds.worn,
+        runFollow: worlds.runFollow,
     }
 }
 

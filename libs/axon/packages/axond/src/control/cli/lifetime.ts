@@ -41,6 +41,19 @@ export function Lifetime(opts: CliContext) {
                 : status(r, "ok", "axond started", `pid ${started.pid} · ${started.socket}`)
         },
 
+        async restart(json = false): Promise<string> {
+            const previous = opts.axond.lifecycle.pid()
+            opts.axond.lifecycle.down()
+            const deadline = Date.now() + 10_000
+            while (previous !== null && opts.axond.lifecycle.pid() === previous) {
+                if (Date.now() >= deadline) throw err("DAEMON_START_FAILED", { detail: "the previous daemon did not stop within ten seconds" })
+                await Bun.sleep(50)
+            }
+            const started = await opts.axond.lifecycle.up()
+            if (json) return JSON.stringify(started)
+            return status(r, "ok", "axond restarted", `pid ${started.pid}`)
+        },
+
         /** Stop the running daemon. Saying so when there was none is the honest answer. */
         down(): string {
             return opts.axond.lifecycle.down()
@@ -149,6 +162,7 @@ export function Lifetime(opts: CliContext) {
                 ...rows(r, [
                     { label: "up", value: "start the daemon" },
                     { label: "down", value: "stop it" },
+                    { label: "restart", value: "restart with the current Axon build" },
                     { label: "status", value: "is it running" },
                     { label: "machine", value: "what this box has, and what is held" },
                     { label: "agents", value: "what is running here" },

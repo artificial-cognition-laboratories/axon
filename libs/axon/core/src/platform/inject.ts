@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { err } from "@arcforge/err"
-import { defineArgs, defineAxonPlugin, defineMiddleware, defineModule, defineProps, definePrompt, type AxonBlueprint, type AxonHandle } from "@arcforge/types"
+import { defineArgs, defineAxonPlugin, defineMiddleware, defineModule, defineProps, definePrompt, defineProvider, type AxonBlueprint, type AxonHandle } from "@arcforge/types"
 
 const argsStorage = new AsyncLocalStorage<Record<string, unknown>>()
 
@@ -96,6 +96,7 @@ export function Inject() {
             g.defineProps ??= defineProps
             g.defineMiddleware ??= defineMiddleware
             g.defineAxonPlugin ??= defineAxonPlugin
+            g.defineProvider ??= defineProvider
 
             g.axon = new Proxy({}, {
                 get: outsideRuntime,

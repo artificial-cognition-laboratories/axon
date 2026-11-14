@@ -119,6 +119,12 @@ export type AxonOutputEvent = {
         ref?: StimulusRef
         /** chunking standard (shared.ts) — absent = self-contained complete emission */
         chunk?: AxonChunk
+        /**
+         * The `sensed` stamp of the newest reading this was decided on, when it is a command to a body. The body
+         * answers when the command took effect, on the same clock — so acting's latency is measured for every
+         * command (body contract: Command.basis).
+         */
+        basis?: number
     }
 }
 

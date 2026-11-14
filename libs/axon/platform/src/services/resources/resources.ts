@@ -57,7 +57,6 @@ type ResourcesOpts = {
 }
 
 export function Resources(opts: ResourcesOpts = {}) {
-    const hardware = probeHardware()
     const reservations = opts.reservations ?? Reservations()
 
     /**
@@ -71,7 +70,7 @@ export function Resources(opts: ResourcesOpts = {}) {
     function ceiling(): number | null {
         const declared = parseSize(opts.budget?.()?.vram)
         if (declared !== null) return declared
-        return hardware.vram ?? null
+        return probeHardware().vram ?? null
     }
 
     function state(): ResourceState {
@@ -80,7 +79,7 @@ export function Resources(opts: ResourcesOpts = {}) {
         const limit = ceiling()
 
         return {
-            hardware,
+            hardware: probeHardware(),
             budget: parseSize(opts.budget?.()?.vram),
             held,
             // Never negative: over-commitment is possible (a load that grew
@@ -93,7 +92,7 @@ export function Resources(opts: ResourcesOpts = {}) {
 
     return {
         get hardware(): Hardware {
-            return hardware
+            return probeHardware()
         },
 
         state,
@@ -127,7 +126,7 @@ export function Resources(opts: ResourcesOpts = {}) {
 
                 throw err("RESOURCES_EXHAUSTED", {
                     detail: `${entry.model} needs ${formatSize(entry.bytes)}, `
-                        + `${formatSize(current.available)} available of ${formatSize(current.budget ?? hardware.vram ?? 0)}.`
+                        + `${formatSize(current.available)} available of ${formatSize(current.budget ?? current.hardware.vram ?? 0)}.`
                         + (holders ? `\n\nheld by:\n${holders}` : ""),
                     context: {
                         model: entry.model,

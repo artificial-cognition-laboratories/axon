@@ -92,10 +92,41 @@ export const SENSORY_EVENTS = new Set<string>([
     "cognet:stimulus:visual",
     "cognet:output:audio",
     "cognet:output:visual",
-    // Instrument output: per-pixel or per-cell, at a sense's rate, read by
-    // nobody in the mind. Exactly the profile this tier exists for.
-    "cognet:probe:raster",
-    "cognet:probe:field",
+])
+
+/**
+ * The high-rate half of cognet telemetry: what a continuous mind emits per
+ * system per tick — run records, tick and phase brackets, world writes.
+ *
+ * A fourth retention tier, beside the log and the sensory ring: kept in a
+ * bounded BINARY ring (TelemetryRing in @arcforge/session), held in the
+ * kernel window and announced live exactly like any kernel event, and never
+ * appended to the log. A 20Hz mind writes over a thousand of these a second;
+ * as JSON lines they were most of the log's size and most of every reader's
+ * parse time.
+ *
+ * What stays in the log is what the mind DECLARED — its schema, its frames,
+ * its schedule — and what happened to it: load, errors, outputs, usage. A
+ * reader that opens a session long after its ring has rolled still knows
+ * what the mind was, and sees how it behaved for as far back as the ring
+ * reaches.
+ */
+export const TELEMETRY_EVENTS = new Set<string>([
+    "cognet:system:run",
+    "cognet:system:overrun",
+    "cognet:tick:start",
+    "cognet:tick:complete",
+    "cognet:tick:failed",
+    "cognet:tick:interrupted",
+    "cognet:phase:start",
+    "cognet:phase:complete",
+    "cognet:phase:failed",
+    "cognet:phase:interrupted",
+    "cognet:component:add",
+    "cognet:component:update",
+    "cognet:component:remove",
+    "cognet:entity:add",
+    "cognet:entity:remove",
 ])
 
 /**

@@ -6,7 +6,7 @@ export type {
     AxonIngestedEvent,
 } from "./envelope"
 export type { AxonKernelEventMap } from "./events/kernel"
-export type { CognetEventMap } from "./events/cognet"
+export type { Archetype, CognetEventMap, CognetTickComplete, CognetTickStart, FrameKind, InstrumentRole } from "./events/cognet"
 export type { CapsuleEventMap, CapsuleEventName, AnyCapsuleEvent, CapsuleCommandOrigin } from "./events/capsule"
 export type { BuildEventMap, BuildEventName, AnyBuildEvent, BuildStage } from "./events/build"
 export { isBuildEvent } from "./events/build"
@@ -19,7 +19,7 @@ export { ENTRY_EVENT_PREFIXES } from "./events/entries"
 export { isKernelEvent, isEntryEvent, classifyEvent, type AxonEventView } from "./classify"
 export type { AxonStimulusEntry, AxonStimulusInput, AxonStimulusEvent, AxonStimulusType } from "./events/stdio/stimuli"
 export { STIMULUS_TRANSIENT_EVENTS } from "./events/stdio/stimuli"
-export { SENSORY_EVENTS } from "./events/stdio/shared"
+export { SENSORY_EVENTS, TELEMETRY_EVENTS } from "./events/stdio/shared"
 export type { AxonOutputEvent, AxonOutputType } from "./events/stdio/output"
 export type { AxonChannel, AxonChunk, AxonTextFormat, StimulusRef } from "./events/stdio/shared"
 export type { AxonLogEvents } from "./events/log"
@@ -38,6 +38,8 @@ export type {
     AxonTestStatus,
 } from "./events/test"
 export { foldChunks } from "./session"
+export { addressedTo } from "./channel"
+export { entryText, type TextPoint, type TextSpan } from "./text"
 
 export type {
     AxonSessionSnapshot,

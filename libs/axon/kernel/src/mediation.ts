@@ -210,9 +210,9 @@ export function Mediation(opts: MediationOpts) {
         })
     }
 
-    function span() {
+    function span(spanId?: string) {
         const active = opts.run?.()
-        return active ? { runId: active.runId, spanId: Bun.randomUUIDv7() } : undefined
+        return active ? { runId: active.runId, spanId: spanId ?? Bun.randomUUIDv7() } : undefined
     }
 
     /**
@@ -278,20 +278,23 @@ export function Mediation(opts: MediationOpts) {
          * silently stops pairing brackets.
          */
         emit: {
-            start(input: { module: string; fn: string; args: unknown[] }) {
-                void opts.session.commit("process:fn:start", { commandId: commandId(), ...input }, span())
+            async start(input: { module: string; fn: string; args: unknown[] }) {
+                const spanId = Bun.randomUUIDv7()
+                await opts.session.commit("process:fn:start", { commandId: commandId(), ...input }, span(spanId))
+                return spanId
             },
-            complete(input: { module: string; fn: string; result: unknown; durationMs: number }) {
-                void opts.session.commit("process:fn:complete", { commandId: commandId(), ...input }, span())
+            async complete(input: { module: string; fn: string; result: unknown; durationMs: number; spanId: string }) {
+                const { spanId, ...data } = input
+                await opts.session.commit("process:fn:complete", { commandId: commandId(), ...data }, span(spanId))
             },
-            failed(input: { module: string; fn: string; error: unknown; durationMs: number }) {
-                void opts.session.commit("process:fn:failed", {
+            async failed(input: { module: string; fn: string; error: unknown; durationMs: number; spanId: string }) {
+                await opts.session.commit("process:fn:failed", {
                     commandId: commandId(),
                     module: input.module,
                     fn: input.fn,
                     error: input.error as never,
                     durationMs: input.durationMs,
-                }, span())
+                }, span(input.spanId))
             },
         },
     }

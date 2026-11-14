@@ -41,7 +41,7 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
 const mediation: MediateOpts = {
     async check() { return true },
-    emit: { start() {}, complete() {}, failed() {} },
+    emit: { async start() { return "test-span" }, async complete() {}, async failed() {} },
 }
 
 function tool(over: Partial<AxonTool> & { name: string; source: string }): AxonTool {

@@ -5,10 +5,11 @@
     "": {
       "name": "@axon/zeno",
       "dependencies": {
-        "@arcforge/air": "2.0.214",
-        "@arcforge/cognet": "2.0.214",
-        "@arcforge/engines": "2.0.214",
-        "@arcforge/types": "2.0.214",
+        "@arcforge/air": "file:/home/cody/git/arclabs/libs/axon/packages/air",
+        "@arcforge/cognet": "file:/home/cody/git/arclabs/libs/axon/cognet",
+        "@arcforge/engines": "file:/home/cody/git/arclabs/libs/axon/packages/engines",
+        "@arcforge/err": "file:/home/cody/git/arclabs/libs/axon/packages/err",
+        "@arcforge/types": "file:/home/cody/git/arclabs/libs/axon/types",
         "@axon/docs": "^1.0.1",
         "@axon/fs": "^0.1.7",
         "@axon/subagent": "^0.1.5",
@@ -17,28 +18,67 @@
       },
     },
   },
+  "overrides": {
+    "@arcforge/air": "file:/home/cody/git/arclabs/libs/axon/packages/air",
+    "@arcforge/cognet": "file:/home/cody/git/arclabs/libs/axon/cognet",
+    "@arcforge/engines": "file:/home/cody/git/arclabs/libs/axon/packages/engines",
+    "@arcforge/err": "file:/home/cody/git/arclabs/libs/axon/packages/err",
+    "@arcforge/types": "file:/home/cody/git/arclabs/libs/axon/types",
+  },
   "packages": {
-    "@arcforge/air": ["@arcforge/air@2.0.214", "", { "dependencies": { "@arcforge/err": "2.0.214", "@arcforge/types": "2.0.214" } }, "sha512-FLHMRjWXnG5YKCXR5t5d3AFLUYgApd6PiY/m5rN0IvX3PboEPWLrXhxJv/oTN7CHN3XBiltS4X/CwwW487hPiA=="],
+    "@ai-sdk/anthropic": ["@ai-sdk/anthropic@4.0.71", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-wiv3jhUH0RrvGzSolJMZfZ2cI9As45LhwYmcAoWvNivXjC7wzJ4W/Udq9/u7EGnGsT8lpmFKEKBrMXVeUO97Dg=="],
 
-    "@arcforge/cognet": ["@arcforge/cognet@2.0.214", "", { "dependencies": { "@arcforge/err": "2.0.214", "@arcforge/types": "2.0.214", "hookable": "^5.5.3" } }, "sha512-bL/BPj89iNXFiSe7lEPw2E81jPkBxEPnhYXMeB9P4UrWaN+s5dVeTZ1ZddtJ3PVAjfGX8vsM1kw6U15HiIYwAw=="],
+    "@ai-sdk/cerebras": ["@ai-sdk/cerebras@3.0.62", "", { "dependencies": { "@ai-sdk/openai-compatible": "3.0.62", "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-fh5T5I2pL5lk+uxt8H5aQbHhk8J3ofqyGZqJxiKgmj9UrNk/+IjhqPSB/zY8QyEi8UJarrh5FEtwaF+gvQlUbg=="],
 
-    "@arcforge/engines": ["@arcforge/engines@2.0.214", "", { "dependencies": { "@arcforge/types": "2.0.214" }, "peerDependencies": { "@ai-sdk/anthropic": "^4.0.0", "@ai-sdk/cerebras": "^3.0.0", "@ai-sdk/deepseek": "^3.0.0", "@ai-sdk/google": "^4.0.0", "@ai-sdk/groq": "^4.0.0", "@ai-sdk/mistral": "^4.0.0", "@ai-sdk/openai": "^4.0.0", "@ai-sdk/openai-compatible": "^3.0.0", "@ai-sdk/perplexity": "^4.0.0", "@ai-sdk/xai": "^4.0.0", "@ai-sdk/zai": "^3.0.0" }, "optionalPeers": ["@ai-sdk/anthropic", "@ai-sdk/cerebras", "@ai-sdk/deepseek", "@ai-sdk/google", "@ai-sdk/groq", "@ai-sdk/mistral", "@ai-sdk/openai", "@ai-sdk/openai-compatible", "@ai-sdk/perplexity", "@ai-sdk/xai", "@ai-sdk/zai"] }, "sha512-qbqfh10z9EvEu1yEFGEp7PiN0OSYxIRMPZosrQmOUqHXFdf/XSlX5juFPgd9SLMjwXF2mfBENX0GnEvPKbStYw=="],
+    "@ai-sdk/deepseek": ["@ai-sdk/deepseek@3.0.58", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-tOafL69mHQGJH3g/mu4k0evkP/cRLSHCWe7L9rcVV4b0S1zI2rpWDZbToZO7D4X/uox9baVmgRQ5AoUTeaDs0A=="],
 
-    "@arcforge/err": ["@arcforge/err@2.0.214", "", { "dependencies": { "@arcforge/types": "2.0.214" } }, "sha512-PTcb3mToMEmUrF9WEJuimo0nLjC6G3UDfbX13jK3U6hx0VmJA+5GC6ulV5U9egBGJygiQ4Axmd2pl/fIgnuS8g=="],
+    "@ai-sdk/google": ["@ai-sdk/google@4.0.87", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-s0tWc+QeSce7O2ZLm+VWSRQy16dGfqEcMIUxEWh+LFvXX3h0TLH8jxCQ2H1qhiBgTta+6A97eHPhBlRFu1xy+g=="],
 
-    "@arcforge/types": ["@arcforge/types@2.0.214", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-RFYSxNVBW8p3x3VGAmA3e+KhOMGpEdTcxDC/IbgWpqIHCUCQGEs3OHXTyybBVWu6+nH2ySHrlhF+DjiqJq034g=="],
+    "@ai-sdk/groq": ["@ai-sdk/groq@4.0.54", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-hAcGQqvThh52tEbhCwOaaSMcxHtJrA7SENLSRBxeteEzdFT/tjRhqes6S8MobR4O53nLZYz7HsSoRejH/D1bWA=="],
 
-    "@axon/docs": ["@axon/docs@1.0.7", "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/@axon/docs/-/docs-1.0.7.tgz", { "dependencies": { "@arcforge/air": "2.0.141", "@arcforge/cognet": "2.0.141", "@arcforge/engines": "2.0.141", "@arcforge/types": "2.0.141", "h3": "^1.13.0" } }, "sha512-HFokjlzMkC0p2lwslBfEb18YxWIkIWbsRNDf6GqcQfH9OGC3Kjv+Ok2Ko2hnmir2egqb9CRNb96cMvD590/rfA=="],
+    "@ai-sdk/mistral": ["@ai-sdk/mistral@4.0.56", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Kppa/gmT0/W9eYwm3ihbrsXR8R8D/OCnTnKTQS/+L4Ssd3AYOdwRbRUnYcEL/HzoWNwd/pfVD5dof1a5c8hKnQ=="],
 
-    "@axon/fs": ["@axon/fs@0.1.9", "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/@axon/fs/-/fs-0.1.9.tgz", { "dependencies": { "@arcforge/air": "2.0.175", "@arcforge/cognet": "2.0.175", "@arcforge/engines": "2.0.175", "@arcforge/types": "2.0.175", "h3": "^1.13.0" } }, "sha512-2Ul6HmJVnQ8jq8ID8rqzHKr4UKMd1Epspz+CuLoBS3LTe7kJim8F9VLuv6XaqaQPavoqXT/Ux3W8tXpqBIISxA=="],
+    "@ai-sdk/openai": ["@ai-sdk/openai@4.0.83", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-NgqZVWoya7hfmtLkWyIjX9THbyYMLfxFqpShdAmvMnkoT+R9AZbdULGan8+4BiBWIZ1aHiAsc90l3SL8QU/0+Q=="],
 
-    "@axon/subagent": ["@axon/subagent@0.1.5", "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/@axon/subagent/-/subagent-0.1.5.tgz", { "dependencies": { "@arcforge/air": "2.0.168", "@arcforge/cognet": "2.0.168", "@arcforge/engines": "2.0.168", "@arcforge/types": "2.0.168", "h3": "^1.13.0" } }, "sha512-H24WZklZZWrmU0TzXG6ySdT8gifSC+RSJ4CT7FDTzhTMgdMCA3KU4WbBTJZPwAqP9Ki8+UJBffglfP7fdVgceg=="],
+    "@ai-sdk/openai-compatible": ["@ai-sdk/openai-compatible@3.0.62", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-IAz1xv8zot4KLGa8kN7UfAA6H5+ARzAgAKLsoKxHPBzZuOc2E3ohaELg0x/JR9HVTbMbiftb0dPyCb8cT2KBRg=="],
 
-    "@axon/zero": ["@axon/zero@1.0.54", "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/@axon/zero/-/zero-1.0.54.tgz", { "dependencies": { "@arcforge/air": "2.0.214", "@arcforge/cognet": "2.0.214", "@arcforge/engines": "2.0.214", "@arcforge/types": "2.0.214", "h3": "^1.13.0" } }, "sha512-nUclbvFqUv/1p1Dm+q9/a+opgB6v+4ie1vqeEbDNI2ydxNqS1cesa62EU5ir3spIDE9W1zRNKJqqnixYh7LSQA=="],
+    "@ai-sdk/perplexity": ["@ai-sdk/perplexity@4.0.52", "", { "dependencies": { "@ai-sdk/provider": "4.0.18", "@ai-sdk/provider-utils": "5.0.49" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-JLKkSDnDH9jVKs6OfXFSXwx192qJHCWzZrjjomfXjdrV4o4inHX/NHwxJ+L/G3aZX99zJfQlSL0tmw3F4qUAMg=="],
+
+    "@ai-sdk/provider": ["@ai-sdk/provider@4.0.21", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-UpbC9C1oht8dhfKPbVXSLRZS3DI8uk8n5v2uMjBPNIYGsC2kL045ywq7D8Hh9KgnH9rP5W/GxQdYtWScRouqlA=="],
+
+    "@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.53", "", { "dependencies": { "@ai-sdk/provider": "4.0.21", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.29.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-VVe6UDd0y0/B4TfauuKKzcppqvhTmSluwwUVT4WG2/8h7gFbyFm7PM4UGM+ZXe3/RI6bv+Vl1cw/7aiBoQqdxg=="],
+
+    "@ai-sdk/xai": ["@ai-sdk/xai@4.0.59", "", { "dependencies": { "@ai-sdk/provider": "4.0.15", "@ai-sdk/provider-utils": "5.0.41" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-cVaiF6bI6ZeqNIMybTrO3Edk4V8LNevDKJ3Ntd4oKwydUbnsGXyIYN0opab89FdaBfMzCYd7KxqsjExiVBOUNA=="],
+
+    "@ai-sdk/zai": ["@ai-sdk/zai@3.0.24", "", { "dependencies": { "@ai-sdk/openai-compatible": "3.0.62", "@ai-sdk/provider": "4.0.21", "@ai-sdk/provider-utils": "5.0.53" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-YCE0naz8AvsYo/FZ7YSGERwoEjgs2Ps1qJ9StK3J3qjuAccZOFpelBT17YBAGBt/GQPhRD0NqkWN5V9TYjhG+A=="],
+
+    "@arcforge/air": ["@arcforge/air@file:../../home/cody/git/arclabs/libs/axon/packages/air", { "dependencies": { "@arcforge/err": "workspace:*", "@arcforge/types": "workspace:*" }, "devDependencies": { "@types/bun": "latest", "markdown-it": "^14.3.0", "typescript": "^5" } }],
+
+    "@arcforge/cognet": ["@arcforge/cognet@file:../../home/cody/git/arclabs/libs/axon/cognet", { "dependencies": { "@arcforge/err": "workspace:*", "@arcforge/types": "workspace:*", "hookable": "^5.5.3" }, "devDependencies": { "@types/bun": "latest", "typescript": "^5" } }],
+
+    "@arcforge/engines": ["@arcforge/engines@file:../../home/cody/git/arclabs/libs/axon/packages/engines", { "dependencies": { "@ai-sdk/anthropic": "^4.0.0", "@ai-sdk/cerebras": "^3.0.0", "@ai-sdk/deepseek": "^3.0.0", "@ai-sdk/google": "^4.0.0", "@ai-sdk/groq": "^4.0.0", "@ai-sdk/mistral": "^4.0.0", "@ai-sdk/openai": "^4.0.0", "@ai-sdk/openai-compatible": "^3.0.0", "@ai-sdk/perplexity": "^4.0.0", "@ai-sdk/xai": "^4.0.0", "@ai-sdk/zai": "^3.0.0", "@arcforge/types": "workspace:*" }, "devDependencies": { "@types/bun": "latest", "typescript": "^5" } }],
+
+    "@arcforge/err": ["@arcforge/err@file:../../home/cody/git/arclabs/libs/axon/packages/err", { "dependencies": { "@arcforge/types": "workspace:*" }, "devDependencies": { "@types/bun": "latest", "typescript": "^5" } }],
+
+    "@arcforge/types": ["@arcforge/types@file:../../home/cody/git/arclabs/libs/axon/types", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" }, "devDependencies": { "typescript": "^5" } }],
+
+    "@axon/docs": ["@axon/docs@1.0.7", "http://127.0.0.1:3099/api/registry/npm/@axon/docs/-/docs-1.0.7.tgz", { "dependencies": { "@arcforge/air": "2.0.181", "@arcforge/cognet": "2.0.181", "@arcforge/engines": "2.0.181", "@arcforge/types": "2.0.181", "h3": "^1.13.0" } }, "sha512-bsjPB5r4Tn9ExN58bmcOnOajo/0qUvER2gjBX4f6msqG/kstIkg2ceyIQkjMpfs0caoegqGOFhvWp6PrF9PMqw=="],
+
+    "@axon/fs": ["@axon/fs@0.1.9", "http://127.0.0.1:3099/api/registry/npm/@axon/fs/-/fs-0.1.9.tgz", { "dependencies": { "@arcforge/air": "2.0.181", "@arcforge/cognet": "2.0.181", "@arcforge/engines": "2.0.181", "@arcforge/types": "2.0.181", "h3": "^1.13.0" } }, "sha512-HMbvh2s5C1noJyGWtNK+OXey4gnDAXE1DvW9YSfammdO14/JFwiHeykbd/5cayVEkRCeuzWetgDS3w23SY8pvw=="],
+
+    "@axon/subagent": ["@axon/subagent@0.1.5", "http://127.0.0.1:3099/api/registry/npm/@axon/subagent/-/subagent-0.1.5.tgz", { "dependencies": { "@arcforge/air": "2.0.181", "@arcforge/cognet": "2.0.181", "@arcforge/engines": "2.0.181", "@arcforge/types": "2.0.181", "h3": "^1.13.0" } }, "sha512-1lRjKqZ9g8HNDKmdKmVpdodJXvrqfaJ18/28UURqOPp2oma8klQc1rHSgQLVHnOFy/F1S5nV+gji95fbXIDCiw=="],
+
+    "@axon/zero": ["@axon/zero@1.0.54", "http://127.0.0.1:3099/api/registry/npm/@axon/zero/-/zero-1.0.54.tgz", { "dependencies": { "@arcforge/air": "2.0.215", "@arcforge/cognet": "2.0.215", "@arcforge/engines": "2.0.215", "@arcforge/types": "2.0.215", "h3": "^1.13.0" } }, "sha512-+iQWaGUK9hWXQNhyEGmIrAfOvEQPe1gvrAPa5Qh3kMWEAIBb2wg0Slr83WUMHLykqNe4rJX44YPtEjA689SOiA=="],
+
+    "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
-    "@types/node": ["@types/node@26.6.2", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-X1P21scMv4zGKLYqjdGjaKa7COa0RKVYYZZN/NfvLQ1JegxFhdhpZG/Lyn8AXx6CDUavKAd11v6BvfpkDByK8g=="],
+    "@types/node": ["@types/node@26.4.1", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA=="],
+
+    "@workflow/serde": ["@workflow/serde@4.1.0", "", {}, "sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ=="],
+
+    "argparse": ["argparse@2.0.1", "", {}, "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q=="],
 
     "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
@@ -50,56 +90,94 @@
 
     "destr": ["destr@2.0.5", "", {}, "sha512-ugFTXCtDZunbzasqBxrK93Ik/DRYsO6S/fedkWEMKqt04xZ4csmnmwGDBAb07QWNaGMAmnTIemsYZCksjATwsA=="],
 
+    "entities": ["entities@4.5.0", "", {}, "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw=="],
+
+    "eventsource-parser": ["eventsource-parser@3.1.1", "", {}, "sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ=="],
+
     "h3": ["h3@1.15.11", "", { "dependencies": { "cookie-es": "^1.2.3", "crossws": "^0.3.5", "defu": "^6.1.6", "destr": "^2.0.5", "iron-webcrypto": "^1.2.1", "node-mock-http": "^1.0.4", "radix3": "^1.1.2", "ufo": "^1.6.3", "uncrypto": "^0.1.3" } }, "sha512-L3THSe2MPeBwgIZVSH5zLdBBU90TOxarvhK9d04IDY2AmVS8j2Jz2LIWtwsGOU3lu2I5jCN7FNvVfY2+XyF+mg=="],
 
     "hookable": ["hookable@5.5.3", "", {}, "sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ=="],
 
     "iron-webcrypto": ["iron-webcrypto@1.2.1", "", {}, "sha512-feOM6FaSr6rEABp/eDfVseKyTMDt+KGpeB35SkVn9Tyn0CqvVsY3EwI0v5i8nMHyJnzCIQf7nsy3p41TPkJZhg=="],
 
+    "json-schema": ["json-schema@0.4.0", "", {}, "sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA=="],
+
+    "linkify-it": ["linkify-it@5.0.2", "", { "dependencies": { "uc.micro": "^2.0.0" } }, "sha512-ONTm2jCMAVZjgQa/Fy1kScXsuOoF5NPTsoFBdE1KVIZ2vAh/r9+Bqo+0jINCBYnavTPQZz38QzFTme79ENoN3Q=="],
+
+    "markdown-it": ["markdown-it@14.3.2", "", { "dependencies": { "argparse": "^2.0.1", "entities": "^4.5.0", "linkify-it": "^5.0.2", "mdurl": "^2.0.0", "punycode.js": "^2.3.1", "uc.micro": "^2.1.0" }, "bin": { "markdown-it": "bin/markdown-it.mjs" } }, "sha512-sHHjZ5fJKlgrG4qns2YwVcdNep35h5fERrfkD2YNsb9UFk0UIHarbiTaHKVMlPuWAoiilyK8Fv/jAm11slsY7Q=="],
+
+    "mdurl": ["mdurl@2.1.0", "", {}, "sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg=="],
+
     "node-mock-http": ["node-mock-http@1.0.5", "", {}, "sha512-KQyt/wLjG3TAc7DOUhpqWzgd4ERxR80JOlTK5VE5R1S12IaPVN5qkj4klBce9HPG1Njuup4Sb5bljaT34lIyjw=="],
 
+    "punycode.js": ["punycode.js@2.3.1", "", {}, "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA=="],
+
     "radix3": ["radix3@1.1.2", "", {}, "sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "uc.micro": ["uc.micro@2.1.0", "", {}, "sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A=="],
 
     "ufo": ["ufo@1.6.4", "", {}, "sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA=="],
 
     "uncrypto": ["uncrypto@0.1.3", "", {}, "sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q=="],
 
-    "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
+    "undici": ["undici@7.30.0", "", {}, "sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ=="],
 
-    "@axon/docs/@arcforge/air": ["@arcforge/air@2.0.141", "", { "dependencies": { "@arcforge/err": "2.0.141", "@arcforge/types": "2.0.141" } }, "sha512-sckmOjLpK9SYvwPIh5A7+s0UAgkDblW4xtKJ8dr2NZ711JwbFlYWf/SikGuBE783P8ljHA58gjV767rVSShTnw=="],
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
-    "@axon/docs/@arcforge/cognet": ["@arcforge/cognet@2.0.141", "", { "dependencies": { "@arcforge/err": "2.0.141", "@arcforge/types": "2.0.141", "hookable": "^5.5.3" } }, "sha512-bWsXM6ywtaMpDVtxBpSlabbplLu87Vw4q7MOWXEC71hn+scNhw8L/B8/iwaMsM2KDs87GPm1xx4UecjN6hYrvQ=="],
+    "zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
 
-    "@axon/docs/@arcforge/engines": ["@arcforge/engines@2.0.141", "", { "dependencies": { "@arcforge/types": "2.0.141" } }, "sha512-bKv3mcZIndHT7yvMWNr1g57Qmn3OBvQNKvyo5gxr6TPNc5U6zZlyVJCIpo59CqcUp9clGVmpM/kCwjcHuZawxw=="],
+    "@ai-sdk/perplexity/@ai-sdk/provider": ["@ai-sdk/provider@4.0.18", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-+GZJIgz1jk86pwEbb3f1BD2bdoSKyWE4Jg4YUc7NMnMozbWemSKYZcw2F4nMaO5qwsL5A8RmioAKW81YktRpIQ=="],
 
-    "@axon/docs/@arcforge/types": ["@arcforge/types@2.0.141", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-pj4nrcmjjnVSLQ/cFA5QOArHR/9hvVdQnkrvkvBLtb2K6nJQXs1AZCYiHU7giUAggZwj3UZitJIVU8FbVAigbw=="],
+    "@ai-sdk/perplexity/@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.49", "", { "dependencies": { "@ai-sdk/provider": "4.0.18", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.29.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-T+/H8DCvqJoCqLhltVatS7ffA779Iyk/ZZrgNXkrgv51E0n2Cd6eIdCmtwhCGIKqtbTtwCvTmQdAMv5Z8rOGHQ=="],
 
-    "@axon/fs/@arcforge/air": ["@arcforge/air@2.0.175", "", { "dependencies": { "@arcforge/err": "2.0.175", "@arcforge/types": "2.0.175" } }, "sha512-ZaHaPBBiyeUvzCs2TXo9zk8bNv03K3LrWCB0c56Z6Kr9fLGYmyN0JvPLvc6SeUBAUmSSziBSO5sD7Oxg54GYdQ=="],
+    "@ai-sdk/xai/@ai-sdk/provider": ["@ai-sdk/provider@4.0.15", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-LIDCrT8xgWVMiVUV13+v9FXPJ8B5uX/5ByEMXxp9Sspr2SyB1PwMSCPshZoI/t+4AgxyZCFEVutdaigCnqje3w=="],
 
-    "@axon/fs/@arcforge/cognet": ["@arcforge/cognet@2.0.175", "", { "dependencies": { "@arcforge/err": "2.0.175", "@arcforge/types": "2.0.175", "hookable": "^5.5.3" } }, "sha512-Kq/S9cfBuO9nGOMKXR7rTKQ5dLiJ4uM1wcVFSuRgBCGhLDh623qjp/vDObIABE8mFCaEA4Mdr3u6uBcQwTkSgg=="],
+    "@ai-sdk/xai/@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.41", "", { "dependencies": { "@ai-sdk/provider": "4.0.15", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.29.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-hSosMII5k33z0buaZ6dugH/g8yIJjPQBILuQvr4ThdiMJxrkiZxFWTgIkvKsT6Dk493JbsnGz5W/q88Y5bR7WA=="],
 
-    "@axon/fs/@arcforge/engines": ["@arcforge/engines@2.0.175", "", { "dependencies": { "@arcforge/types": "2.0.175" }, "peerDependencies": { "@ai-sdk/anthropic": "^4.0.0", "@ai-sdk/cerebras": "^3.0.0", "@ai-sdk/deepseek": "^3.0.0", "@ai-sdk/google": "^4.0.0", "@ai-sdk/groq": "^4.0.0", "@ai-sdk/mistral": "^4.0.0", "@ai-sdk/openai": "^4.0.0", "@ai-sdk/openai-compatible": "^3.0.0", "@ai-sdk/perplexity": "^4.0.0", "@ai-sdk/xai": "^4.0.0", "@ai-sdk/zai": "^3.0.0" }, "optionalPeers": ["@ai-sdk/anthropic", "@ai-sdk/cerebras", "@ai-sdk/deepseek", "@ai-sdk/google", "@ai-sdk/groq", "@ai-sdk/mistral", "@ai-sdk/openai", "@ai-sdk/openai-compatible", "@ai-sdk/perplexity", "@ai-sdk/xai", "@ai-sdk/zai"] }, "sha512-LtiVTJWfeOCBEALD9HFdyLEWfa4cf73HNUV9Rrt1G7n+W46eV49JCaHXOv/0HNBXhMv6RObEtaY3+oaCzHCqcA=="],
+    "@arcforge/air/@arcforge/err": ["@arcforge/err@file:/home/cody/git/arclabs/libs/axon/packages/err", {}],
 
-    "@axon/fs/@arcforge/types": ["@arcforge/types@2.0.175", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-VMcccLEvI36B0Q/2//OgzippI+bMbYLQC7MLOrwZPdFzNzWAlhhdfQXVAGnbUaBTM204fjJ9B9SbPVxdV2xpRg=="],
+    "@arcforge/air/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
 
-    "@axon/subagent/@arcforge/air": ["@arcforge/air@2.0.168", "", { "dependencies": { "@arcforge/err": "2.0.168", "@arcforge/types": "2.0.168" } }, "sha512-5AmkQa2/6XpmeMHFjrX0ar4BgnsqiPqr+v7K3VYzFRQKYndJ6BBabDE2bZod9T//JGZKqdu8qOYToUHnDUhtUg=="],
+    "@arcforge/cognet/@arcforge/err": ["@arcforge/err@file:/home/cody/git/arclabs/libs/axon/packages/err", {}],
 
-    "@axon/subagent/@arcforge/cognet": ["@arcforge/cognet@2.0.168", "", { "dependencies": { "@arcforge/err": "2.0.168", "@arcforge/types": "2.0.168", "hookable": "^5.5.3" } }, "sha512-w/px6QVxlxhj3shDIBLCu679JJJnbNEw9NpVpdiLNfRIzlIWn3PYl35oTm8ZmMUtdICBv0tFLJdtj+O3U01R0w=="],
+    "@arcforge/cognet/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
 
-    "@axon/subagent/@arcforge/engines": ["@arcforge/engines@2.0.168", "", { "dependencies": { "@arcforge/types": "2.0.168" }, "peerDependencies": { "@ai-sdk/anthropic": "^4.0.0", "@ai-sdk/cerebras": "^3.0.0", "@ai-sdk/deepseek": "^3.0.0", "@ai-sdk/google": "^4.0.0", "@ai-sdk/groq": "^4.0.0", "@ai-sdk/mistral": "^4.0.0", "@ai-sdk/openai": "^4.0.0", "@ai-sdk/openai-compatible": "^3.0.0", "@ai-sdk/perplexity": "^4.0.0", "@ai-sdk/xai": "^4.0.0", "@ai-sdk/zai": "^3.0.0" }, "optionalPeers": ["@ai-sdk/anthropic", "@ai-sdk/cerebras", "@ai-sdk/deepseek", "@ai-sdk/google", "@ai-sdk/groq", "@ai-sdk/mistral", "@ai-sdk/openai", "@ai-sdk/openai-compatible", "@ai-sdk/perplexity", "@ai-sdk/xai", "@ai-sdk/zai"] }, "sha512-TdXQd03k2F6vJfsjLgDQqSRDEx6skN+qFqps0Y1rq6v0TZgS+VZqFnSHCbehu9u8GyL3JJsW8E8iK81zLDRY0Q=="],
+    "@arcforge/engines/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
 
-    "@axon/subagent/@arcforge/types": ["@arcforge/types@2.0.168", "", { "dependencies": { "@types/bun": "^1.2.0", "h3": "^1.13.0" } }, "sha512-Qk2c5ffeGaDcI5P4kfUMuXULNW0b+l4k+w+vpbRw4IjxoD8kfhIzoZSE8rZnzFKRCD+H5oYo8RJUTVoSePwhZA=="],
+    "@arcforge/err/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
 
-    "@axon/docs/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.141", "", { "dependencies": { "@arcforge/types": "2.0.141" } }, "sha512-OcKNqt1M/h/zG4VpV40vbm9GV//0Bnz4XycENte5vO/SAJWUlsT/BBA+598MVsjXnuAxWSU34tRooC6kVSxqWg=="],
+    "@axon/docs/@arcforge/air": ["@arcforge/air@file:/home/cody/git/arclabs/libs/axon/packages/air", {}],
 
-    "@axon/docs/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.141", "", { "dependencies": { "@arcforge/types": "2.0.141" } }, "sha512-OcKNqt1M/h/zG4VpV40vbm9GV//0Bnz4XycENte5vO/SAJWUlsT/BBA+598MVsjXnuAxWSU34tRooC6kVSxqWg=="],
+    "@axon/docs/@arcforge/cognet": ["@arcforge/cognet@file:/home/cody/git/arclabs/libs/axon/cognet", {}],
 
-    "@axon/fs/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.175", "", { "dependencies": { "@arcforge/types": "2.0.175" } }, "sha512-bR8eI9H4ipSTS8px8zBUW5tH5EbYqT/FglcuNFDxGbjt3lkyKuBiBIp08wGNVvoi/+nKETjOd6KYkIU41oaWfg=="],
+    "@axon/docs/@arcforge/engines": ["@arcforge/engines@file:/home/cody/git/arclabs/libs/axon/packages/engines", {}],
 
-    "@axon/fs/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.175", "", { "dependencies": { "@arcforge/types": "2.0.175" } }, "sha512-bR8eI9H4ipSTS8px8zBUW5tH5EbYqT/FglcuNFDxGbjt3lkyKuBiBIp08wGNVvoi/+nKETjOd6KYkIU41oaWfg=="],
+    "@axon/docs/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
 
-    "@axon/subagent/@arcforge/air/@arcforge/err": ["@arcforge/err@2.0.168", "", { "dependencies": { "@arcforge/types": "2.0.168" } }, "sha512-R+4l/T/t6om6qVYc/lRsaE+UIURSyIV19SX6AtGf9WZny6VLrvH/oneE4pXrBLKHHAw7pkAl8AkI7o1viRDbeQ=="],
+    "@axon/fs/@arcforge/air": ["@arcforge/air@file:/home/cody/git/arclabs/libs/axon/packages/air", {}],
 
-    "@axon/subagent/@arcforge/cognet/@arcforge/err": ["@arcforge/err@2.0.168", "", { "dependencies": { "@arcforge/types": "2.0.168" } }, "sha512-R+4l/T/t6om6qVYc/lRsaE+UIURSyIV19SX6AtGf9WZny6VLrvH/oneE4pXrBLKHHAw7pkAl8AkI7o1viRDbeQ=="],
+    "@axon/fs/@arcforge/cognet": ["@arcforge/cognet@file:/home/cody/git/arclabs/libs/axon/cognet", {}],
+
+    "@axon/fs/@arcforge/engines": ["@arcforge/engines@file:/home/cody/git/arclabs/libs/axon/packages/engines", {}],
+
+    "@axon/fs/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
+
+    "@axon/subagent/@arcforge/air": ["@arcforge/air@file:/home/cody/git/arclabs/libs/axon/packages/air", {}],
+
+    "@axon/subagent/@arcforge/cognet": ["@arcforge/cognet@file:/home/cody/git/arclabs/libs/axon/cognet", {}],
+
+    "@axon/subagent/@arcforge/engines": ["@arcforge/engines@file:/home/cody/git/arclabs/libs/axon/packages/engines", {}],
+
+    "@axon/subagent/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
+
+    "@axon/zero/@arcforge/air": ["@arcforge/air@file:/home/cody/git/arclabs/libs/axon/packages/air", {}],
+
+    "@axon/zero/@arcforge/cognet": ["@arcforge/cognet@file:/home/cody/git/arclabs/libs/axon/cognet", {}],
+
+    "@axon/zero/@arcforge/engines": ["@arcforge/engines@file:/home/cody/git/arclabs/libs/axon/packages/engines", {}],
+
+    "@axon/zero/@arcforge/types": ["@arcforge/types@file:/home/cody/git/arclabs/libs/axon/types", {}],
   }
 }

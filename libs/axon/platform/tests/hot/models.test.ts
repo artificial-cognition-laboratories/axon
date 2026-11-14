@@ -229,105 +229,24 @@ describe("resolving a declaration", () => {
     })
 })
 
-describe("reading a declaration from cognet source", () => {
-    test("reads models: out of cognet.config.ts textually", async () => {
-        // Textual because this runs BEFORE the cognet's own dependencies are
-        // installed, where evaluating the config would simply fail.
-        const { readCognetModels } = await import("@arcforge/platform/build/blueprint")
-
-        await scratch(async root => {
-            await mkdir(root, { recursive: true })
-            await writeFile(
-                join(root, "cognet.config.ts"),
-                `export default defineCognet({
-                    name: "vox",
-                    abi: "10",
-                    models: {
-                        vad: "hf:runanywhere/silero-vad-v5/silero_vad.onnx",
-                        asr: "hf:ggerganov/whisper.cpp/ggml-base.en.bin",
-                    },
-                })`,
-                "utf8",
-            )
-
-            expect(await readCognetModels(root)).toEqual({
-                vad: "hf:runanywhere/silero-vad-v5/silero_vad.onnx",
-                asr: "hf:ggerganov/whisper.cpp/ggml-base.en.bin",
-            })
-        })
-    })
-
-    test("reads the object form without mistaking its fields for siblings", async () => {
-        // The sweep used to resume INSIDE an entry's braces after consuming its
-        // key, so `hf:` was read as a model named "hf" whose specifier was a
-        // bare repo — and every object-form declaration failed with
-        // AX-MODEL-001. The indentation guard cannot catch it: a nested field
-        // is indented FURTHER than the entries, not less.
-        const { readCognetModels } = await import("@arcforge/platform/build/blueprint")
-
-        await scratch(async root => {
-            await writeFile(
-                join(root, "cognet.config.ts"),
-                `export default defineCognet({
-                    mode: { kind: "continuous" },
-                    models: {
-                        features: {
-                            hf: "onnx-community/dinov2-small",
-                            set: true,
-                            capability: "vision",
-                            type: "transform",
-                            in: ["image"],
-                            out: ["vector"],
-                        },
-                        vad: "hf:runanywhere/silero-vad-v5/silero_vad.onnx",
-                    },
-                })`,
-                "utf8",
-            )
-
-            expect(await readCognetModels(root)).toEqual({
-                features: {
-                    hf: "onnx-community/dinov2-small",
-                    set: true,
-                    capability: "vision",
-                    type: "transform",
-                    in: ["image"],
-                    out: ["vector"],
-                },
-                vad: "hf:runanywhere/silero-vad-v5/silero_vad.onnx",
-            })
-        })
-    })
-
-    test("a pinned revision and hash survive the object form", async () => {
-        const { readCognetModels } = await import("@arcforge/platform/build/blueprint")
-
-        await scratch(async root => {
-            await writeFile(
-                join(root, "cognet.config.ts"),
-                `export default defineCognet({
-                    models: {
-                        asr: { hf: "onnx-community/whisper-tiny.en", file: "onnx/model.onnx", rev: "abc123", sha256: "deadbeef" },
-                    },
-                })`,
-                "utf8",
-            )
-
-            // Without the pin a changed upstream is a surprise rather than an
-            // error, so losing these in the parse would silently weaken the
-            // only verification there is.
-            expect(await readCognetModels(root)).toEqual({
-                asr: { hf: "onnx-community/whisper-tiny.en", file: "onnx/model.onnx", rev: "abc123", sha256: "deadbeef" },
-            })
-        })
-    })
-
-    test("a cognet with no models declaration reads as empty", async () => {
-        const { readCognetModels } = await import("@arcforge/platform/build/blueprint")
-
-        await scratch(async root => {
-            await writeFile(join(root, "cognet.config.ts"), `export default defineCognet({ name: "x", abi: "10" })`, "utf8")
-            expect(await readCognetModels(root)).toEqual({})
-        })
+describe("onnx — one coherent set out of a repository", () => {
+    test("takes the unquantised graphs with their data and the root configs, not every quantisation", async () => {
+        const { onnx } = await import("../../src/build/project/models")
+        const names = [
+            ".gitattributes", "config.json", "preprocessor_config.json",
+            "onnx/vision_encoder.onnx", "onnx/vision_encoder.onnx_data",
+            "onnx/vision_encoder_fp16.onnx", "onnx/vision_encoder_fp16.onnx_data",
+            "onnx/vision_encoder_q4f16.onnx", "onnx/vision_encoder_q4f16.onnx_data",
+            "onnx/prompt_encoder_mask_decoder.onnx", "onnx/prompt_encoder_mask_decoder.onnx_data",
+            "onnx/prompt_encoder_mask_decoder_int8.onnx", "onnx/prompt_encoder_mask_decoder_int8.onnx_data",
+        ]
+        const plan = onnx.plan(names)!
+        expect(plan.files.sort()).toEqual([
+            "config.json", "onnx/prompt_encoder_mask_decoder.onnx", "onnx/prompt_encoder_mask_decoder.onnx_data",
+            "onnx/vision_encoder.onnx", "onnx/vision_encoder.onnx_data", "preprocessor_config.json",
+        ])
+        expect(onnx.dtype(plan.files)).toBe("fp32")
+        // `q4f16` is its own variant, never read as `q4`.
+        expect(onnx.variant("onnx/model_q4f16.onnx")).toBe("q4f16")
     })
 })

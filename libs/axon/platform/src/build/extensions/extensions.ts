@@ -1,11 +1,12 @@
 import { mkdir, rename, rm } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { err } from "@arcforge/err"
+import type { ProfilePermissions } from "@arcforge/types"
 import { gt, valid } from "semver"
 import { fsx } from "../../utils/fs"
 import { Watcher } from "../project"
 import { ProfileConfigFile, resolveEntry, type ResolvedEntry } from "./config"
-import { addEntry, addProvider, readEntries, readProviders, readSettings, removeEntry, removeProvider, setSetting } from "./edit"
+import { addEntry, addProvider, readEntries, readProviders, readSettings, removeEntry, removeProvider, setPermissions, setSetting } from "./edit"
 import { ExtensionStore, formatRef, parseRef, type ExtensionStoreT } from "./store"
 import { DisposerSink, disposeSource, loadSource, RELOAD_PREFIX, type LoadedSource } from "./load"
 
@@ -295,6 +296,18 @@ export function Extensions(opts: ExtensionsOpts) {
         },
 
         /**
+         * Set command mediation for every agent in this profile.
+         *
+         * Deliberately NOT watcher-suppressed. A visual setting is already
+         * applied by its caller, but this setting becomes capsule policy at
+         * boot; suppressing the config change would leave the running agent
+         * under its old permission posture until an unrelated reload.
+         */
+        async setPermissions(permissions: ProfilePermissions): Promise<{ changed: boolean }> {
+            return setPermissions(opts.root(), permissions)
+        },
+
+        /**
          * The provider factories this profile declares.
          *
          * Read from the config rather than from a cache, because the user may
@@ -312,9 +325,9 @@ export function Extensions(opts: ExtensionsOpts) {
          * not fire the watcher's reload, or connecting a provider would
          * restart every extension as a side effect.
          */
-        async addProvider(factory: string): Promise<{ changed: boolean }> {
+        async addProvider(factory: string, options?: { initial?: readonly string[] }): Promise<{ changed: boolean }> {
             const root = opts.root()
-            const write = () => addProvider(root, factory)
+            const write = () => addProvider(root, factory, options)
             return suppress ? suppress(write) : write()
         },
 

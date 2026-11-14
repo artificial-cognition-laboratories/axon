@@ -42,13 +42,14 @@ export function OpenRouterBackend(opts: OpenRouterBackendOpts) {
 }
 
 async function fetchCompletions(req: AxonEngineRequest, url: string, opts: OpenRouterBackendOpts): Promise<Response> {
+    const apiKey = await opts.key()
     let response: Response
     try {
         response = await fetch(url, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${await opts.key()}`,
+                "Authorization": `Bearer ${apiKey}`,
                 "HTTP-Referer": "https://axon.arclabs.it",
                 "X-Title": "Axon",
             },
@@ -77,7 +78,7 @@ async function fetchCompletions(req: AxonEngineRequest, url: string, opts: OpenR
     }
 
     if (!response.ok) {
-        const body = await response.text().catch(() => "")
+        const body = await response.text()
         const common = { provider: "openrouter", model: opts.model, status: response.status }
         if (response.status === 401) throw failure({ ...common, code: "AUTH", message: "OpenRouter: invalid API key — check your key at openrouter.ai/keys", retryable: false })
         if (response.status === 402) throw failure({ ...common, code: "QUOTA", message: "OpenRouter: insufficient credits — top up at openrouter.ai", retryable: false })

@@ -136,6 +136,15 @@ export type BuildEventMap =
 
     & {
         /**
+         * A live update inside a build span.
+         *
+         * Progress is durable for diagnosis but stays at debug visibility: a
+         * retry updates the active boot label instead of becoming another
+         * conversation row. Warnings below describe degraded final state;
+         * progress describes work that is still underway.
+         */
+        "build:progress": { stage: BuildStage; message: string }
+        /**
          * A recoverable defect found during the build — a tool shadowed by
          * one of the same name, a component that will not resolve.
          *

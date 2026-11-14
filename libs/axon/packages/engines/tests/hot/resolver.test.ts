@@ -314,14 +314,14 @@ describe("model pins", () => {
         expect(result.bound.find(b => b.role === "main")?.capability.id).toBe(frontier.id)
     })
 
-    test("a pin never overrides the role's own constraints", () => {
+    test("an explicit pin overrides context recommendations", () => {
         const strict: EngineRequirements = {
             main: { type: "generate", in: "text", out: "text", context: 150_000, primary: true },
         }
-        // tiny satisfies the pin but not the context floor
-        const result = resolveEngines(strict, [frontier, tiny], { model: "gemma3:1b" })
+        // A deliberate small-model choice is honoured at boot as in the picker.
+        const result = resolveEngines(strict, [frontier, tiny], { model: "ollama:gemma3:1b" })
 
-        expect(result.bound[0]?.capability.id).toBe(frontier.id)
+        expect(result.bound[0]?.capability.id).toBe(tiny.id)
     })
 
     test("a pin applies to the primary role only", () => {
@@ -455,5 +455,60 @@ describe("route preference", () => {
 
         expect(result.bound).toHaveLength(1)
         expect(result.missing).toHaveLength(0)
+    })
+})
+
+describe("resolveEngines: a role granted by name", () => {
+    const requirements: EngineRequirements = {
+        main: { type: "generate", in: ["text"], out: ["text"] },
+        quick: { type: "generate", in: ["text"], out: ["text"], optional: true },
+    }
+
+    test("binds what the grant names, over what ranking would choose", () => {
+        const resolution = resolveEngines(requirements, [frontier, small], { granted: { main: `${small.provider}:${small.id}` } })
+        expect(resolution.bound.find(entry => entry.role === "main")?.capability.id).toBe(small.id)
+    })
+
+    test("is missing when nothing supplies the grant — even on an optional role, never quietly something else", () => {
+        const resolution = resolveEngines(requirements, [frontier, small], { granted: { quick: "nowhere:no-such-model" } })
+        expect(resolution.bound.some(entry => entry.role === "quick")).toBe(false)
+        expect(resolution.missing.map(entry => entry.role)).toEqual(["quick"])
+        expect(resolution.missing[0]!.reasons[0]).toContain(`granted "nowhere:no-such-model"`)
+    })
+})
+
+describe("resolveEngines: a role that names its models", () => {
+    const helper = { type: "generate", in: "text", out: "text" } as const
+
+    test("binds the first named model the catalogue offers, ahead of anything ranking prefers", () => {
+        const result = resolveEngines({ helper: { ...helper, model: ["gemma3:1b", "anthropic/claude-sonnet-4-6"] } }, [frontier, small, tiny])
+        expect(result.bound[0]!.capability.id).toBe("gemma3:1b")
+    })
+
+    test("passes over a named model nobody supplies, to the next", () => {
+        const result = resolveEngines({ helper: { ...helper, model: ["openai/gpt-5-mini", "anthropic/claude-sonnet-4-6"] } }, [frontier, small])
+        expect(result.bound[0]!.capability.id).toBe("anthropic/claude-sonnet-4-6")
+    })
+
+    test("never binds a model it did not name, and says which it named", () => {
+        const result = resolveEngines({ helper: { ...helper, model: ["openai/gpt-5-mini"], optional: true } }, [frontier, small])
+        expect(result.bound).toEqual([])
+        expect(result.unmet[0]!.reasons).toEqual(["names openai/gpt-5-mini, which no declared provider supplies"])
+        expect(result.missing).toEqual([])
+    })
+
+    test("takes a named model from whichever route the user ranks first", () => {
+        const result = resolveEngines({ helper: { ...helper, model: ["anthropic/claude-sonnet-4-6"] } }, [viaAxon, viaOpenRouter], { order: ["openrouter", "axon"] })
+        expect(result.bound[0]!.capability.provider).toBe("openrouter")
+    })
+
+    test("the user's pick for the primary reaches past the cognet's list", () => {
+        const result = resolveEngines({ main: { ...helper, primary: true, model: ["gemma3:1b"] } }, [frontier, tiny], { model: "anthropic/claude-sonnet-4-6" })
+        expect(result.bound[0]!.capability.id).toBe("anthropic/claude-sonnet-4-6")
+    })
+
+    test("a grant binds what it names, whatever the list says", () => {
+        const result = resolveEngines({ helper: { ...helper, model: ["gemma3:1b"] } }, [frontier, tiny], { granted: { helper: "axon:anthropic/claude-sonnet-4-6" } })
+        expect(result.bound[0]!.capability.id).toBe("anthropic/claude-sonnet-4-6")
     })
 })

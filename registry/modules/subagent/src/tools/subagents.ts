@@ -38,9 +38,11 @@ export const subagents = {
      */
     async request(prompt: string, agent: string = "."): Promise<string> {
         const parent = process.env.AXON_SESSION_ID
+        const cli = process.env.AXON_CLI
+        if (!cli) throw new Error("AXON_CLI_NOT_SET: the supervising runtime did not identify its CLI")
         const command = [
-            "axon",
-            agent,
+            JSON.stringify(cli),
+            JSON.stringify(agent),
             "-p", JSON.stringify(prompt),
             "--json",
             ...(parent ? ["--parent", parent] : []),

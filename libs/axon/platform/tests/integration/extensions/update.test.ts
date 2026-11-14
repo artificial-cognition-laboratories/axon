@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
+import { writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Platform } from "@arcforge/platform/platform"
@@ -55,6 +56,7 @@ async function withProfile(fn: (ctx: Fixture) => Promise<void>): Promise<void> {
 
         const platform = Platform({ ...TEST_FRAMEWORK_PUBLISHED, store: storeDir })
         await platform.profile.ensure()
+        await writeFile(join(platform.profile.root, "profile.config.ts"), "export default defineProfile({ extensions: [] })\n")
 
         await fn({
             platform,

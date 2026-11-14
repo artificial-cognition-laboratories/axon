@@ -64,7 +64,7 @@ export type AxonSpanName = {
 // ── Enveloped unions (what actually sits in the JSONL) ──────────────────────
 
 /** One line in the session's kernel log — internal telemetry, never rendered to the user. */
-export type AxonKernelEvent = AxonEventUnion<AxonKernelEventMap>
+export type AxonKernelEvent = AxonEventUnion<AxonKernelEventMap & CognetEventMap & CapsuleEventMap>
 
 /**
  * One line in the session's own log — runtime/continuity facts, and the build
@@ -137,7 +137,7 @@ export function foldChunks(entries: readonly AxonEntry[]): AxonEntry[] {
 }
 
 /** A single enveloped kernel-log event of a specific type, e.g. AxonKernelEventOf<"kernel:tick:start">. */
-export type AxonKernelEventOf<K extends keyof AxonKernelEventMap> = AxonEvent<AxonKernelEventMap, K>
+export type AxonKernelEventOf<K extends keyof (AxonKernelEventMap & CognetEventMap & CapsuleEventMap)> = AxonEvent<AxonKernelEventMap & CognetEventMap & CapsuleEventMap, K>
 /** A single enveloped session-log event of a specific type, e.g. AxonSessionEventOf<"axon:boot:complete">. */
 export type AxonSessionEventOf<K extends keyof AxonRuntimeEvent> = AxonEvent<AxonRuntimeEvent, K>
 export type AxonEntryOf<K extends keyof AxonEntryEvent> = AxonEvent<AxonEntryEvent, K>

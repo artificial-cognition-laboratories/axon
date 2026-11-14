@@ -1,0 +1,126 @@
+{
+  "ran": "2026-09-27T13:09:17.545Z",
+  "seconds": 40.5,
+  "rows": [
+    {
+      "signal": 3,
+      "duplicates": 0,
+      "recall1": 0.406,
+      "delta": 0,
+      "concentration": 0.527,
+      "sameMean": 0.349,
+      "otherMean": 0.373,
+      "margin": 0.024
+    },
+    {
+      "signal": 3,
+      "duplicates": 8,
+      "recall1": 0.389,
+      "delta": -0.017,
+      "concentration": 0.521,
+      "sameMean": 0.268,
+      "otherMean": 0.286,
+      "margin": 0.018
+    },
+    {
+      "signal": 3,
+      "duplicates": 24,
+      "recall1": 0.414,
+      "delta": 0.008,
+      "concentration": 0.525,
+      "sameMean": 0.196,
+      "otherMean": 0.21,
+      "margin": 0.015
+    },
+    {
+      "signal": 6,
+      "duplicates": 0,
+      "recall1": 0.756,
+      "delta": 0,
+      "concentration": 0.467,
+      "sameMean": 0.338,
+      "otherMean": 0.378,
+      "margin": 0.039
+    },
+    {
+      "signal": 6,
+      "duplicates": 8,
+      "recall1": 0.725,
+      "delta": -0.031,
+      "concentration": 0.471,
+      "sameMean": 0.274,
+      "otherMean": 0.304,
+      "margin": 0.031
+    },
+    {
+      "signal": 6,
+      "duplicates": 24,
+      "recall1": 0.739,
+      "delta": -0.017,
+      "concentration": 0.471,
+      "sameMean": 0.209,
+      "otherMean": 0.23,
+      "margin": 0.021
+    },
+    {
+      "signal": 12,
+      "duplicates": 0,
+      "recall1": 0.867,
+      "delta": 0,
+      "concentration": 0.433,
+      "sameMean": 0.3,
+      "otherMean": 0.373,
+      "margin": 0.072
+    },
+    {
+      "signal": 12,
+      "duplicates": 8,
+      "recall1": 0.858,
+      "delta": -0.008,
+      "concentration": 0.419,
+      "sameMean": 0.251,
+      "otherMean": 0.313,
+      "margin": 0.062
+    },
+    {
+      "signal": 12,
+      "duplicates": 24,
+      "recall1": 0.872,
+      "delta": 0.006,
+      "concentration": 0.432,
+      "sameMean": 0.203,
+      "otherMean": 0.252,
+      "margin": 0.049
+    },
+    {
+      "signal": 40,
+      "duplicates": 0,
+      "recall1": 0.997,
+      "delta": 0,
+      "concentration": 0.421,
+      "sameMean": 0.255,
+      "otherMean": 0.372,
+      "margin": 0.117
+    },
+    {
+      "signal": 40,
+      "duplicates": 8,
+      "recall1": 1,
+      "delta": 0.003,
+      "concentration": 0.419,
+      "sameMean": 0.232,
+      "otherMean": 0.343,
+      "margin": 0.111
+    },
+    {
+      "signal": 40,
+      "duplicates": 24,
+      "recall1": 0.997,
+      "delta": 0,
+      "concentration": 0.417,
+      "sameMean": 0.207,
+      "otherMean": 0.301,
+      "margin": 0.094
+    }
+  ]
+}

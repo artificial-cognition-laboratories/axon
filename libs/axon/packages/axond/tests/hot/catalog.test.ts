@@ -123,25 +123,24 @@ describe("failure", () => {
 
         const offline = Catalog({ root: root, fetch: source([], true).fetch })
 
-        expect(await offline.refresh("whisper")).toBeNull()
+        await expect(offline.refresh("whisper")).rejects.toThrow("model catalogue could not be refreshed")
         expect(offline.cached("whisper")).toHaveLength(1)
     })
 
-    test("a failed fetch with nothing cached is empty, not an error", async () => {
-        // The honest answer at that point — a panel must not throw because a
-        // catalogue is unreachable.
+    test("a failed fetch with nothing cached reports an error", async () => {
+        // An unreachable catalogue is distinct from a successful empty search.
         const { catalog: c } = await catalog(source([], true))
 
-        expect(await c.refresh("whisper")).toBeNull()
+        await expect(c.refresh("whisper")).rejects.toThrow("model catalogue could not be refreshed")
         expect(c.cached("whisper")).toEqual([])
     })
 
-    test("a corrupt cache file is treated as empty", async () => {
-        // It costs a refetch and cannot produce wrong rows.
+    test("a corrupt cache file reports its failure", async () => {
+        // Broken cache state must be visible to the caller.
         const net = source(["onnx-community/whisper-base.en"])
         const { root } = await catalog(net)
         await Bun.write(root, "{ not json")
 
-        expect(Catalog({ root: root, fetch: net.fetch }).cached("whisper")).toEqual([])
+        expect(() => Catalog({ root: root, fetch: net.fetch }).cached("whisper")).toThrow("cache could not be read")
     })
 })

@@ -4,7 +4,7 @@ import { err } from "@arcforge/err"
 import type { ProviderEntry } from "@arcforge/types"
 import { resolveDefaultBaseUrl } from "@arcforge/cloud"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
-import { Blueprint, Config, invalidateConfig, cognetAbi, cognetName, cognetSourceOf, readCognetModels, flatten, DEFAULT_COGNET, type CognetSource, type ScanWarning } from "../blueprint"
+import { Blueprint, Config, cognetAbi, cognetName, cognetSourceOf, CognetConfigFile, flatten, DEFAULT_COGNET, type CognetSource, type ScanWarning } from "../blueprint"
 import { reconcile } from "./reconcile"
 import { describeFaults } from "./verify"
 import { Models } from "./models"
@@ -247,7 +247,6 @@ export function Prepare(opts: PrepareOpts) {
 
     opts.watcher.onChange(() => {
         cached = null
-        invalidateConfig(root)
         releaseCache?.()
         releaseCache = null
     })
@@ -257,12 +256,6 @@ export function Prepare(opts: PrepareOpts) {
         // remain explicit reconciliation requests, and --frozen remains an
         // assertion against disk rather than a cached answer.
         if (options.reuse && cached) return cached
-
-        // A cache is trustworthy only while the watcher has continuously
-        // observed the project. Explicit prepare requests intentionally do
-        // not retain that watcher, so they must begin from disk rather than
-        // borrow an evaluation a former runtime left behind.
-        if (!options.reuse) invalidateConfig(root)
 
         let acquiredCacheWatch = false
         if (options.reuse && !releaseCache) {
@@ -285,9 +278,9 @@ export function Prepare(opts: PrepareOpts) {
          * a registry doing exactly what it should.
          */
         const notePropagation = (delayMs: number, attempt: number): void => {
-            report?.("build:warning", {
-                domain: "install",
-                error: `a just-published version has not reached this npm edge yet — retrying in ${delayMs / 1_000}s (attempt ${attempt})`,
+            report?.("build:progress", {
+                stage: "tree",
+                message: `a just-published version has not reached this npm edge yet — retrying in ${delayMs / 1_000}s (attempt ${attempt})`,
             })
         }
 
@@ -704,7 +697,7 @@ export function Prepare(opts: PrepareOpts) {
                 // without its weights is broken rather than degraded, and
                 // finding that out at first inference is far worse than
                 // finding it at prepare.
-                const declaredModels = await readCognetModels(blueprint.cognet.sourceDir(cognetSource))
+                const declaredModels = CognetConfigFile({ sourceDir: cognetDir }).read()?.models ?? {}
                 return weights.resolve(declaredModels, {
                     ...(options.frozen ? { frozen: true } : {}),
                     onDownload: model => console.log(`  fetching ${model.key} — ${model.repo}/${model.file}`),

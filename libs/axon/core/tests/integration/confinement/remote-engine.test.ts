@@ -1,6 +1,6 @@
 import { Axon as AxonRuntime } from "@arcforge/core"
 import { KERNEL_ABI_VERSION } from "@arcforge/types"
-import type { AxonEngineDriver, AxonEngineRawEvent } from "@arcforge/types"
+import type { AxonEngineDriver, AxonEngineRawEvent, AxonTransformDriver, RemoteEngines } from "@arcforge/types"
 import { defineCognet } from "@arcforge/cognet"
 
 /**
@@ -20,7 +20,7 @@ import { defineCognet } from "@arcforge/cognet"
  */
 let kernelRef: unknown = null
 
-function probeCognet(body: (kernel: never) => Promise<void>) {
+function probeCognet(body: (kernel: never) => Promise<void>, engines: Record<string, unknown> = { main: { type: "generate", in: "text", out: "text", primary: true } }) {
     return {
         name: "probe",
         version: "1.0.0",
@@ -30,7 +30,7 @@ function probeCognet(body: (kernel: never) => Promise<void>) {
             version: "1.0.0",
             abi: KERNEL_ABI_VERSION,
             mode: { kind: "invocation" },
-            engines: { main: { type: "generate", in: "text", out: "text", primary: true } },
+            engines: engines as never,
             // Captured at load so wake() can reach it — the ABI arrives here.
             // The probe runs inside WAKE, not load: an engine call is a
             // syscall and the ABI stamps it with the run it belongs to, so
@@ -63,14 +63,25 @@ function done(text: string): AxonEngineRawEvent {
     }
 }
 
+/** A transform nothing should call — the generate tests never ask for one. */
+const NO_TRANSFORM = (): AxonTransformDriver => ({
+    kind: "transform",
+    transform: async () => { throw new Error("no transform in this test") },
+})
+
+/** Remote engines whose generate driver is `generate`. */
+function remote(generate: (role: string) => AxonEngineDriver): RemoteEngines {
+    return { generate: generate, transform: NO_TRANSFORM }
+}
+
 /** A remote driver, standing in for one whose tokens arrive over the link. */
-function remoteDriver(events: AxonEngineRawEvent[]): (role: string) => AxonEngineDriver {
-    return () => ({
+function remoteDriver(events: AxonEngineRawEvent[]): RemoteEngines {
+    return remote(() => ({
         // eslint-disable-next-line require-yield
         async *stream(): AsyncGenerator<AxonEngineRawEvent> {
             for (const event of events) yield event
         },
-    })
+    }))
 }
 
 describe("kernel — inference through a remote driver", () => {
@@ -106,7 +117,7 @@ describe("kernel — inference through a remote driver", () => {
         // boundary that exists to keep it out.
         let usedRemote = false
         const runtime = await AxonRuntime({
-            remote: role => {
+            remote: remote(role => {
                 usedRemote = true
                 expect(role).toBe("main")
                 return {
@@ -114,7 +125,7 @@ describe("kernel — inference through a remote driver", () => {
                         yield done("<text>ok</text>")
                     },
                 }
-            },
+            }),
             blueprint: {
                 cognet: probeCognet(async (abi: never) => {
                     const kernel = abi as unknown as {
@@ -135,14 +146,14 @@ describe("kernel — inference through a remote driver", () => {
         // is behind a role); the boundary now enforces it.
         const seenRoles: string[] = []
         const runtime = await AxonRuntime({
-            remote: role => {
+            remote: remote(role => {
                 seenRoles.push(role)
                 return {
                     async *stream(): AsyncGenerator<AxonEngineRawEvent> {
                         yield done("<text>ok</text>")
                     },
                 }
-            },
+            }),
             blueprint: {
                 profileProviders: [],
                 cognet: probeCognet(async (abi: never) => {
@@ -157,5 +168,62 @@ describe("kernel — inference through a remote driver", () => {
         await runtime.axon.request("go")
         expect(seenRoles).toEqual(["main"])
         await runtime.shutdown()
+    }, 20_000)
+
+    it("sends a transform through the remote side, with the wake's signal", async () => {
+        // Transforms had no remote path: a confined cognet asking for features
+        // was refused as unbound however well the supervisor could serve it.
+        const seen: Array<{ role: string; input: unknown; signal: boolean }> = []
+        let result: unknown = null
+        const runtime = await AxonRuntime({
+            remote: {
+                generate: () => { throw new Error("no generate in this test") },
+                transform: role => ({
+                    kind: "transform",
+                    transform: async (input, opts) => {
+                        seen.push({ role: role, input: input, signal: opts?.signal instanceof AbortSignal })
+                        return { kind: "features", patch: 16 }
+                    },
+                }),
+            },
+            blueprint: {
+                profileProviders: [],
+                cognet: probeCognet(async (abi: never) => {
+                    const kernel = abi as unknown as { engine(role: string): { transform(input: unknown): Promise<unknown> } }
+                    result = await kernel.engine("features").transform({ kind: "image" })
+                }, { features: { type: "transform", in: "image", out: "features" } }),
+            },
+        })
+
+        await runtime.axon.request("go")
+        expect(seen).toEqual([{ role: "features", input: { kind: "image" }, signal: true }])
+        expect(result).toEqual({ kind: "features", patch: 16 })
+        await runtime.shutdown()
+    }, 20_000)
+
+    it("says an optional role is present only when the supervisor filled it", async () => {
+        // An unfilled optional role once read as present in the box, and a
+        // brain called into nothing six hundred times instead of degrading.
+        const seen: Record<string, boolean> = {}
+        const boot = async (resolvedEngines?: Record<string, unknown>) => {
+            const runtime = await AxonRuntime({
+                remote: remote(() => { throw new Error("no generate in this test") }),
+                blueprint: {
+                    profileProviders: [],
+                    cognet: {
+                        ...probeCognet(async (abi: never) => {
+                            const kernel = abi as unknown as { engine: { has(role: string): boolean } }
+                            seen[resolvedEngines ? "filled" : "empty"] = kernel.engine.has("features")
+                        }, { features: { type: "transform", in: "image", out: "features", optional: true } }),
+                        ...(resolvedEngines ? { resolvedEngines: resolvedEngines } : {}),
+                    } as never,
+                },
+            })
+            await runtime.axon.request("go")
+            await runtime.shutdown()
+        }
+        await boot()
+        await boot({ features: { type: "transform", modalities: { in: ["image"], out: ["features"] }, slots: 1 } })
+        expect(seen).toEqual({ empty: false, filled: true })
     }, 20_000)
 })

@@ -230,7 +230,7 @@ describe("eviction: never delete a tree something is using", () => {
             const projectModules = join(project, "node_modules")
             await mkdir(projectModules, { recursive: true })
             for (const entry of await readdir(treeModules)) {
-                await symlink(join(treeModules, entry), join(projectModules, entry))
+                await symlink(join(treeModules, entry), join(projectModules, entry), process.platform === "win32" ? "junction" : "dir")
             }
             await cache.addReferrer(join(root, first!), project)
 
@@ -266,7 +266,7 @@ describe("eviction: never delete a tree something is using", () => {
         try {
             const [first] = await publishN(cache, 1)
             await mkdir(join(project, "node_modules"), { recursive: true })
-            await symlink(join(tmpdir(), "somewhere-else"), join(project, "node_modules", "@t"))
+            await symlink(join(tmpdir(), "somewhere-else"), join(project, "node_modules", "@t"), process.platform === "win32" ? "junction" : "dir")
             await cache.addReferrer(join(root, first!), project)
 
             expect(await cache.isReferenced(join(root, first!))).toBe(false)

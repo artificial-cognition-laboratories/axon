@@ -23,7 +23,13 @@
  */
 export type Actor =
     | { kind: "human"; account: string }
-    | { kind: "agent"; session: string }
+    /**
+     * `name` is who the agent says it is — `captain`, `rivers-commander` —
+     * from `--as` or AXON_ACTOR. A session id identifies a process; a name is
+     * what a person reading the log recognises. Optional because older logs
+     * and the runner have none.
+     */
+    | { kind: "agent"; session: string; name?: string }
 
 /**
  * A file carried by an event.
@@ -151,6 +157,15 @@ export type ChangeSet = {
  */
 export type Batched = { batch?: string }
 
+/**
+ * What a `said` entry is, as its author typed it.
+ *
+ * A `note` is progress, evidence or direction; a `report` is a worker handing
+ * its result back. Neither touches a run — a log entry is a record, never a
+ * trigger. Absent on entries written before this existed, which read as notes.
+ */
+export type JobEntry = "note" | "report"
+
 export type JobEvent =
     | { kind: "created"; at: string; by: Actor; machine: string | null; workspace: string; title: string; brief: string; agent: string | null; cwd: string | null; attachments?: Attachment[]; paths?: string[] }
     /** The brief is mutable state represented honestly as an event. */
@@ -178,7 +193,7 @@ export type JobEvent =
      * Anchors name a RUN rather than a position, because a run is immutable
      * and identified once it exists, while positions shift as a log grows.
      */
-    | { kind: "said"; at: string; by: Actor; text: string; attachments?: Attachment[]; anchor?: { run: string; quote?: string } }
+    | { kind: "said"; at: string; by: Actor; text: string; attachments?: Attachment[]; anchor?: { run: string; quote?: string }; entry?: JobEntry }
     /**
      * A person's verdict on what a run produced.
      *

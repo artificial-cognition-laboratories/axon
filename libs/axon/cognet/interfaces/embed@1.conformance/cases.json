@@ -1,0 +1,8 @@
+[
+    {
+        "name": "a text is a vector of numbers",
+        "call": "text",
+        "given": { "text": "a red cup on a table" },
+        "expect": { "vector": { "length": { "min": 1 }, "each": { "type": "number" } } }
+    }
+]

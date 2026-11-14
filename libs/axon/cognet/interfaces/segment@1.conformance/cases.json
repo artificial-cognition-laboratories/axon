@@ -1,0 +1,11 @@
+[
+    {
+        "name": "a point picks out a region: a mask over the whole picture, 1 inside and 0 out, and a score from 0 to 1",
+        "call": "mask",
+        "given": {
+            "encoded": { "$call": "encode", "given": { "picture": { "$picture": { "width": 64, "height": 48, "fill": [200, 30, 30] } } } },
+            "prompt": { "point": [32, 24] }
+        },
+        "expect": { "width": { "min": 1 }, "height": { "min": 1 }, "mask": { "length": "width*height", "each": { "oneOf": [0, 1] } }, "score": { "min": 0, "max": 1 } }
+    }
+]

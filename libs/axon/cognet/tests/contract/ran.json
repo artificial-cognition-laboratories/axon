@@ -1,0 +1,4 @@
+{
+    "changes": [{ "op": "set", "entity": "self", "component": "count", "data": { "at": 13.0, "points": { "$array": 0 } } }],
+    "effects": [{ "verb": "output", "args": { "type": "vector", "data": { "channel": "/wheels", "values": [0.4, 0.4], "basis": 12.0 } } }]
+}

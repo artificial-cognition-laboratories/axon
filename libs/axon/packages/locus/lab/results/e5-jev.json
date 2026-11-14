@@ -1,0 +1,697 @@
+{
+  "ran": "2026-10-17T16:12:42.715Z",
+  "seconds": 69,
+  "rows": {
+    "axes": [
+      {
+        "axis": "task:debug",
+        "mean": 0.43,
+        "share > 0.5": 0.385,
+        "spread": 0.95
+      },
+      {
+        "axis": "task:design",
+        "mean": 0.547,
+        "share > 0.5": 0.515,
+        "spread": 0.86
+      },
+      {
+        "axis": "task:build",
+        "mean": 0.432,
+        "share > 0.5": 0.41,
+        "spread": 0.93
+      },
+      {
+        "axis": "task:review",
+        "mean": 0.276,
+        "share > 0.5": 0.185,
+        "spread": 0.96
+      },
+      {
+        "axis": "task:operate",
+        "mean": 0.426,
+        "share > 0.5": 0.405,
+        "spread": 0.94
+      },
+      {
+        "axis": "task:explain",
+        "mean": 0.453,
+        "share > 0.5": 0.42,
+        "spread": 0.92
+      },
+      {
+        "axis": "state:stuck",
+        "mean": 0.315,
+        "share > 0.5": 0.16,
+        "spread": 0.9
+      },
+      {
+        "axis": "state:approve",
+        "mean": 0.345,
+        "share > 0.5": 0.3,
+        "spread": 0.93
+      },
+      {
+        "axis": "state:correct",
+        "mean": 0.205,
+        "share > 0.5": 0.11,
+        "spread": 0.95
+      },
+      {
+        "axis": "mood:frustrated",
+        "mean": 0.28,
+        "share > 0.5": 0.18,
+        "spread": 0.94
+      },
+      {
+        "axis": "mood:pleased",
+        "mean": 0.36,
+        "share > 0.5": 0.315,
+        "spread": 0.95
+      },
+      {
+        "axis": "mood:urgency",
+        "mean": 0.38,
+        "share > 0.5": 0.28,
+        "spread": 0.98
+      },
+      {
+        "axis": "scope:reach",
+        "mean": 0.54,
+        "share > 0.5": 0.525,
+        "spread": 0.985
+      },
+      {
+        "axis": "scope:risk",
+        "mean": 0.19,
+        "share > 0.5": 0.065,
+        "spread": 0.88
+      },
+      {
+        "axis": "topic:mind",
+        "mean": 0.177,
+        "share > 0.5": 0.095,
+        "spread": 0.89
+      },
+      {
+        "axis": "topic:interface",
+        "mean": 0.438,
+        "share > 0.5": 0.41,
+        "spread": 0.89
+      },
+      {
+        "axis": "topic:infra",
+        "mean": 0.271,
+        "share > 0.5": 0.185,
+        "spread": 0.97
+      },
+      {
+        "axis": "topic:runtime",
+        "mean": 0.426,
+        "share > 0.5": 0.4,
+        "spread": 0.91
+      },
+      {
+        "axis": "topic:body",
+        "mean": 0.305,
+        "share > 0.5": 0.2,
+        "spread": 0.93
+      },
+      {
+        "axis": "topic:account",
+        "mean": 0.124,
+        "share > 0.5": 0.06,
+        "spread": 0.97
+      },
+      {
+        "axis": "topic:docs",
+        "mean": 0.35,
+        "share > 0.5": 0.255,
+        "spread": 0.92
+      }
+    ],
+    "queries": [
+      {
+        "query": "times I was frustrated that something kept breaking",
+        "kind": "situational",
+        "rank": 1,
+        "distance": 0.067,
+        "compared": 4,
+        "agent": "barry.mk3",
+        "message": "no again, this is not it. the one im seeing now is the old one that should have been deleted. there is a new j"
+      },
+      {
+        "query": "times I was frustrated that something kept breaking",
+        "kind": "situational",
+        "rank": 2,
+        "distance": 0.092,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "still no lucj. just blank on hover after full reload."
+      },
+      {
+        "query": "times I was frustrated that something kept breaking",
+        "kind": "situational",
+        "rank": 3,
+        "distance": 0.094,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "okay still not seeing anything in game. check status"
+      },
+      {
+        "query": "times I was frustrated that something kept breaking",
+        "kind": "situational",
+        "rank": 4,
+        "distance": 0.112,
+        "compared": 4,
+        "agent": "barry.mk3",
+        "message": "no no no. this is the old job buffer. this thats the wrong one. the one were actually working on is far better"
+      },
+      {
+        "query": "times I was frustrated that something kept breaking",
+        "kind": "situational",
+        "rank": 5,
+        "distance": 0.117,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "still getting no images being pasted in ytet. we shoiuld be seeing something like [image #1] show up in the te"
+      },
+      {
+        "query": "when I told the agent it had got it wrong",
+        "kind": "situational",
+        "rank": 1,
+        "distance": 0.059,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "you accidently keep putting the <done /> flag when your not done. only use that once your full pass finished."
+      },
+      {
+        "query": "when I told the agent it had got it wrong",
+        "kind": "situational",
+        "rank": 2,
+        "distance": 0.068,
+        "compared": 4,
+        "agent": "barry.mk3",
+        "message": "you keep stopping by accident. only emit the <done /> flag once your full loop is finished."
+      },
+      {
+        "query": "when I told the agent it had got it wrong",
+        "kind": "situational",
+        "rank": 3,
+        "distance": 0.105,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "okay, stop using the <done /> flag. it premeturely stops your turn. lets get this tied up properly."
+      },
+      {
+        "query": "when I told the agent it had got it wrong",
+        "kind": "situational",
+        "rank": 4,
+        "distance": 0.108,
+        "compared": 4,
+        "agent": "barry.mk3",
+        "message": "okay nice. stop calling <done /> after your blocks it keeps stopping you early"
+      },
+      {
+        "query": "when I told the agent it had got it wrong",
+        "kind": "situational",
+        "rank": 5,
+        "distance": 0.12,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "clean. lets rewrite this out properly. agent connects to terraria, not the other way around."
+      },
+      {
+        "query": "big architecture discussions",
+        "kind": "situational",
+        "rank": 1,
+        "distance": 0.039,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "ookay help me understand the moddling principles here. ecs is what im currently thinking is the idael way here"
+      },
+      {
+        "query": "big architecture discussions",
+        "kind": "situational",
+        "rank": 2,
+        "distance": 0.059,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "okay so what were trying to do with axon is basically start automating and get our headless workflows owrlking"
+      },
+      {
+        "query": "big architecture discussions",
+        "kind": "situational",
+        "rank": 3,
+        "distance": 0.062,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "okay yeah i am talking about that. because ive been thinking of trying to build some standardized interface fo"
+      },
+      {
+        "query": "big architecture discussions",
+        "kind": "situational",
+        "rank": 4,
+        "distance": 0.068,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "okay clean. so lets rework this sytem to do that. each terry instance boots its own client. headlessly and pro"
+      },
+      {
+        "query": "big architecture discussions",
+        "kind": "situational",
+        "rank": 5,
+        "distance": 0.074,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "okay lets throw a curveball. and old thing i want to reignite. /home/cody/git/arclabs/.archive/sitvec Okay, so"
+      },
+      {
+        "query": "risky changes that could break production",
+        "kind": "situational",
+        "rank": 1,
+        "distance": 0.116,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "# axon-backend-deploy ## Objective Take the local ArcLabs repository from its current state to a verified prod"
+      },
+      {
+        "query": "risky changes that could break production",
+        "kind": "situational",
+        "rank": 2,
+        "distance": 0.118,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "# axon-backend-deploy ## Objective Take the local ArcLabs repository from its current state to a verified prod"
+      },
+      {
+        "query": "risky changes that could break production",
+        "kind": "situational",
+        "rank": 3,
+        "distance": 0.119,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "# axon-backend-deploy ## Objective Take the local ArcLabs repository from its current state to a verified prod"
+      },
+      {
+        "query": "risky changes that could break production",
+        "kind": "situational",
+        "rank": 4,
+        "distance": 0.131,
+        "compared": 4,
+        "agent": "barry.mk3",
+        "message": "okay and ther are two jobs views in this fleet ext. one is the old one and one is the active one right now. we"
+      },
+      {
+        "query": "risky changes that could break production",
+        "kind": "situational",
+        "rank": 5,
+        "distance": 0.159,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "okay this is looking very strong. okay lets scope out getting this implemented end to end. well scope it out a"
+      },
+      {
+        "query": "when I was happy with the result",
+        "kind": "situational",
+        "rank": 1,
+        "distance": 0.015,
+        "compared": 2,
+        "agent": "barry.mk3",
+        "message": "## The job you are working **#6286** awdfsef ### What has happened so far **state** · You Marked complete. ---"
+      },
+      {
+        "query": "when I was happy with the result",
+        "kind": "situational",
+        "rank": 2,
+        "distance": 0.024,
+        "compared": 2,
+        "agent": "barry.mk3",
+        "message": "## The job you are working **#6286** awdfsef ### What has happened so far **state** · You Marked complete. ---"
+      },
+      {
+        "query": "when I was happy with the result",
+        "kind": "situational",
+        "rank": 3,
+        "distance": 0.035,
+        "compared": 2,
+        "agent": "zeno",
+        "message": "okay nice. can you help me understand this c# a little. im new to the language. statically typed i can see. wh"
+      },
+      {
+        "query": "when I was happy with the result",
+        "kind": "situational",
+        "rank": 4,
+        "distance": 0.036,
+        "compared": 2,
+        "agent": "zeno",
+        "message": "yeah both of these examples you give are really strong. trouble is we dont want to couple ourselves to assumin"
+      },
+      {
+        "query": "when I was happy with the result",
+        "kind": "situational",
+        "rank": 5,
+        "distance": 0.055,
+        "compared": 2,
+        "agent": "barry.mk3",
+        "message": "so worktrees is strong. i think thats natural. its a local first ability to make trees right? and i can select"
+      },
+      {
+        "query": "auth system",
+        "kind": "topical",
+        "rank": 1,
+        "distance": 0.013,
+        "compared": 2,
+        "agent": "barry.mk3",
+        "message": "clean. right next up is: - add a \"local\" provider as unified model interface. instead of HugginFace and Ollama"
+      },
+      {
+        "query": "auth system",
+        "kind": "topical",
+        "rank": 2,
+        "distance": 0.016,
+        "compared": 2,
+        "agent": "barry.mk3",
+        "message": "im on linux. and want to setup keys so my browser just uses my desktop. maybe asks me to type my desktop pass "
+      },
+      {
+        "query": "auth system",
+        "kind": "topical",
+        "rank": 3,
+        "distance": 0.116,
+        "compared": 2,
+        "agent": "zeno",
+        "message": "Invoices that include a credit note render a negative total. The ledger is correct — the defect is in how the "
+      },
+      {
+        "query": "auth system",
+        "kind": "topical",
+        "rank": 4,
+        "distance": 0.125,
+        "compared": 2,
+        "agent": "zeno",
+        "message": "can you teach me how i ssh into another one of my machines?"
+      },
+      {
+        "query": "auth system",
+        "kind": "topical",
+        "rank": 5,
+        "distance": 0.134,
+        "compared": 2,
+        "agent": "zeno",
+        "message": "okay gonna try vscode remote ssh. if that gives me full access + terminals then im good. whats my remote ssh c"
+      },
+      {
+        "query": "the Fleet extension's job view",
+        "kind": "topical",
+        "rank": 1,
+        "distance": 0.059,
+        "compared": 3,
+        "agent": "barry.mk3",
+        "message": "clean. im still not seeing the agents script apear in the add schedule page yet. the dupes are gone now. perfe"
+      },
+      {
+        "query": "the Fleet extension's job view",
+        "kind": "topical",
+        "rank": 2,
+        "distance": 0.076,
+        "compared": 3,
+        "agent": "oma",
+        "message": "my top bar for omarchy has gone. i pressed something. lets get that back."
+      },
+      {
+        "query": "the Fleet extension's job view",
+        "kind": "topical",
+        "rank": 3,
+        "distance": 0.08,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "okay nice. the tui boots now. but im still not seeing anything happen when i try to paste an image. lets inves"
+      },
+      {
+        "query": "the Fleet extension's job view",
+        "kind": "topical",
+        "rank": 4,
+        "distance": 0.081,
+        "compared": 3,
+        "agent": "barry.mk3",
+        "message": "okay ive just got zsh up and running on this new omarchy machine. lets make it default to path ~/git/arclabs w"
+      },
+      {
+        "query": "the Fleet extension's job view",
+        "kind": "topical",
+        "rank": 5,
+        "distance": 0.084,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "/home/cody/git/arclabs/registry/agents/terry/cognet/src/control/rhythm/rhythm.system.rs /home/cody/git/arclabs"
+      },
+      {
+        "query": "deploying to the cloud",
+        "kind": "topical",
+        "rank": 1,
+        "distance": 0.004,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "okay this is looking very strong. right and agreed on the remaining work. lets get that tied up so we can be a"
+      },
+      {
+        "query": "deploying to the cloud",
+        "kind": "topical",
+        "rank": 2,
+        "distance": 0.041,
+        "compared": 3,
+        "agent": "barry.mk3",
+        "message": "okay i need you to walk our product through the door. `arc deploy axon --force=\"git clean\"` will deploy the ax"
+      },
+      {
+        "query": "deploying to the cloud",
+        "kind": "topical",
+        "rank": 3,
+        "distance": 0.064,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "another question. should axon be on the AUR? or is install script fine. i had a user mention something about t"
+      },
+      {
+        "query": "deploying to the cloud",
+        "kind": "topical",
+        "rank": 4,
+        "distance": 0.101,
+        "compared": 3,
+        "agent": "barry.mk3",
+        "message": "Ship axon Preflight • git clean 69 uncommitted change(s) — a ship records a sha, so the tree must match it M b"
+      },
+      {
+        "query": "deploying to the cloud",
+        "kind": "topical",
+        "rank": 5,
+        "distance": 0.101,
+        "compared": 3,
+        "agent": "zeno",
+        "message": "│ async during /home/cody/git/arclabs/libs/axon/platform/src/build/project/watcher.ts:223:30 │ processTicksAnd"
+      },
+      {
+        "query": "the robot's perception",
+        "kind": "topical",
+        "rank": 1,
+        "distance": 0.117,
+        "compared": 5,
+        "agent": "zeno",
+        "message": "/home/cody/git/arclabs/registry/modules/mouse/server/plugins/mouse.ts here is an example of a axon module emit"
+      },
+      {
+        "query": "the robot's perception",
+        "kind": "topical",
+        "rank": 2,
+        "distance": 0.151,
+        "compared": 5,
+        "agent": "zeno",
+        "message": "/home/cody/git/arclabs/registry/agents/vox/cognet/src/main.ts Property 'request' does not exist on type 'Kerne"
+      },
+      {
+        "query": "the robot's perception",
+        "kind": "topical",
+        "rank": 3,
+        "distance": 0.164,
+        "compared": 5,
+        "agent": "zeno",
+        "message": "okay lets do our next pass over this because we need to ge tthis connecting reliably. lets explore and get thi"
+      },
+      {
+        "query": "the robot's perception",
+        "kind": "topical",
+        "rank": 4,
+        "distance": 0.172,
+        "compared": 5,
+        "agent": "zeno",
+        "message": "okay were oinly trying to remove the hardware concerns. all cogniton must remain in the vox cognet. so we are "
+      },
+      {
+        "query": "the robot's perception",
+        "kind": "topical",
+        "rank": 5,
+        "distance": 0.175,
+        "compared": 5,
+        "agent": "barry.mk3",
+        "message": "okay youll need to dive into the old agent sessions to get it. it must have been deleted before i commited it."
+      },
+      {
+        "query": "how prompts and scripts are declared",
+        "kind": "topical",
+        "rank": 1,
+        "distance": 0.081,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "okay tell me more about using something like tailscale. ive recently added it to my machine. seems to be the g"
+      },
+      {
+        "query": "how prompts and scripts are declared",
+        "kind": "topical",
+        "rank": 2,
+        "distance": 0.089,
+        "compared": 4,
+        "agent": "barry.mk3",
+        "message": "okay read go and do a deep dive on capsule package"
+      },
+      {
+        "query": "how prompts and scripts are declared",
+        "kind": "topical",
+        "rank": 3,
+        "distance": 0.09,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "read the directory and tell me what its for"
+      },
+      {
+        "query": "how prompts and scripts are declared",
+        "kind": "topical",
+        "rank": 4,
+        "distance": 0.091,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "A process crashed on this Omarchy machine and I want to know why. What systemd-coredump recorded: process: dot"
+      },
+      {
+        "query": "how prompts and scripts are declared",
+        "kind": "topical",
+        "rank": 5,
+        "distance": 0.099,
+        "compared": 4,
+        "agent": "zeno",
+        "message": "A process crashed on this Omarchy machine and I want to know why. What systemd-coredump recorded: process: dot"
+      }
+    ],
+    "stability": [
+      {
+        "axis": "task:debug",
+        "mean drift": 0.013,
+        "max drift": 0.06
+      },
+      {
+        "axis": "task:design",
+        "mean drift": 0.014,
+        "max drift": 0.03
+      },
+      {
+        "axis": "task:build",
+        "mean drift": 0.018,
+        "max drift": 0.07
+      },
+      {
+        "axis": "task:review",
+        "mean drift": 0.01,
+        "max drift": 0.05
+      },
+      {
+        "axis": "task:operate",
+        "mean drift": 0.014,
+        "max drift": 0.04
+      },
+      {
+        "axis": "task:explain",
+        "mean drift": 0.027,
+        "max drift": 0.06
+      },
+      {
+        "axis": "state:stuck",
+        "mean drift": 0.022,
+        "max drift": 0.04
+      },
+      {
+        "axis": "state:approve",
+        "mean drift": 0.021,
+        "max drift": 0.05
+      },
+      {
+        "axis": "state:correct",
+        "mean drift": 0.015,
+        "max drift": 0.03
+      },
+      {
+        "axis": "mood:frustrated",
+        "mean drift": 0.012,
+        "max drift": 0.03
+      },
+      {
+        "axis": "mood:pleased",
+        "mean drift": 0.014,
+        "max drift": 0.04
+      },
+      {
+        "axis": "mood:urgency",
+        "mean drift": 0.012,
+        "max drift": 0.027
+      },
+      {
+        "axis": "scope:reach",
+        "mean drift": 0.014,
+        "max drift": 0.053
+      },
+      {
+        "axis": "scope:risk",
+        "mean drift": 0.021,
+        "max drift": 0.06
+      },
+      {
+        "axis": "topic:mind",
+        "mean drift": 0.013,
+        "max drift": 0.02
+      },
+      {
+        "axis": "topic:interface",
+        "mean drift": 0.019,
+        "max drift": 0.04
+      },
+      {
+        "axis": "topic:infra",
+        "mean drift": 0.014,
+        "max drift": 0.04
+      },
+      {
+        "axis": "topic:runtime",
+        "mean drift": 0.032,
+        "max drift": 0.06
+      },
+      {
+        "axis": "topic:body",
+        "mean drift": 0.027,
+        "max drift": 0.06
+      },
+      {
+        "axis": "topic:account",
+        "mean drift": 0.008,
+        "max drift": 0.03
+      },
+      {
+        "axis": "topic:docs",
+        "mean drift": 0.024,
+        "max drift": 0.06
+      }
+    ],
+    "spent": {
+      "calls": 1200,
+      "usd": 0.02539928999999997
+    }
+  }
+}

@@ -88,40 +88,46 @@ describe("Clock: tick/phase/system", () => {
         expect(types).toEqual(["cognet:phase:start", "cognet:phase:failed"])
     })
 
-    it("system() emits complete with a durationMs field; start has none", async () => {
+    it("system() records ONE run when it ends: its start, its duration, its outcome", async () => {
         const bus = Recorder()
         const clock = Clock({ ticks: Ticks(), emit: bus.emit })
 
         await clock.runSystem("render", async () => {})
         await Promise.resolve()
 
-        const start = bus.events.find(e => e.event === "cognet:system:start")
-        const complete = bus.events.find(e => e.event === "cognet:system:complete")
-
-        expect((start?.payload as Record<string, unknown>).durationMs).toBeUndefined()
-        expect(typeof (complete?.payload as Record<string, unknown>).durationMs).toBe("number")
+        const records = bus.events.filter(e => e.event.startsWith("cognet:system:"))
+        expect(records.map(e => e.event)).toEqual(["cognet:system:run"])
+        expect(records[0]!.payload).toMatchObject({ system: "render", outcome: "complete" })
+        expect(typeof (records[0]!.payload as Record<string, unknown>).at).toBe("number")
+        expect(typeof (records[0]!.payload as Record<string, unknown>).durationMs).toBe("number")
     })
 
-    it("system() emits failed (not complete) and rethrows when the callback throws", async () => {
+    it("system() records a failed run, with its error, and rethrows", async () => {
         const bus = Recorder()
         const clock = Clock({ ticks: Ticks(), emit: bus.emit })
 
         await expect(clock.runSystem("render", async () => { throw new Error("boom") })).rejects.toThrow("boom")
         await Promise.resolve()
 
-        const types = bus.events.map(e => e.event).filter(e => e.startsWith("cognet:system:"))
-        expect(types).toEqual(["cognet:system:start", "cognet:system:failed"])
+        const run = bus.events.find(e => e.event === "cognet:system:run")!.payload as Record<string, any>
+        expect(run.outcome).toBe("failed")
+        expect(run.error.message).toContain("boom")
     })
 
-    it("system() telemetry reflects the enclosing tick and phase", async () => {
+    it("system() carries what its caller noted, and an async or worker run's own timing", async () => {
         const bus = Recorder()
         const clock = Clock({ ticks: Ticks(), emit: bus.emit })
 
-        await clock.runTick(() => clock.runPhase("build", () => clock.runSystem("render", async () => {})))
+        await clock.runTick(() => clock.runPhase("build", () => clock.runSystem("render", async note => { note({ reads: [{ entity: "self", component: "body", rev: 3 }] }) })))
+        await clock.runSystem("think", async () => {}, { at: 1_000, durationMs: 250, async: true })
+        await clock.runSystem("see", async () => {}, { at: 2_000, durationMs: 40, thread: 2 })
         await Promise.resolve()
 
-        const start = bus.events.find(e => e.event === "cognet:system:start")
-        expect(start?.payload).toMatchObject({ tick: 1, phase: "build", system: "render" })
+        const [render, think, see] = bus.events.filter(e => e.event === "cognet:system:run").map(e => e.payload as Record<string, unknown>)
+        expect(render).toMatchObject({ tick: 1, phase: "build", system: "render", reads: [{ entity: "self", component: "body", rev: 3 }] })
+        expect(think).toMatchObject({ system: "think", at: 1_000, durationMs: 250, async: true })
+        expect(see).toMatchObject({ system: "see", at: 2_000, durationMs: 40, thread: 2 })
+        expect(see!.async).toBeUndefined()
     })
 })
 

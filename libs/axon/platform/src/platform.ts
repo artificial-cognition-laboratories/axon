@@ -6,10 +6,11 @@ import { Files } from "./services/files"
 import { Cloud } from "./services/cloud"
 import { Deployments } from "./services/deployments"
 import { Projects } from "./build/project"
-import { Profile, Runtime } from "./build/runtime"
+import { Conformance, Profile, Runtime } from "./build/runtime"
 import type { AgentSupervisor } from "./build/runtime/instances"
 import { Extensions, ProfileConfigFile, readSettingsSync } from "./build/extensions"
 import { Resources } from "./services/resources"
+import { Debug } from "./debug"
 
 import { TestRunner } from "./services/test"
 import { Registry, PromptCache } from "./services/registry"
@@ -17,7 +18,7 @@ import { Prompts } from "./services/prompts"
 import { Updates } from "./services/update"
 import { join, resolve } from "node:path"
 import type { Distribution } from "./services/cloud"
-import type { ProviderEntry } from "@arcforge/types"
+import { ProfileProviders } from "./services"
 
 const BUILD_DISTRIBUTION: Distribution = process.env.NODE_ENV === "production" ? "production" : "development"
 
@@ -112,28 +113,10 @@ export function Platform(opts: PlatformOpts) {
     // the registry and project preparation. Both are defined below in terms of
     // `projects`, so they arrive as thunks rather than values: construction is
     // wiring, and nothing here calls anything.
-    /**
-     * The active profile's declared inference sources.
-     *
-     * ASYNC because reading them evaluates the user's own `profile.config.ts`
-     * — the same single evaluator the extension loader uses, so the two can
-     * never disagree about what a profile declares. Read per prepare rather
-     * than cached: a profile switch or a config edit must be visible on the
-     * next agent boot, and prepare is already doing far more expensive work.
-     *
-     * Silent on failure by design. A broken profile config reports through
-     * the extension loader, which owns telling a user their config is wrong;
-     * a second message from here would only make the first one ambiguous.
-     */
-    async function profileProviders(): Promise<readonly ProviderEntry[] | undefined> {
-        const root = store.profiles.active()?.root
-        if (!root) return undefined
-        const { providers } = await ProfileConfigFile(root)
-        // Undefined travels: it means "never configured", which the pool
-        // answers with the default. Returning [] here would tell every
-        // profile written before this field existed that it has no inference.
-        return providers
-    }
+    const profileProviders = ProfileProviders({
+        root: () => store.profiles.active()?.root,
+        read: ProfileConfigFile,
+    })
 
     /**
      * This machine's local-inference capacity and what is holding it.
@@ -152,7 +135,7 @@ export function Platform(opts: PlatformOpts) {
         // Read fresh per call, never captured: the active profile changes
         // while the process runs, and every agent prepared afterwards must
         // see the new user's providers rather than the boot-time one's.
-        profileProviders: () => profileProviders(),
+        profileProviders: profileProviders.read,
         cwd: cwd,
         frameworkVersion: opts.version,
         ...(opts.frameworkSource ? { frameworkSource: opts.frameworkSource } : {}),
@@ -241,12 +224,21 @@ export function Platform(opts: PlatformOpts) {
         latest: async name => (await cloud.client.registry.artifacts.resolve(name)).version,
     })
 
+    // What an agent uses to see inside a mind — see debug/README.md.
+    const debug = Debug()
+
+    // Whether what fills an agent's uses means what their interfaces say — see `axon conform`.
+    const conformance = Conformance({ cloud: cloud.client, profileProviders: profileProviders.read })
+
     return {
         cloud: cloud,
         store: store,
         deployments: deployments,
+        debug: debug,
+        conformance: conformance,
         projects: projects,
         profile: profile,
+        providers: profileProviders,
         extensions: extensions,
         /**
          * Re-read `profile.config.ts` settings into the store's cache.

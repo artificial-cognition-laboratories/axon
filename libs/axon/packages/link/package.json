@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/link",
-    "version": "2.0.219",
+    "version": "2.0.242",
     "type": "module",
     "exports": {
         ".": {
@@ -52,5 +52,5 @@
         "agent-runtime",
         "typescript"
     ],
-    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
+    "axonRevision": "99908cacd44ba4553e69d591f3b66811d4cf7d42"
 }

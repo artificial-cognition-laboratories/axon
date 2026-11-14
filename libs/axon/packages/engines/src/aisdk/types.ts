@@ -3,12 +3,8 @@
  *
  * ── Why it is spelled here rather than imported ───────────────────────────
  *
- * Same reason `EngineCloud` is hand-written in @arcforge/types: a structural
- * contract at a seam, so nothing above it takes a hard dependency. Here the
- * argument is stronger. `@ai-sdk/provider` is a peer dependency that a user
- * may not have installed — every provider package is optional and lazily
- * imported — and a type-level `import` from a package that may be absent is a
- * build failure for everyone who declined it.
+ * This is the narrow streaming seam Axon consumes, deliberately excluding
+ * the SDK's agent/tool loop: Cognos owns those concerns.
  *
  * A real provider's model satisfies this structurally, so `anthropic("...")`
  * is assignable with no cast. What is NOT here is deliberate: no tools, no

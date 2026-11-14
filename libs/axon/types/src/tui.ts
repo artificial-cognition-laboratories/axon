@@ -1740,6 +1740,8 @@ export type TuiNotifyHooks = {
      * rather than the one being replaced.
      */
     "agent:model": (payload: AgentModelPayload) => void
+    /** The focused conversation's context reading moved. */
+    "context:changed": (payload: { tokens: number; instance: AgentInstance }) => void
 
     /** The user sent a message. Fires once it is delivered. */
     "message:sent": (payload: MessageSentPayload) => void
@@ -1791,6 +1793,7 @@ export const TUI_HOOK_NAMES = [
     "agent:stopped",
     "agent:focused",
     "agent:model",
+    "context:changed",
     "message:sent",
     "message:received",
     "mode:changed",
@@ -2070,10 +2073,21 @@ export type ProfileSettings = {
  *         "@cody/vim": { leader: "," },
  *     })
  */
+/** A broad permission preset, applied before the profile's detailed policy. */
+export type ProfilePermissions = "normal" | "allow" | "ask"
+
 export type ProfileConfig = {
     extensions?: ExtensionEntry[]
     /** Platform settings — see ProfileSettings. */
     settings?: ProfileSettings
+    /**
+     * The profile-wide posture for commands and tools.
+     *
+     * `normal` follows each agent's policy. `allow` permits commands and tools
+     * unless an agent explicitly narrows them. `ask` raises every command and
+     * tool for approval in the active TUI.
+     */
+    permissions?: ProfilePermissions
     /**
      * The inference this user HAS — every agent on this profile inherits it.
      *

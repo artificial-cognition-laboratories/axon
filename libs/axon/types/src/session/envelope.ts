@@ -47,6 +47,15 @@ export type AxonEventContext = {
      * pointer would encode information the log already contains.
      */
     spanId?: string
+    /**
+     * The seq this entry's PRODUCER stamped it with, when it was relayed from
+     * another process's session — an agent in a subprocess, whose supervisor
+     * re-stamps everything it records. The mind addressed the entry by that
+     * seq (a text span names one), so that is how it is found again. Entries
+     * only: telemetry is never addressed by seq, and this field costs bytes on
+     * every line that carries it.
+     */
+    origin?: number
 }
 
 /**
@@ -62,7 +71,7 @@ export type AxonEventContext = {
  * part of the wire contract is a context that gets dropped at the boundary.
  * That is not hypothetical — it is the bug this type exists to prevent.
  */
-export type AxonCommitContext = Partial<Pick<AxonEventContext, "runId" | "spanId">>
+export type AxonCommitContext = Partial<Pick<AxonEventContext, "runId" | "spanId" | "origin">>
 
 /**
  * The envelope. `M` is a registry map (event name → payload shape);

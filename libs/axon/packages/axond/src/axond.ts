@@ -1,23 +1,43 @@
 import { join } from "node:path"
-import { err } from "@arcforge/err"
+import type { AxonEngineRequest, AxonEngineRawEvent, EngineCapability } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
-import { Boot, daemonPaths, Dispatch, Lifecycle, Preferences, Server } from "./control/index"
-import { Machine } from "./machine/index"
-import { Agents, Credential, Supervise } from "./agents/index"
+import { Attach, Boot, daemonPaths, Dispatch, distribution, Lifecycle, Preferences, profileRoot, Remote, RemoteServer, Server, Service, Tunnel } from "./control/index"
+import { Key, Machine } from "./machine/index"
+import { Directory, Net, type SidecarMode } from "./net/index"
+import { Agents, Credential, Supervise, Usage } from "./agents/index"
 import { Models, Runtimes } from "./models/index"
 import { Jobs, Runner, Workspaces, type Job } from "./jobs/index"
+import { Launcher } from "./launcher/index"
 import { Schedule } from "./schedule/index"
 import { Dictation } from "./dictation/index"
-import { Worlds } from "./worlds/index"
+import { LAB_IDS, Labs, type LabState } from "./labs/index"
 import type { DaemonPaths } from "../types/index"
 
 export type AxondOpts = {
+    /**
+     * Join the machine network, and how. Absent: this daemon stays off it.
+     *
+     * Explicit until enrollment exists — who may join, and when, is decided by
+     * sign-in and the directory (handoff, Pass 2), and a daemon must not reach
+     * the network before that answer does. `offline` dials direct addresses
+     * only: machines on one network, and tests.
+     */
+    network?: { mode: SidecarMode; dialTimeoutMs?: number; directoryTtlMs?: number; heartbeatMs?: number }
     /** Override where the socket, pidfile and log live. Tests point this at a scratch dir. */
+    local?: { catalogue(): Promise<EngineCapability[]>; run(model: string, input: unknown): Promise<unknown>; stream(model: string, request: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> }
     root?: string
     /** This build's version — stamped into `status` and reported to clients. */
     version?: string
     /** Where resource holds are written. Tests point this at a scratch dir. */
     residencyRoot?: string
+    /**
+     * Present when this Axond is EMBEDDED in another process — a terminal
+     * supervising the agents it boots — rather than being the machine daemon.
+     * The machine's labs, and every body in them, run in the daemon; `labs`
+     * reads their state from there, so an agent's body is still accounted to
+     * it. Absent: this process is the daemon, and its own labs are the labs.
+     */
+    embedded?: { labs(): Promise<LabState[]> }
     /** Where running-agent records are written. Tests point this at a scratch dir. */
     agentsRoot?: string
     /**
@@ -151,7 +171,7 @@ export function Axond(opts: AxondOpts = {}) {
      * that is how a test pins an account — and the store is the answer for
      * everyone else. Lazy, so construction still touches nothing.
      */
-    const credential = Credential({ version: version })
+    const credential = Credential({ version: version, store: paths.store })
 
     /**
      * What the daemon holds on a confined agent's behalf.
@@ -162,22 +182,43 @@ export function Axond(opts: AxondOpts = {}) {
      * feature rather than a missing login. The credential is resolved at the
      * spawn that needs it, and says which of the two is actually wrong.
      */
+    const preferences = Preferences({ path: join(paths.root, "preferences.json") })
+
+    // One machine-wide runtime manager shared by every agent and model adapter.
+    const runtimes = Runtimes(opts.runtimesRoot !== undefined ? { root: opts.runtimesRoot } : {})
+
+    const models = Models({
+        machine: machine,
+        runtimes: runtimes,
+        autoload: () => preferences.flag("autoload", true),
+        ...(opts.modelsRoot !== undefined ? { root: opts.modelsRoot } : {}),
+    })
+
     const supervise = Supervise({
         cloud: opts.cloud ?? (() => credential.client()),
+        // Each agent's cost, part by part. Labs are read through a thunk: they
+        // are built below, and a sample is only ever taken after both exist.
+        usage: Usage({
+            machine: machine,
+            labs: opts.embedded ? opts.embedded.labs : () => Promise.all(LAB_IDS.map(id => labs.all[id].state())),
+            host: { pid: process.pid, name: opts.embedded ? "terminal" : "daemon" },
+        }),
+        ...(process.env.AXON_PROFILE ? { profiles: profileRoot(process.env.AXON_PROFILE, paths.root) } : {}),
         // Without this the daemon has no way to ask anybody anything, so every
         // escalation is refused by a supervisor that never had a decider —
         // which is how a TUI showed "needs approval, and nothing was listening"
         // while the user was sitting right there.
         ...(opts.decide ? { decide: opts.decide } : {}),
-        // Models is assembled below. The thunk is called only when an agent
-        // resolves its inference roles, after the daemon composition is complete.
-        local: () => ({
+        local: () => opts.local ?? ({
             catalogue: () => models.local(),
-            run: (model, input) => models.run({ model, input }),
+            run: (model, input) => models.run({ model: model, input: input }),
+            stream: (model, request) => models.stream({ model: model, request: request }),
         }),
     })
 
     const agents = Agents({
+        store: paths.store,
+        isolated: paths.isolated,
         supervise: supervise,
         // Identity belongs to the machine domain — the agents domain names the
         // box on each record rather than probing it a second time.
@@ -193,17 +234,6 @@ export function Axond(opts: AxondOpts = {}) {
      * off` has to take effect on the next request, and a value read once at
      * boot would need the daemon restarted to notice.
      */
-    const preferences = Preferences({ path: join(paths.root, "preferences.json") })
-
-    // One machine-wide runtime manager shared by every agent and model adapter.
-    const runtimes = Runtimes(opts.runtimesRoot !== undefined ? { root: opts.runtimesRoot } : {})
-
-    const models = Models({
-        machine: machine,
-        runtimes: runtimes,
-        autoload: () => preferences.flag("autoload", true),
-        ...(opts.modelsRoot !== undefined ? { root: opts.modelsRoot } : {}),
-    })
     /**
      * Work delegated to an agent, and the record of what happened.
      *
@@ -214,16 +244,16 @@ export function Axond(opts: AxondOpts = {}) {
      * anything, and far better than refusing to remember what a person typed.
      */
     /**
-     * What boots the agent a job asks for.
-     *
-     * A thunk over `agents` for the same reason `onStale` is one: `agents` is
-     * built below, and this is only ever called long after both exist. The
-     * runner holds a Platform lazily — see Runner on why the daemon may build
-     * one without inverting the platform/daemon direction.
+     * What boots an agent the daemon is asked to run, by reference — a job's,
+     * or a lab's scenario run. It holds a Platform lazily: see Launcher on why
+     * the daemon may build one without inverting the platform/daemon direction.
      */
-    const runner = Runner({
-        agents: { supervise: (input: never) => agents.supervise(input) } as never,
+    const launcher = Launcher({
+        agents: agents,
         version: version,
+    })
+    const runner = Runner({
+        launcher: launcher,
         report: {
             say: (ref, text) => { jobs.say({ ref: ref, text: text, by: { kind: "agent", session: "runner" } }) },
             finish: (ref, run, summary) => { jobs.finish({ ref: ref, run: run, summary: summary, by: { kind: "agent", session: "runner" } }) },
@@ -257,10 +287,38 @@ export function Axond(opts: AxondOpts = {}) {
      */
     const dictation = Dictation({ models: models, preferences: preferences })
 
-    // The lab: Terraria worlds and the warm bodies agents occupy. Machine-wide
-    // for the same reason models are — a display, a port, a game client is
-    // something only one process on this box can own.
-    const worlds = Worlds({ root: join(paths.root, "worlds") })
+    // This machine's identity on the network — in the store, not the cache.
+    const key = Key({ path: join(paths.store, "machine", "key") })
+    const directory = Directory({
+        cloud: () => credential.client(),
+        account: () => credential.account(),
+        key: key,
+        about: () => {
+            const identity = machine.identity.current()
+            return { name: identity.hostname, platform: identity.platform, arch: identity.arch }
+        },
+        distribution: distribution(),
+        ttlMs: opts.network?.directoryTtlMs ?? 30_000,
+    })
+    const net = Net({
+        root: paths.root,
+        key: key,
+        directory: directory,
+        heartbeatMs: opts.network?.heartbeatMs ?? 60_000,
+        mode: opts.network?.mode ?? "n0",
+        dialTimeoutMs: opts.network?.dialTimeoutMs ?? 5_000,
+        report: event => console.error(`[axon-net] ${JSON.stringify(event)}`),
+    })
+    const remote = RemoteServer({
+        socket: join(paths.root, "remote.sock"),
+        authorize: key => directory.authorize(key),
+        surface: peer => Remote({ peer: peer, agents: agents, machine: machine, models: models, schedule: schedule }),
+        attach: Attach({ agents: agents }),
+    })
+
+    // Labs are machine-wide: a display, a port, and a game client can only
+    // belong to one process on this box.
+    const labs = Labs({ root: join(paths.root, "worlds"), launcher: launcher })
 
     const dispatch = Dispatch({
         domains: {
@@ -270,7 +328,7 @@ export function Axond(opts: AxondOpts = {}) {
             jobs: jobs,
             schedule: schedule,
             dictation: dictation,
-            worlds: worlds,
+            labs: labs.all,
             preferences: preferences,
             /**
              * Who is signed in. A domain of one verb, because a surface asking
@@ -278,6 +336,10 @@ export function Axond(opts: AxondOpts = {}) {
              * agents domain to find out.
              */
             identity: { read: () => credential.identity() },
+            /** This machine on the network: up with its key and addresses, or down with why. */
+            net: { status: () => net.status(), join: () => net.join() },
+            /** The other machines on this account's network, and calling them. */
+            machines: net.machines,
             // Not a domain — one fact only the daemon can report. A client
             // reading a pidfile knows a daemon is up and cannot know what it
             // was built from.
@@ -288,6 +350,22 @@ export function Axond(opts: AxondOpts = {}) {
     const server = Server({
         paths: paths,
         dispatch: dispatch,
+        tunnel: Tunnel({ machines: net.machines }),
+    })
+
+    const service = Service({
+        paths: paths,
+        net: net,
+        remote: remote,
+        network: opts.network !== undefined,
+        lifecycle: lifecycle,
+        server: server,
+        machine: machine,
+        schedule: schedule,
+        models: models,
+        dictation: dictation,
+        agents: agents,
+        labs: labs,
     })
 
     return {
@@ -309,105 +387,11 @@ export function Axond(opts: AxondOpts = {}) {
         workspaces: workspaces,
         schedule: schedule,
         dictation: dictation,
-        worlds: worlds,
+        labs: labs,
+        net: net,
 
-        /**
-         * Become the daemon: bind the socket, claim the pidfile, and stay up.
-         *
-         * Refuses when one is already running rather than binding beside it —
-         * two daemons would each believe they owned the GPU, which is the one
-         * failure the whole design exists to prevent.
-         *
-         * The pidfile is claimed AFTER the socket binds, so "a pid exists"
-         * always implies "a socket is accepting". Claiming first would make
-         * `up` report ready to a client that then cannot connect.
-         */
-        async serve(): Promise<void> {
-            const running = lifecycle.pid()
-            if (running !== null) {
-                throw err("DAEMON_ALREADY_RUNNING", {
-                    detail: `pid ${running} is already listening on ${paths.socket}`,
-                    context: { pid: running, socket: paths.socket },
-                })
-            }
-
-            server.listen()
-            lifecycle.claim()
-            // Polling begins with serving, not with construction: a client
-            // holding an Axond() to read paths must not start a timer.
-            machine.start()
-            schedule.start()
-            // What is on disk, read once at start rather than per render —
-            // see Models.state().
-            void models.refresh()
-
-            /*
-             * Re-register the dictation chord with the compositor.
-             *
-             * The binding is live rather than written into anyone's config, so
-             * it does not survive a logout — and re-applying at every start is
-             * exactly what makes that trade work. A daemon that starts at login
-             * therefore restores the shortcut before the person reaches for it.
-             *
-             * Reported and not fatal: no chord bound is the normal state, and
-             * a compositor that refuses one must not stop the daemon that owns
-             * the GPU, every agent and every model from coming up.
-             */
-            try {
-                dictation.bind()
-            } catch (cause) {
-                console.error(`[axond] dictation shortcut not registered: `
-                    + `${cause instanceof Error ? cause.message : String(cause)}`)
-            }
-
-            /*
-             * Shut down on a signal — because otherwise `shutdown()` never runs.
-             *
-             * `axon daemon down` sends SIGTERM, and with no handler the process
-             * dies where it stands: children keep running, the pidfile stays,
-             * nothing disposes. That is not theoretical — it left a `pw-record`
-             * holding the microphone across several daemon restarts, writing a
-             * 17MB file nothing would ever read, and the next recording started
-             * alongside it.
-             *
-             * `once`, so a second signal during shutdown kills us outright
-             * rather than starting a second teardown. Registered here rather
-             * than at construction: a CLIENT holding an `Axond()` to read paths
-             * must not install process handlers.
-             */
-            const teardown = (signal: string) => {
-                void this.shutdown()
-                    .catch(cause => console.error(`[axond] shutdown failed on ${signal}: `
-                        + `${cause instanceof Error ? cause.message : String(cause)}`))
-                    .finally(() => process.exit(0))
-            }
-            process.once("SIGTERM", () => teardown("SIGTERM"))
-            process.once("SIGINT", () => teardown("SIGINT"))
-        },
-
-        /** Stop listening and release the pidfile. Idempotent. */
-        async shutdown(): Promise<void> {
-            await agents.dispose()
-            // After agents, so leases are released by agents leaving rather
-            // than by bodies being pulled out from under them.
-            await worlds.dispose()
-            await models.dispose()
-            machine.stop()
-            schedule.stop()
-            /*
-             * Release the MICROPHONE before anything else goes.
-             *
-             * The recorder is a child process, and a daemon that exits without
-             * stopping it leaves it running: found in the wild holding the
-             * microphone and writing a 17MB file with nothing left to read it,
-             * having outlived the daemon that spawned it by several restarts.
-             * An orphan is worse than a leak — it holds a device the next
-             * daemon needs and its file grows without bound.
-             */
-            dictation.cancel()
-            await server.close()
-            lifecycle.release()
-        },
+        serve: service.serve,
+        shutdown: service.shutdown,
     }
 }
 

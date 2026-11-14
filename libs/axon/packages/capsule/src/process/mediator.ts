@@ -175,7 +175,7 @@ export function Mediator(opts: MediatorOpts): MediatorT {
      * refused instead of asked.
      */
     async function escalate(fn: string, args: unknown[], module: string, rule: string): Promise<boolean> {
-        // Escalate — round trip to the host, default deny on timeout.
+        // Escalate — round trip to the host, with no deadline on a human answer.
         const id = randomUUID()
 
         return new Promise<boolean>(resolve => {
@@ -189,10 +189,10 @@ export function Mediator(opts: MediatorOpts): MediatorT {
              * never the outcome.
              *
              * `rule` carries WHICH refusal it was — the user said no, or
-             * nobody answered in time. Those are different facts and a person
+             * nobody was available to answer. Those are different facts and a person
              * debugging a blocked agent needs to tell them apart.
              */
-            const settle = (allow: boolean, reason: "escalation-denied" | "escalation-timeout" | "escalation-headless") => {
+            const settle = (allow: boolean, reason: "escalation-denied" | "escalation-headless") => {
                 if (!allow) {
                     wire.emit("process:policy:denied", {
                         id: randomUUID(), commandId: commandId(), module, fn, args, rule: reason,
@@ -200,12 +200,6 @@ export function Mediator(opts: MediatorOpts): MediatorT {
                 }
                 resolve(allow)
             }
-
-            const timeoutMs = 30_000
-            const timer = setTimeout(() => {
-                pending.delete(id)
-                settle(false, "escalation-timeout")
-            }, timeoutMs)
 
             /**
              * REGISTER BEFORE ANNOUNCING.
@@ -223,7 +217,6 @@ export function Mediator(opts: MediatorOpts): MediatorT {
              * took half a minute to be refused.
              */
             pending.set(id, (allow, reason) => {
-                clearTimeout(timer)
                 settle(allow, reason === "headless" ? "escalation-headless" : "escalation-denied")
             })
 

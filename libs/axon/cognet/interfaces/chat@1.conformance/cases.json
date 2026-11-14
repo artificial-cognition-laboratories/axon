@@ -1,0 +1,14 @@
+[
+    {
+        "name": "a conversation in, a reply out, saying why it stopped",
+        "call": "request",
+        "given": { "conversation": { "messages": [{ "role": "user", "text": "Say hello." }], "limit": 64 } },
+        "expect": { "text": { "type": "string" }, "stop": { "oneOf": ["done", "limit"] } }
+    },
+    {
+        "name": "streamed, it is written in pieces, the last saying why it stopped",
+        "stream": "stream",
+        "given": { "conversation": { "messages": [{ "role": "user", "text": "Say hello." }], "limit": 64 } },
+        "expect": { "events": { "length": { "min": 1 } }, "last": { "stop": { "oneOf": ["done", "limit"] } } }
+    }
+]

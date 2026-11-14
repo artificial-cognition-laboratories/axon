@@ -1,4 +1,4 @@
-import type { AxonDriver, EngineCapability, ProviderEntry } from "@arcforge/types"
+import type { AxonDriver, AxonEngineRequest, AxonEngineRawEvent, EngineCapability, ProviderEntry } from "@arcforge/types"
 
 /**
  * What a provider is, now that a model is chosen at boot rather than written
@@ -73,6 +73,7 @@ export type AxonProvider = {
 export type LocalRuntime = {
     catalogue(): Promise<EngineCapability[]>
     run(model: string, input: unknown): Promise<unknown>
+    stream(model: string, request: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent>
 }
 
 export type ProviderResources = {

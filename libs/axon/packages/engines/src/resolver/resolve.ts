@@ -18,6 +18,11 @@ function preferredCoverage(requirement: EngineRequirements[string], capability: 
         + list(preferred.out).filter(modality => capability.out.includes(modality)).length
 }
 
+/** Where a candidate's model sits in the list the role names — first is best. 0 for every candidate of a role that names none. */
+function listed(requirement: EngineRequirements[string], capability: EngineCapability): number {
+    return requirement.model ? requirement.model.indexOf(capability.id) : 0
+}
+
 /**
  * Concurrency granted to a role the cognet did not fan out.
  *
@@ -64,7 +69,17 @@ const UNBOUNDED_SLOTS = 8
 export function resolveEngines(
     requirements: EngineRequirements,
     catalogue: readonly EngineCapability[],
-    opts: { model?: string; order?: ProviderOrder } = {},
+    opts: {
+        model?: string
+        order?: ProviderOrder
+        /**
+         * Roles the agent granted a provider by name — `services:` in its
+         * config. Unlike `model`, a grant is not a preference: the role binds
+         * what it names or nothing, and a grant nothing supplies is missing
+         * even on an optional role. The user said exactly what to use.
+         */
+        granted?: Readonly<Record<string, string>>
+    } = {},
 ): EngineResolution {
     // The user's cortex choice, applied to the PRIMARY role only. Parsed once
     // rather than per candidate — a pin is one string and re-parsing it 400
@@ -81,25 +96,53 @@ export function resolveEngines(
     const unmet: EngineUnmet[] = []
     let unhonoured: EngineResolution["unhonoured"]
 
+    const grants = Object.fromEntries(Object.entries(opts.granted ?? {}).map(([role, named]) => [role, { named: named, pin: parsePin(named) }]))
+    const forced: string[] = []
+
     for (const [role, requirement] of Object.entries(requirements)) {
         const reasons: string[] = []
         const candidates: EngineCapability[] = []
+        const grant = grants[role]
 
+        if (grant) {
+            const offered = grant.pin ? catalogue.filter(capability => matchesPin(grant.pin!, capability)) : []
+            const fits = offered.filter(capability => reject(requirement, capability, true) === null)
+            if (fits.length === 0) {
+                forced.push(role)
+                unmet.push({ role, requirement, reasons: [offered.length === 0 ? `granted "${grant.named}", which no declared provider supplies` : `granted "${grant.named}", which cannot serve it: ${reject(requirement, offered[0]!, true)}`] })
+                continue
+            }
+            bound.push({ role, requirement, capability: fits.sort(rank)[0]!, slots: requirement.parallel ? (fits[0]!.slots ?? UNBOUNDED_SLOTS) : SEQUENTIAL })
+            continue
+        }
+
+        // The models a cognet names narrow the field before anything is
+        // ranked, and order it after. The user's own pick for the primary
+        // still reaches past them: the cognet chose a default, the user
+        // chose this.
+        const named = requirement.model
+        let offered = false
         for (const capability of catalogue) {
-            const why = reject(requirement, capability)
+            const explicit = pin !== null && role === pinned && matchesPin(pin, capability)
+            if (named && !explicit && !named.includes(capability.id)) continue
+            offered = true
+            const why = reject(requirement, capability, explicit)
             if (why) reasons.push(why)
             else candidates.push(capability)
         }
+        if (named && !offered) reasons.push(`names ${named.join(", ")}, which no declared provider supplies`)
 
-        // A pin PREFERS, never requires: it reorders candidates that already
-        // satisfy the role, and a pin naming something this user cannot supply
-        // (or that fails the role's own constraints) falls through to ranking
+        // An explicit choice overrides context/structured recommendations, while
+        // input/output compatibility remains mandatory. A pin prefers candidates
+        // rather than requiring them: unavailable or incompatible choices
+        // fall through to ordinary ranking
         // rather than failing the boot. That is what keeps a published agent
         // runnable by someone who does not share its author's providers.
         // Preferred modalities rank only among otherwise admissible candidates.
         // They never turn a missing enhancement into an unmet role.
         const ranked = candidates.sort((a, b) =>
-            preferredCoverage(requirement, b) - preferredCoverage(requirement, a)
+            listed(requirement, a) - listed(requirement, b)
+            || preferredCoverage(requirement, b) - preferredCoverage(requirement, a)
             || rank(a, b),
         )
         const preferred = pin && role === pinned
@@ -139,7 +182,7 @@ export function resolveEngines(
     return {
         bound,
         unmet,
-        missing: unmet.filter(entry => entry.requirement.optional !== true),
+        missing: unmet.filter(entry => entry.requirement.optional !== true || forced.includes(entry.role)),
         ...(unhonoured ? { unhonoured } : {}),
     }
 }

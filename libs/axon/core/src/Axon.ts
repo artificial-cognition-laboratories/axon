@@ -1,5 +1,5 @@
 import { AxonCloud, type AxonCloudClient } from "@arcforge/cloud"
-import type { AxonEngineDriver, AxonEscalate, AxonHost, AxonPartialBlueprint } from "@arcforge/types"
+import type { AxonEscalate, AxonHost, AxonPartialBlueprint, RemoteEngines } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import { AxonBlueprint, AxonBus, Boot, Hooks, Inject } from "./platform"
 import { Kernel } from "@arcforge/kernel"
@@ -8,6 +8,7 @@ import { AxonSession, home } from "@arcforge/session"
 import { AxonHandle } from "./runtime"
 import { AxonRuntime } from "./runtime/runtime"
 import { Inference } from "./runtime/inference"
+import { Grants } from "./runtime/grants"
 import { Cognet } from "./cognet"
 import { Modules } from "./modules"
 import { Tools } from "./tools"
@@ -55,7 +56,7 @@ type AxonOpts = {
      * AIR, retries and the stall guard, and cannot tell the tokens crossed a
      * process boundary.
      */
-    remote?: (role: string) => AxonEngineDriver
+    remote?: RemoteEngines
 }
 
 export type { AxonHost } from "@arcforge/types"
@@ -169,10 +170,15 @@ export async function Axon(opts?: AxonOpts) {
             // kernel as base() rather than living in ring 0.
             const boot = Boot({ blueprint, session })
 
+            // What fills each use the cognet declares — after resolution, which bound the engine roles uses may
+            // be served by. A required use nothing fills stops the boot here.
+            const grants = await Grants({ blueprint: blueprint, ...(engines ? { engines: engines } : {}), ...(opts?.remote ? { remote: opts.remote } : {}) })
+
             const kernel = await session.span("axon:kernel", {}, () => Kernel({
                 blueprint: blueprint,
                 ...(opts?.remote ? { remote: opts.remote } : {}),
                 ...(engines ? { engines } : {}),
+                grants: grants,
                 bus: bus,
                 cloud: cloud,
                 cognet: cognet,

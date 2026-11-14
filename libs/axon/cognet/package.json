@@ -1,6 +1,6 @@
 {
   "name": "@arcforge/cognet",
-  "version": "2.0.219",
+  "version": "2.0.242",
   "description": "The cognet authoring surface for Axon — an agent's brain, compiled, versioned and swappable.",
   "type": "module",
   "private": false,
@@ -8,15 +8,29 @@
   "exports": {
     ".": "./src/index.ts",
     "./ecs": "./src/ecs/index.ts",
-    "./schedule": "./src/schedule/index.ts"
+    "./schedule": "./src/schedule/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./python/declare.py": "./python/cognet/declare.py",
+    "./python/serve.py": "./python/serve.py",
+    "./proto/cognet.proto": "./proto/cognet/cognet.proto",
+    "./rust/Cargo.toml": "./rust/Cargo.toml",
+    "./interfaces/*": "./interfaces/*.interface.ts"
   },
   "files": [
-    "src"
+    "src",
+    "python",
+    "proto",
+    "interfaces",
+    "rust/Cargo.toml",
+    "rust/cognet/Cargo.toml",
+    "rust/cognet/src",
+    "rust/cognet-macros/Cargo.toml",
+    "rust/cognet-macros/src"
   ],
   "scripts": {
     "test": "bun run test:full",
     "test:hot": "bun test --parallel=4 tests/hot",
-    "test:full": "bun test --parallel=4 tests/hot",
+    "test:full": "bun test --parallel=4 tests/hot && cargo test --manifest-path rust/Cargo.toml",
     "deploy": "echo \"This package is published ONLY by apps/tui/scripts/release.ts, which pins workspace:* deps to concrete versions first. Publishing it directly ships an unresolvable dependency.\" && exit 1"
   },
   "dependencies": {
@@ -47,5 +61,5 @@
     "agent-runtime",
     "typescript"
   ],
-  "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
+  "axonRevision": "99908cacd44ba4553e69d591f3b66811d4cf7d42"
 }

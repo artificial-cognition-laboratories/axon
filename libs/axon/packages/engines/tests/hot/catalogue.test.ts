@@ -104,6 +104,24 @@ describe("gather", () => {
 })
 
 describe("Engines", () => {
+    test("reports live driver effort and clears it when switching to a model without it", () => {
+        const first = capability({ id: "thinking", provider: "test" })
+        const second = capability({ id: "plain", provider: "test" })
+        const supplied: AxonProvider = {
+            ...provider("test", [first, second]),
+            create: capability => capability.id === first.id ? { ...driver, effort: "low" } : driver,
+        }
+        const engines = Engines({
+            requirements: { main: { type: "generate", in: "text", out: "text" } },
+            capabilities: [first, second],
+            providers: new Map([["test", supplied]]),
+            model: "test:thinking",
+        })
+        expect(engines.get("main").binding.effort).toBe("low")
+        engines.select("test:plain")
+        expect(engines.get("main").binding.effort).toBeUndefined()
+    })
+
     const cloud = capability({ id: "cloud/big", provider: "axon", context: 200_000 })
     const local = capability({ id: "local/small", provider: "ollama", context: 32_000, local: true })
 
@@ -264,4 +282,25 @@ describe("Engines", () => {
 
         expect(() => Engines({ requirements, capabilities: [orphan], providers })).toThrow(/ENGINE_PROVIDER_MISSING/)
     })
+})
+
+test("refreshing local inventory makes a downloaded model selectable without rebinding other providers", async () => {
+    const hosted = capability({ id: "hosted", provider: "cloud" })
+    const installed: EngineCapability[] = []
+    const providers = new Map([
+        ["cloud", provider("cloud", [hosted])],
+        ["local", provider("local", installed)],
+    ])
+    const engines = Engines({ requirements: { main: { type: "generate", in: "text", out: "text" } }, capabilities: [hosted], providers: providers })
+    const before = engines.get("main").driver
+    const local = capability({ id: "hf:test/chat@main/chat-Q4.gguf", provider: "local", local: true })
+    installed.push(local)
+    expect(engines.select(`local:${local.id}`)).toBeNull()
+    await engines.refresh("local")
+    expect(engines.get("main").driver).toBe(before)
+    expect(engines.select(`local:${local.id}`)?.id).toBe(local.id)
+    expect(engines.get("main").binding.capability.provider).toBe("local")
+    installed.splice(0)
+    await engines.refresh("local")
+    expect(engines.select(`local:${local.id}`)).toBeNull()
 })

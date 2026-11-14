@@ -1,9 +1,19 @@
+import { join } from "node:path"
 import { spawnConfined, agentEntrypoint } from "@arcforge/link"
 import { AGENT_ENTRYPOINTS, SupervisorSideServices } from "@arcforge/platform/link"
+import type { UsageT } from "./usage"
 import { isEntryEvent, Policy, type AxonBlueprint, type EngineCapability } from "@arcforge/types"
+import type { AxonEngineRequest, AxonEngineRawEvent } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
 
+/** How often a running agent's cost is sampled into its session. */
+const USAGE_MS = 2_000
+
 type SuperviseOpts = {
+    /** What each agent costs the machine, part by part. Absent: nothing is sampled. */
+    usage?: UsageT
+    /** Where agents write CPU profiles, one folder per session (AXON_PROFILE). Absent: nothing profiles. */
+    profiles?: string
     /**
      * Holds the provider credential — the one asset that must never enter the
      * box.
@@ -24,7 +34,7 @@ type SuperviseOpts = {
      */
     decide?: (input: { agent: string; sessionId: string }, call: unknown) => Promise<boolean>
     /** Thunk because Models is assembled after the supervisor. */
-    local?: () => { catalogue(): Promise<EngineCapability[]>; run(model: string, input: unknown): Promise<unknown> }
+    local?: () => { catalogue(): Promise<EngineCapability[]>; run(model: string, input: unknown): Promise<unknown>; stream(model: string, request: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> }
 }
 
 type SpawnInput = {
@@ -80,14 +90,22 @@ export function Supervise(opts: SuperviseOpts) {
                 ...(opts.local ? {
                     local: {
                         catalogue: () => opts.local!().catalogue(),
-                        run: async (model, prompt) => {
-                            const result = await opts.local!().run(model, prompt)
-                            if (typeof result !== "string") throw new Error(`LOCAL_RESULT_INVALID: ${model} returned a non-text result`)
-                            return result
-                        },
+                        run: (model, input) => opts.local!().run(model, input),
+                        stream: (model, request) => opts.local!().stream(model, request),
                     },
                 } : {}),
             })
+
+            // A brain that declares roles — or uses, which may be served by
+            // engines — learns, before it starts, which of them were filled:
+            // the only way the box can tell a filled optional role from an
+            // empty one. Brains with neither pay nothing.
+            const declared = Object.keys(input.blueprint.cognet.engines ?? {}).length > 0
+                || Object.keys(input.blueprint.cognet.uses ?? {}).length > 0
+                || (input.blueprint.serviceProviders ?? []).some(provider => Object.keys(provider.engines).length > 0)
+            const blueprint = declared
+                ? { ...input.blueprint, cognet: { ...input.blueprint.cognet, resolvedEngines: await services.engines.facts() } }
+                : input.blueprint
 
             const resolved = Policy({
                 blueprint: input.blueprint,
@@ -96,14 +114,17 @@ export function Supervise(opts: SuperviseOpts) {
 
             const spawned = await spawnConfined({
                 sessionId: input.sessionId,
-                blueprint: input.blueprint,
+                blueprint: blueprint,
                 policy: resolved.policy,
                 entrypoint: agentEntrypoint(AGENT_ENTRYPOINTS),
+                ...(opts.profiles ? { profile: join(opts.profiles, input.sessionId) } : {}),
                 services: {
                     // The agent names a ROLE and receives tokens. It can cause
                     // inference and can never obtain, transfer or outlive the
                     // key that performs it.
                     infer: (call, signal) => services.infer(call, signal),
+                    // Features, masks, speech — the same boundary, one result back.
+                    transform: (call, signal) => services.transform(call, signal),
                     /**
                      * Routed by CLASSIFICATION, not by one verb.
                      *
@@ -136,11 +157,44 @@ export function Supervise(opts: SuperviseOpts) {
                 },
             })
 
+            /*
+             * What this agent costs, into its own session, while it runs — so a
+             * reader scrubbing back sees what it cost THEN. A sampler that
+             * fails says so in the session and stops; it never takes the
+             * daemon down with it.
+             */
+            const sampler = opts.usage?.of(spawned.process.pid) ?? null
+            let sampling: ReturnType<typeof setInterval> | null = null
+            const quiet = () => {
+                if (sampling) clearInterval(sampling)
+                sampling = null
+                sampler?.close()
+            }
+            if (sampler) {
+                // One sample at a time: reading the labs may cross a socket,
+                // and a slow one must not stack measures behind it.
+                let measuring = false
+                sampling = setInterval(() => {
+                    if (measuring) return
+                    measuring = true
+                    sampler.measure().then(
+                        usage => { void services.session.commit("axon:usage", usage) },
+                        cause => {
+                            void services.session.commit("axon:log:error", { message: `usage sampling stopped: ${cause instanceof Error ? cause.message : String(cause)}` } as never)
+                            quiet()
+                        },
+                    ).finally(() => { measuring = false })
+                }, USAGE_MS)
+                sampling.unref?.()
+                void spawned.process.exited.then(quiet)
+            }
+
             return {
                 sessionId: input.sessionId,
                 link: spawned.link,
                 session: services.session,
                 bus: services.bus,
+                engines: services.engines,
                 /**
                  * The agent process's pid — what a liveness probe checks.
                  *
@@ -155,6 +209,7 @@ export function Supervise(opts: SuperviseOpts) {
                 blueprint: input.blueprint,
                 /** Shut the agent down and close the log. */
                 async stop(): Promise<void> {
+                    quiet()
                     await spawned.dispose()
                 },
             }

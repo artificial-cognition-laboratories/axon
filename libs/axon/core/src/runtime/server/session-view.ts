@@ -79,6 +79,10 @@ export function snapshot(axon: AxonHandle, query: AxonSessionQuery): AxonSession
     const entries = select(axon.session.entries, "entries")
     const log = select(axon.session.log, "log")
     const kernelLog = select(axon.session.kernelLog, "kernelLog")
+    // The kernel log is a window: asking from before it begins is asking for
+    // events only the disk still has, and the answer is truncated, said so.
+    const floor = axon.session.kernelFloor
+    if (include.includes("kernelLog") && floor > 0 && (since === undefined || since < floor)) kernelLog.capped = true
 
     // The cursor is the high-water mark across everything RETURNED, so a client
     // that omitted kernelLog does not skip past kernel events it never received.

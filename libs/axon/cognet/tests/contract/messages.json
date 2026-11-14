@@ -1,0 +1,94 @@
+{
+    "told": {
+        "job": {
+            "kind": "job",
+            "job": 1,
+            "system": "look",
+            "snapshot": "{\"now\":0,\"entities\":[],\"entries\":[],\"reads\":[],\"writes\":[\"seen\"],\"streams\":[],\"state\":{\"rev\":1,\"body\":null,\"presence\":{\"state\":\"embodied\"},\"scope\":{\"modules\":[],\"unavailable\":[]},\"services\":{\"depth\":{\"available\":true,\"describe\":{\"maxSide\":518}}}}}",
+            "kinds": [],
+            "arrays": []
+        },
+        "answer": {
+            "kind": "answer",
+            "job": 1,
+            "call": 0,
+            "value": "[10.0,20.0]",
+            "kinds": [],
+            "arrays": []
+        },
+        "refusal": {
+            "kind": "answer",
+            "job": 1,
+            "call": 0,
+            "error": {
+                "code": "AX-SERVICE-001",
+                "message": "depth is not available"
+            }
+        },
+        "cancel": {
+            "kind": "cancel",
+            "job": 1
+        },
+        "event": {
+            "kind": "event",
+            "job": 1,
+            "call": 1,
+            "value": "{\"text\":\"Hel\"}",
+            "kinds": [],
+            "arrays": []
+        },
+        "end": {
+            "kind": "end",
+            "job": 1,
+            "call": 1
+        }
+    },
+    "said": {
+        "call": {
+            "kind": "call",
+            "job": 1,
+            "call": 0,
+            "op": "service.call",
+            "args": "{\"use\":\"depth\",\"method\":\"estimate\",\"args\":{\"picture\":[1.0,2.0]}}",
+            "kinds": [],
+            "arrays": []
+        },
+        "effect": {
+            "kind": "effect",
+            "job": 1,
+            "effect": "{\"verb\":\"output\",\"args\":{\"type\":\"text\",\"data\":{\"channel\":\"/log\",\"content\":\"asked\"}}}",
+            "kinds": [],
+            "arrays": []
+        },
+        "done": {
+            "kind": "done",
+            "job": 1,
+            "ran": "{\"changes\":[{\"op\":\"set\",\"entity\":\"self\",\"component\":\"seen\",\"data\":[10.0,20.0]}],\"effects\":[]}",
+            "kinds": [],
+            "arrays": []
+        },
+        "error": {
+            "kind": "error",
+            "job": 1,
+            "error": "depth is not available"
+        },
+        "cancelled": {
+            "kind": "cancelled",
+            "job": 1
+        },
+        "stream": {
+            "kind": "call",
+            "job": 1,
+            "call": 1,
+            "op": "service.stream",
+            "args": "{\"use\":\"main\",\"method\":\"stream\",\"args\":{\"conversation\":{\"messages\":[{\"role\":\"user\",\"text\":\"hi\"}]}}}",
+            "kinds": [],
+            "arrays": []
+        },
+        "stop": {
+            "kind": "stop",
+            "job": 1,
+            "call": 1
+        }
+    }
+}

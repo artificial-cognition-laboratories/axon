@@ -47,7 +47,13 @@ export function Http(opts: HttpOpts) {
         }
 
         if (!response.ok) {
-            const body = await response.text().catch(() => "")
+            const body = await response.text().catch(cause => {
+                throw err("OLLAMA_REQUEST_FAILED", {
+                    detail: `${path}: could not read the daemon's error response`,
+                    context: { host: host, path: path, status: response.status },
+                    cause: cause,
+                })
+            })
             const message = parseErrorBody(body) ?? `${response.status} ${response.statusText}`
             throw err("OLLAMA_REQUEST_FAILED", {
                 detail: `${path}: ${message}`,

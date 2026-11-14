@@ -68,6 +68,12 @@ export function daemonPaths(root?: string): DaemonPaths {
         socket: join(base, "axond.sock"),
         pid: join(base, "axond.pid"),
         log: join(base, "axond.log"),
+        // A scratch root holds its own store, so a test daemon never reads a
+        // real login or writes a real record. Otherwise the same answer as the
+        // platform's `storeRoot()`, override included — mirrored rather than
+        // imported because a client of the daemon must not load the platform.
+        store: root !== undefined ? join(root, "store") : join(process.env.AXON_STORE_ROOT ?? homedir(), store),
+        isolated: root !== undefined,
     }
 }
 

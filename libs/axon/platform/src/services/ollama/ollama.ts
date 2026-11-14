@@ -1,7 +1,6 @@
-import { Http } from "./http"
-import { Models } from "./models"
+import { Daemon } from "./daemon"
 import { Registry } from "./registry"
-import type { CatalogModel, OllamaStatus } from "./types"
+import type { CatalogModel } from "./types"
 
 /** Ollama's own default. Overridable for a daemon on another host or port. */
 const DEFAULT_HOST = "http://localhost:11434"
@@ -34,12 +33,12 @@ type OllamaOpts = {
 export function Ollama(opts: OllamaOpts = {}) {
     const host = opts.host ?? process.env.OLLAMA_HOST ?? DEFAULT_HOST
 
-    const http = Http({ host: host })
-    const models = Models({ http: http })
+    const daemon = Daemon({ host: host })
+    const models = daemon.models
     const registry = Registry(opts.registryUrl !== undefined ? { baseUrl: opts.registryUrl } : {})
 
     return {
-        host: http.host,
+        host: daemon.host,
         models: models,
         registry: registry,
 
@@ -51,14 +50,9 @@ export function Ollama(opts: OllamaOpts = {}) {
          * unreachable daemon is the expected answer half the time rather than a
          * fault. Every other verb throws.
          */
-        async status(): Promise<OllamaStatus> {
-            try {
-                const { version } = await http.json<{ version: string }>("/api/version")
-                return { running: true, version: version }
-            } catch (cause) {
-                return { running: false, reason: cause instanceof Error ? cause.message : String(cause) }
-            }
-        },
+        status: daemon.status,
+        /** Machine policy may point at a different daemon. No network at construction. */
+        at(host: string) { return Daemon({ host: host }) },
 
         /**
          * The catalog, marked up with what is already installed and what each

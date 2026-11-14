@@ -46,7 +46,7 @@ function recorder(verdict: (fn: string) => boolean = () => true) {
             checks.push(fn)
             return verdict(fn)
         },
-        emit: { start: () => {}, complete: () => {}, failed: () => {} },
+        emit: { start: async () => "test-span", complete: async () => {}, failed: async () => {} },
     }
     return { mediation, checks }
 }

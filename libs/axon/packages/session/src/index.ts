@@ -8,5 +8,8 @@
 // is — where the log lands and how a cognet's private state is namespaced.
 export { AxonSession, type AxonSessionT, type SessionBus } from "./session"
 export { home } from "./home"
+export { Retention, RETENTION, type RetentionT, type Plan, type Going, type Held } from "./retention"
 export { SensoryRing, SENSORY_MAX_BYTES, type SensoryRingT } from "./sensory"
+export { Media, MEDIA_MAX_BYTES, type MediaT } from "./media"
+export { TelemetryRing, TELEMETRY_MAX_BYTES, Decoder, Encoder, type TelemetryRingT, type DecoderT, type Decoded, type Envelope } from "./telemetry"
 export { BuildRecorder, span, type BuildRecorderT } from "./build"

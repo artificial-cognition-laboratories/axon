@@ -84,8 +84,8 @@ export type EngineResources = {
      * The runtime's cloud client — engines call what they need (vault
      * connection tokens today; engine resolution and the Cognos connection
      * when the Axon engine is ported). Provider tokens are minted
-     * server-side and cached until expiry, so per-request resolution is
-     * free and rotation never rebuilds a driver.
+     * server-side and cached for at most 30 seconds. Credential revisions
+     * replace SDK clients when keys rotate without rebuilding the driver.
      */
     cloud: EngineCloud
 }
@@ -98,8 +98,16 @@ export type EngineResources = {
  */
 export type EngineCloud = {
     user: {
+        /** Metadata-only account reporting; absent for embedded or offline hosts. */
+        usage?: { record(input: import("./provider-usage").ProviderUsageRecord): Promise<void> }
+        /** Account state when supplied by a full host client. Explicit-only embedders may omit it. */
+        auth?: { readonly token: string | undefined; readonly user?: { id: string } }
         vault: {
             connections: {
+                /** Active account metadata; no credential values. Hosts may omit this seam for explicit-only inference. */
+                list?(): Promise<import("./connections").ProviderConnection[]>
+                /** Generic credential read, backed by an identity-scoped memory cache. */
+                credential?(provider: import("./connections").ConnectionProvider): Promise<import("./connections").ProviderCredential>
                 openai: {
                     /** Narrow short-lived Codex token — refresh material never reaches a host. Throws when the account isn't connected. */
                     token(): Promise<CodexToken>
@@ -210,6 +218,8 @@ export type CodexToken = {
  * handles, never model-visible content.
  */
 export type AxonEngineDriver = {
+    /** Reasoning effort actually configured on this driver, when known. */
+    readonly effort?: EngineEffort
     /**
      * Absent on the generate driver, deliberately.
      *
@@ -239,6 +249,21 @@ export type AxonEngineDriver = {
 export type AxonDriver = AxonEngineDriver | AxonTransformDriver | AxonStreamDriver
 
 /**
+ * Inference performed OUTSIDE this process — a confined agent's engines,
+ * one factory per handle kind. The agent names a role; what fills it, and
+ * the credential that pays for it, stay on the other side.
+ *
+ * Stream engines have no factory yet: a session's hidden state would have
+ * to live across the boundary, and until that is designed a confined agent
+ * asking for one is refused by name rather than handed something that half
+ * works.
+ */
+export type RemoteEngines = {
+    generate(role: string): AxonEngineDriver
+    transform(role: string): AxonTransformDriver
+}
+
+/**
  * One shot in, one shot out.
  *
  * `input` and the result are BOTH unknown here, deliberately: what a depth
@@ -249,7 +274,11 @@ export type AxonDriver = AxonEngineDriver | AxonTransformDriver | AxonStreamDriv
  */
 export type AxonTransformDriver = {
     readonly kind: "transform"
-    transform(input: unknown, opts?: { onProgress?: (progress: { fraction?: number; message?: string }) => void }): Promise<unknown>
+    transform(input: unknown, opts?: {
+        onProgress?: (progress: { fraction?: number; message?: string }) => void
+        /** The wake's cancellation — a transform crossing a process boundary must stop when its wake does. */
+        signal?: AbortSignal
+    }): Promise<unknown>
 }
 
 /**
@@ -431,6 +460,7 @@ export type AxonEngineMeta = {
 
 /** Stable failure vocabulary shared by drivers, the kernel log, and clients. */
 export type AxonEngineFaultCode =
+    | "USAGE_REPORT_FAILED"
     | "EMPTY_RESPONSE"
     | "TRANSPORT"
     | "RATE_LIMIT"

@@ -1,7 +1,7 @@
+import { mkdirSync, writeFileSync } from "node:fs"
 import { err } from "@arcforge/err"
-import { writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import type { AxonBlueprint, CapsulePolicy } from "@arcforge/types"
+import { profiling, type AxonBlueprint, type CapsulePolicy } from "@arcforge/types"
 import { Confinement, entrypoint as resolveEntrypoint, probe, tierReady, type ProbeStatus } from "./confine"
 import { resolveEnv } from "./confine/env"
 import { boxedPid } from "./confine/netns"
@@ -27,6 +27,12 @@ type ConfinedOpts = {
     services: SupervisorServices
     /** Absolute path to the agent entrypoint (`agent-main.ts` or its bundled form). */
     entrypoint: string
+    /**
+     * A directory to write the agent's CPU profile into when it exits — set
+     * when the supervisor runs with AXON_PROFILE. Passed to the agent's Bun as
+     * BUN_OPTIONS and made writable inside the box; absent, nothing profiles.
+     */
+    profile?: string
     onError(error: Error): void
 }
 
@@ -149,9 +155,11 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
         host: process.env,
     })
 
+    if (opts.profile) mkdirSync(opts.profile, { recursive: true })
     const env: Record<string, string> = {
         ...resolved.env,
         ...link.env,
+        ...(opts.profile ? { BUN_OPTIONS: profiling(opts.profile) } : {}),
         [AGENT_BLUEPRINT_ENV]: blueprintPath,
         /**
          * WHO THIS AGENT IS, as the platform knows it.
@@ -169,6 +177,17 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
          * reload must not carry a stale one.
          */
         AXON_SESSION_ID: opts.sessionId,
+        /**
+         * The exact CLI wrapper that launched this runtime.
+         *
+         * Subagents shell back through the CLI. Carrying the launcher keeps a
+         * source `axonl` parent on the source build instead of resolving the
+         * globally installed `axon`, which may be a different framework ABI.
+         */
+        // A programmatic Platform consumer may have no CLI at all. In that
+        // case this key stays absent and @axon/subagent fails explicitly when
+        // invoked; guessing an executable here would silently cross runtimes.
+        ...(process.env.AXON_CLI ? { AXON_CLI: process.env.AXON_CLI } : {}),
     }
 
     // Only "auto" and "hardened" build a box. "none" is the explicit opt-out;
@@ -199,7 +218,7 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
             // of it: omit a name here and it does not exist inside.
             env,
             // The socket directory, so the agent can dial its supervisor.
-            control: [link.root],
+            control: [link.root, ...(opts.profile ? [opts.profile] : [])],
             // The agent's own code: the project root holds the cognet bundle
             // under .agent/, the tool sources, and the node_modules the bundle
             // resolves against.

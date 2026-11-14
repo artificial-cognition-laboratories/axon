@@ -8,9 +8,9 @@ import { AxonBus } from "@arcforge/core"
 /**
  * `opened` vs `restored` — and who is entitled to say either.
  *
- * The TUI renders `axon:session:restored` as "session resumed", so this pair
- * is the difference between a banner that means something and one that shows
- * on every boot. It showed on every boot.
+ * `axon:session:restored` is a durable lifecycle fact, even though the TUI
+ * no longer draws it in the conversation. It must still mean a real restore
+ * rather than appearing on every boot.
  *
  * TWO rules, and only the first was implemented:
  *

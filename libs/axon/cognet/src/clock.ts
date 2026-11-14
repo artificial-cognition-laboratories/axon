@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import type { KernelAbi } from "@arcforge/types"
+import type { CognetTickComplete, CognetTickStart, KernelAbi } from "@arcforge/types"
 import type { Stamp } from "./ecs"
 import type { TicksT } from "./ticks"
 
@@ -74,14 +74,19 @@ export function Clock(opts: ClockOpts) {
         },
         stamp,
 
-        /** One iteration of the cognitive loop. Advances the clock. */
-        async runTick<T>(fn: () => Promise<T>): Promise<T> {
+        /**
+         * One tick. Advances the clock. `opened` is what the tick answers,
+         * when its schedule knows (see CognetTickStart); `fn` may note how it
+         * was held, recorded when it completes.
+         */
+        async runTick<T>(fn: (note: (fields: Omit<CognetTickComplete, "tick">) => void) => Promise<T>, opened: Omit<CognetTickStart, "tick"> = {}): Promise<T> {
             const current = ticks.next()
             const started = Date.now()
-            void emit("cognet:tick:start", { tick: current })
+            let noted: Omit<CognetTickComplete, "tick"> = {}
+            void emit("cognet:tick:start", { tick: current, ...opened })
             try {
-                const result = await fn()
-                void emit("cognet:tick:complete", { tick: current, durationMs: Date.now() - started })
+                const result = await fn(fields => { noted = { ...noted, ...fields } })
+                void emit("cognet:tick:complete", { tick: current, durationMs: Date.now() - started, ...noted })
                 return result
             } catch (cause) {
                 if (signal?.aborted) {
@@ -116,25 +121,47 @@ export function Clock(opts: ClockOpts) {
             }
         },
 
-        /** A unit of work within a phase — the innermost bracket. */
-        async runSystem<T>(name: string, fn: () => Promise<T>): Promise<T> {
+        /**
+         * A unit of work within a phase — the innermost bracket — recorded as
+         * ONE `cognet:system:run` when it ends.
+         *
+         * `fn` is handed a `note` for what only the caller knows: the reads
+         * it observed, the stimuli it consumed. `ran` replaces the bracket's
+         * own timing for work done elsewhere — an async run that computed
+         * beside the tick and is only LANDING here reports when it really ran.
+         */
+        async runSystem<T>(name: string, fn: (note: (fields: RunNote) => void) => Promise<T>, ran?: Ran): Promise<T> {
             // Restored rather than cleared: a system may bracket a sub-step as
             // a system of its own, and the outer one is still running after.
             const outer = system
             system = name
             const started = Date.now()
-            void emit("cognet:system:start", { ...stamp(), system: name })
+            let noted: RunNote = {}
+            const record = (outcome: "complete" | "failed" | "interrupted", error?: ReturnType<typeof err>) => {
+                void emit("cognet:system:run", {
+                    ...stamp(),
+                    system: name,
+                    at: ran?.at ?? started,
+                    durationMs: ran?.durationMs ?? Date.now() - started,
+                    outcome: outcome,
+                    ...(error ? { error: error } : {}),
+                    ...(ran?.async ? { async: true as const } : {}),
+                    ...(ran?.thread !== undefined ? { thread: ran.thread } : {}),
+                    ...(ran?.lag ? { lag: ran.lag } : {}),
+                    ...noted,
+                })
+            }
             try {
-                const result = await fn()
-                void emit("cognet:system:complete", { ...stamp(), system: name, durationMs: Date.now() - started })
+                const result = await fn(fields => { noted = { ...noted, ...fields } })
+                record("complete")
                 return result
             } catch (cause) {
                 if (signal?.aborted) {
-                    void emit("cognet:system:interrupted", { ...stamp(), system: name })
+                    record("interrupted")
                     throw cause
                 }
                 const failure = err(cause)
-                void emit("cognet:system:failed", { ...stamp(), system: name, error: failure, durationMs: Date.now() - started })
+                record("failed", failure)
                 throw failure
             } finally {
                 system = outer
@@ -144,3 +171,18 @@ export function Clock(opts: ClockOpts) {
 }
 
 export type ClockT = ReturnType<typeof Clock>
+
+/**
+ * A run computed somewhere other than inside its bracket: beside the tick
+ * (`async`), on a worker thread (`thread`), or `lag` ticks before the one
+ * it lands in. Its own timing replaces the bracket's, which only measured
+ * the landing.
+ */
+export type Ran = { at: number; durationMs: number; async?: true; thread?: number; lag?: number }
+
+/** What a system run's caller adds to its record. */
+export type RunNote = {
+    reads?: Array<{ entity: string; component: string; rev: number }>
+    queries?: import("./ecs").QueryObservation[]
+    inputs?: Array<{ seq: number; channel: string }>
+}

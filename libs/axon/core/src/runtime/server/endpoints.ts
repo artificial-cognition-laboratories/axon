@@ -74,8 +74,8 @@ type EndpointsOpts = {
  */
 function engineIdentity(
     engines: EnginesT | undefined,
-    declared: { provider: string; model: string | null } | undefined,
-): { provider: string; model: string | null } | null {
+    declared: AxonBlueprint["engine"],
+): NonNullable<AxonBlueprint["engine"]> | null {
     // The blueprint's answer first.
     //
     // A CONFINED agent has no engines of its own: resolving needs the
@@ -93,7 +93,7 @@ function engineIdentity(
     const primary = bound.find(entry => entry.requirement.primary) ?? bound.find(entry => entry.role === "main")
     if (!primary) return null
 
-    return { provider: primary.capability.provider, model: primary.capability.id }
+    return { provider: primary.capability.provider, model: primary.capability.id, ...(primary.effort !== undefined ? { effort: primary.effort } : {}) }
 }
 
 export function Endpoints(opts: EndpointsOpts) {

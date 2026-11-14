@@ -1,13 +1,16 @@
-import { request as httpRequest } from "node:http"
-import { err, errorMap, type AxonErrorCode } from "@arcforge/err"
-import { daemonPaths, Lifecycle } from "./control/index"
+import { Receiver } from "./control/stream"
+import type { AxonEngineRequest } from "@arcforge/types"
+import { Agents, type AttachResult } from "@arcforge/cloud"
+import { Caller, daemonPaths, Lifecycle, remoteClient, socketFetch, type RemoteClient } from "./control/index"
 import type { AgentRecord, AgentsState } from "./agents/index"
 import type { ModelRecord, ModelsState } from "./models/index"
 import type { Download } from "./models/downloads"
 import type { Actor, Job, JobsState } from "./jobs/index"
 import type { Admission, MachineState } from "./machine/index"
+import type { MachineEntry, NetState } from "./net/index"
 import type { DaemonPaths, DaemonStarted, DaemonStatus } from "../types/index"
-import type { LeaseGrant, WorldsState, BodyInfo, ModState } from "./worlds/index"
+// The lab contract, not the labs: a client of the daemon must never load what runs a world (and its native image codec).
+import { LabsClient } from "./labs/contract/index"
 import type { AgentSchedule, CreateSchedule, ScheduleState, UpdateSchedule, ScheduleResult } from "./schedule/schedule"
 import type { DictationState, Dictated } from "./dictation/dictation"
 
@@ -41,6 +44,7 @@ export type AxonDaemonOpts = {
 export function AxonDaemon(opts: AxonDaemonOpts = {}) {
     const paths: DaemonPaths = daemonPaths(opts.root)
     const call = Caller({ paths: paths })
+    const receiver = Receiver({ socket: paths.socket })
     /**
      * Whether a daemon is listening, answered WITHOUT one.
      *
@@ -57,6 +61,27 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
      * bundler's JSON handling is not a value to build a status line on.
      */
     const lifecycle = Lifecycle({ paths: paths, version: "", entrypoint: "" })
+    const tunnel = socketFetch({ paths: paths })
+
+    /**
+     * One other machine: its remote verbs, plus attaching to an agent on it.
+     *
+     * Attach is the cloud client's own — the same one that attaches to a
+     * deployed agent — given a `fetch` that reaches the agent through this
+     * daemon and the network. One protocol, whichever way an agent is reached.
+     */
+    function remote(key: string): RemoteClient & { attach(session: string): Promise<AttachResult> } {
+        const verbs = remoteClient(async (path, arg) => {
+            const answer = await call(["machines", "request"], { key: key, path: path, arg: arg }) as { value: unknown }
+            return answer.value
+        })
+        return {
+            ...verbs,
+            attach: session => Agents({ fetch: tunnel }).attach(`http://axond/machines/${key}/agents/${encodeURIComponent(session)}`),
+        }
+    }
+
+    const labs = LabsClient({ call: call, running: () => lifecycle.status().running })
 
     return {
         paths: paths,
@@ -147,6 +172,20 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             read: () => call(["identity", "read"]) as Promise<{ signedIn: boolean; email: string | null }>,
         },
 
+        /** This machine on the network: up with its key and addresses, or down with why. */
+        net: {
+            status: () => call(["net", "status"]) as Promise<NetState>,
+            /** Try to join now rather than at the next heartbeat — after a login, say. */
+            join: () => call(["net", "join"]) as Promise<void>,
+        },
+
+        /** The other machines on this account's network. */
+        machines: {
+            list: () => call(["machines", "list"]) as Promise<MachineEntry[]>,
+            /** Another machine, through this daemon: its remote verbs, and its agents to attach to. */
+            at: (key: string) => remote(key),
+        },
+
         /** The daemon's named preferences — switches, and choices with more than two values. */
         preferences: {
             /** Every preference currently set. */
@@ -157,8 +196,10 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
         },
 
         models: {
+            protocol: () => call(["models", "protocol"]) as Promise<number>,
             /** Everything the domain reports: what is cached, what is resident, where the cache lives. */
             state: () => call(["models", "state"]) as Promise<ModelsState>,
+            inspect: (model: string) => call(["models", "inspect"], model) as Promise<void>,
             /** Re-read what is on disk. */
             refresh: () => call(["models", "refresh"]) as Promise<ModelRecord[]>,
             /** The daemon-owned local execution environments, separate from model weights. */
@@ -167,6 +208,7 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
                 call(["models", "installRuntime"], runtime) as Promise<import("./models/runtimes").RuntimeState>,
             removeRuntime: (runtime: "onnx" | "llama.cpp" | "transformers") =>
                 call(["models", "removeRuntime"], runtime) as Promise<boolean>,
+            stream: (model: string, request: AxonEngineRequest) => receiver.stream({ model: model, request: { ...request, signal: undefined } }, request.signal),
             /** Local generation models this daemon can serve right now. */
             local: () => call(["models", "local"]) as Promise<import("@arcforge/types").EngineCapability[]>,
             /** Load a weight into memory and take a hold on it. */
@@ -206,7 +248,7 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             /** One repository in full — metadata, weight files, and its card. What a detail buffer renders. */
             at: (specifier: string) =>
                 call(["models", "at"], specifier) as Promise<
-                    ModelRecord & { weights: string[]; readme: string | null }
+                    ModelRecord & { weights: string[]; sizes: Record<string, number>; readme: string | null }
                 >,
             /**
              * Begin a fetch and return its id, without waiting for it.
@@ -273,139 +315,8 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
             unbind: () => call(["dictation", "unbind"]) as Promise<void>,
         },
 
-        /**
-         * The lab — the running Terraria world and the warm bodies agents
-         * occupy. The daemon owns them because a display, a port and a game
-         * client can only belong to one process on this machine.
-         */
-        worlds: {
-            /** Every world on disk, what is running, every body, the mod. One read for a whole view. */
-            state: () => call(["worlds", "state"]) as Promise<WorldsState>,
-            start: (input: { name: string; port?: number; players?: number }) => call(["worlds", "start"], input) as Promise<void>,
-            stop: () => call(["worlds", "stop"]) as Promise<void>,
-            /** Stop and start the running world, so a rebuilt mod is loaded everywhere. */
-            restart: () => call(["worlds", "restart"]) as Promise<void>,
-            logs: (input?: { lines?: number }) => call(["worlds", "logs"], input) as Promise<{ server: string[] }>,
-            mod: {
-                state: () => call(["worlds", "mod", "state"]) as Promise<ModState>,
-                build: () => call(["worlds", "mod", "build"]) as Promise<ModState>,
-            },
-            bodies: {
-                list: () => call(["worlds", "bodies", "list"]) as Promise<BodyInfo[]>,
-                add: () => call(["worlds", "bodies", "add"]) as Promise<BodyInfo>,
-                lease: (input: { agent: string; pid: number; character: string; characterDir: string }) =>
-                    call(["worlds", "bodies", "lease"], input) as Promise<LeaseGrant>,
-                release: (lease: string) => call(["worlds", "bodies", "release"], lease) as Promise<void>,
-            },
-        },
+        labs: labs,
     }
 }
 
 export type AxonDaemonT = ReturnType<typeof AxonDaemon>
-
-/**
- * One request to the daemon.
- *
- * Below the factory because it serves it. A closure rather than a leaf: it
- * holds no state beyond the socket path, and a handle wrapping one fetch would
- * be a noun invented for a verb.
- */
-function Caller(opts: { paths: DaemonPaths }) {
-    return async function call(path: readonly string[], arg?: unknown): Promise<unknown> {
-        let response: { status: number; body: string }
-        try {
-            response = await post(opts.paths.socket, JSON.stringify({ path: path, arg: arg }))
-        } catch (cause) {
-            // A refused connection is the ordinary "no daemon" case, not a
-            // fault — reported as such so a caller can offer `axon daemon up`
-            // rather than surfacing a socket error.
-            throw err("DAEMON_NOT_RUNNING", {
-                detail: `no daemon listening on ${opts.paths.socket}`,
-                context: { socket: opts.paths.socket, verb: path.join(".") },
-                cause,
-            })
-        }
-
-        const body = JSON.parse(response.body) as {
-            ok: boolean
-            value?: unknown
-            error?: string
-            fault?: { code?: string; message?: string; context?: unknown }
-        }
-        if (!body.ok) throw rebuild(path, body)
-        return body.value
-    }
-}
-
-/**
- * Turn a failed response back into the error the domain threw.
- *
- * The daemon sends the whole AxonError, so the code survives the wire and a
- * caller sees what a local caller would. `errorMap` is keyed by NAME and the
- * error carries its CODE, so this looks the name back up — one linear scan
- * over a static map, paid only on failure.
- *
- * DAEMON_NOT_WIRED remains the fallback, and now means what it says: the
- * daemon answered with something that carries no code, which is either a
- * thrown non-Error or a daemon older than this client.
- */
-function rebuild(
-    path: readonly string[],
-    body: { error?: string; fault?: { code?: string; message?: string; context?: unknown } },
-): Error {
-    const verb = path.join(".")
-    const code = body.fault?.code
-    if (code) {
-        const name = (Object.keys(errorMap) as AxonErrorCode[])
-            .find(key => errorMap[key].code === code)
-        if (name) {
-            return err(name, {
-                detail: body.fault?.message ?? body.error ?? verb,
-                context: {
-                    ...(body.fault?.context && typeof body.fault.context === "object"
-                        ? body.fault.context as Record<string, unknown>
-                        : {}),
-                    verb: verb,
-                },
-            })
-        }
-    }
-    return err("DAEMON_NOT_WIRED", {
-        detail: `${verb} — ${body.error ?? "unknown error"}`,
-        context: { verb: verb },
-    })
-}
-
-/**
- * POST one request over a unix socket.
- *
- * `node:http` rather than `fetch`, because this client runs in BOTH runtimes.
- * Bun's fetch takes a `unix` option and Node's does not — it ignores the
- * field, sends the request to `http://localhost/` over TCP, and fails. So the
- * VS Code extension host reported "no daemon listening" while a daemon was
- * running and answering perfectly on the same machine, which is exactly the
- * kind of failure a silently-ignored option produces.
- *
- * `node:http` supports unix sockets natively in both, so one code path serves
- * both hosts rather than a runtime check choosing between two.
- */
-function post(socketPath: string, body: string): Promise<{ status: number; body: string }> {
-    return new Promise((resolve, reject) => {
-        const request = httpRequest(
-            {
-                socketPath: socketPath,
-                path: "/",
-                method: "POST",
-                headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) },
-            },
-            response => {
-                let text = ""
-                response.setEncoding("utf-8")
-                response.on("data", chunk => { text += chunk })
-                response.on("end", () => resolve({ status: response.statusCode ?? 0, body: text }))
-            },
-        )
-        request.on("error", reject)
-        request.end(body)
-    })
-}

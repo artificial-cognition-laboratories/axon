@@ -1,0 +1,14 @@
+[package]
+name = "cognet"
+description = "What a cognet's Rust systems are written against: their world, their handles, their faults."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+cognet-macros = { path = "../cognet-macros" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+# An async system's future runs on its own thread, waiting on answers from the host.
+futures = "0.3"
+base64 = "0.13"

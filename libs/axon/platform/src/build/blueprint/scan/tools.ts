@@ -161,16 +161,19 @@ function DeclareServer() {
     async function send(payload: string): Promise<DeclareWorkerResult> {
         if (!proc || proc.killed) spawn()
 
-        const writer = (proc!.stdin as { write(chunk: string): void; flush?(): void })
+        const current = proc
+        const currentLines = lines
+        if (!current || !currentLines) throw new Error("declare-worker did not start")
+        const writer = (current.stdin as { write(chunk: string): void; flush?(): void })
         writer.write(`${payload}\n`)
         writer.flush?.()
 
-        const next = await lines!.next()
+        const next = await currentLines.next()
         if (next.done) {
             // The worker exited rather than answering. Drop the handle so the
             // next call starts a fresh one instead of writing into a dead pipe.
-            const stderr = await new Response(proc!.stderr as ReadableStream<Uint8Array>).text().catch(() => "")
-            stop()
+            const stderr = await new Response(current.stderr as ReadableStream<Uint8Array>).text()
+            if (proc === current) stop()
             return { ok: false, message: `declare-worker exited without answering${stderr ? `\n${stderr}` : ""}` }
         }
 
@@ -181,17 +184,20 @@ function DeclareServer() {
 
     return {
         request(payload: string): Promise<DeclareWorkerResult> {
-            const result = queue.then(() =>
-                Promise.race([
-                    send(payload),
-                    new Promise<DeclareWorkerResult>(resolve =>
-                        setTimeout(() => {
-                            stop()
-                            resolve({ ok: false, message: `declare-worker timed out after ${REQUEST_TIMEOUT_MS}ms` })
-                        }, REQUEST_TIMEOUT_MS),
-                    ),
-                ]),
-            )
+            const result = queue.then(async () => {
+                let timer: ReturnType<typeof setTimeout> | undefined
+                try {
+                    return await Promise.race([
+                        send(payload),
+                        new Promise<DeclareWorkerResult>(resolve => {
+                            timer = setTimeout(() => {
+                                stop()
+                                resolve({ ok: false, message: `declare-worker timed out after ${REQUEST_TIMEOUT_MS}ms` })
+                            }, REQUEST_TIMEOUT_MS)
+                        }),
+                    ])
+                } finally { if (timer) clearTimeout(timer) }
+            })
             // The chain must survive a rejection, or one failure wedges every
             // later request behind it forever.
             queue = result.catch(() => { })

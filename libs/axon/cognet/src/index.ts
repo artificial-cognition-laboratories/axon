@@ -15,7 +15,14 @@
 // definePlugin is deliberately global-only: it registers lifecycle hooks when
 // called, so it is a side-effecting declaration rather than an identity
 // function, and exporting it would invite calling it outside a brain.
-export { CognetHost } from "./host"
+export { CognetHost, type CognetHostConfig } from "./host"
+// The compile step's binder. Imported by name from every generated entry that
+// has systems, which is what makes an old host fail the build rather than
+// silently run none of them.
+export { Discovered, type DiscoveredOpts, type DiscoveredDefinitions, type DiscoveredSystem } from "./discovered"
+export { PROTOCOL } from "./native"
+export type { NativeModule, Snapshot as NativeSnapshot } from "./native"
+export { Python, type PythonSystem } from "./python"
 export { defineCognet } from "./define"
 
 export { Clock, type ClockT, type ClockOpts, type ClockEmit } from "./clock"

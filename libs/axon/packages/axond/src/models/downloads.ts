@@ -15,6 +15,8 @@ export type Download = {
     model: string
     /** Which weight inside it, once resolved. Null while that is still being decided. */
     file: string | null
+    requestedFile: string | null
+    result: string | null
     /** Bytes on disk so far. */
     received: number
     /** Total bytes, when the server declares one. Null on a chunked transfer. */
@@ -26,7 +28,7 @@ export type Download = {
     endedAt: number | null
 }
 
-export type DownloadState = "downloading" | "done" | "failed" | "cancelled"
+export type DownloadState = "downloading" | "cancelling" | "done" | "failed" | "cancelled"
 
 type DownloadsOpts = {
     /**
@@ -64,7 +66,7 @@ type DownloadsOpts = {
 export function Downloads(opts: DownloadsOpts = {}) {
     const keepMs = opts.keepMs ?? 60_000
     const active = new Map<string, Download>()
-    const cancelled = new Set<string>()
+    const controllers = new Map<string, AbortController>()
 
     /** Drop finished records once nobody could reasonably still be reading them. */
     function reap(): void {
@@ -100,13 +102,17 @@ export function Downloads(opts: DownloadsOpts = {}) {
          * fetching means. Mixing the two would put registry knowledge inside a
          * progress tracker.
          */
-        start(model: string, run: (report: (progress: { file?: string; received: number; total: number | null }) => void) => Promise<void>): string {
+        start(model: string, run: (report: (progress: { file?: string; received: number; total: number | null }) => void, signal: AbortSignal) => Promise<string | void>, file?: string): string {
             const id = `dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
+            const controller = new AbortController()
+            controllers.set(id, controller)
             const download: Download = {
                 id,
                 model,
                 file: null,
+                requestedFile: file ?? null,
+                result: null,
                 received: 0,
                 total: null,
                 state: "downloading",
@@ -117,62 +123,56 @@ export function Downloads(opts: DownloadsOpts = {}) {
             active.set(id, download)
 
             void run(progress => {
-                // A cancelled transfer stops being reported, but cannot be
-                // stopped mid-flight: `fetch` has no abort wired through yet,
-                // so cancellation is honest about being a request to ignore
-                // the result rather than a promise to halt the bytes.
-                if (cancelled.has(id)) return
+                // Ignore progress after the acquisition signal is aborted.
+                if (controller.signal.aborted) return
                 if (progress.file !== undefined) download.file = progress.file
                 download.received = progress.received
                 download.total = progress.total
-            })
-                .then(() => {
-                    if (cancelled.has(id)) return
+            }, controller.signal)
+                .then(result => {
+                    download.result = typeof result === "string" ? result : null
                     download.state = "done"
                     download.endedAt = Date.now()
                 })
                 .catch((cause: unknown) => {
-                    if (cancelled.has(id)) return
+                    if (controller.signal.aborted) { download.state = "cancelled"; download.endedAt = Date.now(); return }
                     download.state = "failed"
                     download.error = cause instanceof Error ? cause.message : String(cause)
                     download.endedAt = Date.now()
                 })
+                .finally(() => controllers.delete(id))
 
             return id
         },
 
         /**
-         * Stop reporting a transfer.
+         * Abort a transfer.
          *
-         * Honest about what it is: the bytes may keep arriving until the
-         * request completes, because the fetcher has no abort signal wired
-         * through. What this guarantees is that the result is discarded and
-         * the record says cancelled — which is what a person clicking cancel
-         * is asking for. Aborting the socket is the follow-up, and it belongs
-         * in the fetcher rather than here.
+         * Acquisition receives the signal and refuses to publish a cancelled model.
          */
         cancel(id: string): boolean {
             const download = active.get(id)
             if (!download) return false
             if (download.state !== "downloading") return false
 
-            cancelled.add(id)
-            download.state = "cancelled"
-            download.endedAt = Date.now()
+            const controller = controllers.get(id)
+            if (!controller) throw err("MODEL_RUN_FAILED", { detail: "active download has no cancellation controller" })
+            download.state = "cancelling"
+            controller.abort()
             return true
         },
 
         /** Forget a finished record now, rather than waiting for it to age out. */
         dismiss(id: string): boolean {
             const download = active.get(id)
-            if (!download || download.state === "downloading") return false
+            if (!download || (download.state === "downloading" || download.state === "cancelling")) return false
             return active.delete(id)
         },
 
         /** Refuse a second transfer of something already in flight. */
         inFlight(model: string): Download | null {
             for (const download of active.values()) {
-                if (download.model === model && download.state === "downloading") return download
+                if (download.model === model && (download.state === "downloading" || download.state === "cancelling")) return download
             }
             return null
         },

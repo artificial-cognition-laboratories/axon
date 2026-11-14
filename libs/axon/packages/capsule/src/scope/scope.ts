@@ -35,6 +35,9 @@
 import type { LiveProcHandle, ProcRunOptions, ProcRunResult, ProcSpawnOptions } from "../../types"
 import type { AxonCapsuleHandle } from "@arcforge/types"
 
+/** The host chdir captured before model-facing scope installs a wrapper. */
+const realChdir = process.chdir.bind(process)
+
 export type ScopeOpts = {
     /** Blocking shell execution — the real owner of process.run(). */
     run(command: string, opts?: ProcRunOptions): Promise<ProcRunResult>
@@ -53,6 +56,8 @@ export type ScopeOpts = {
     /** One process by id — the real owner of process.proc(). */
     proc(procId: string): LiveProcHandle | undefined
     write(level: "log" | "error", data: string | Uint8Array): boolean
+    /** Records a successful model-initiated working-directory change. */
+    chdir(cwd: string): void
     /** The capsule-safe Axon facade installed as globalThis.axon. */
     axon: AxonCapsuleHandle
     /**
@@ -107,6 +112,16 @@ export function installScope(opts: ScopeOpts): void {
     proc.spawn = opts.spawn
     proc.procs = opts.procs
     proc.proc = opts.proc
+
+    // A directory change is a meaningful live action in its own right. Emit it
+    // here, at the actual process boundary, rather than waiting for Runner's
+    // end-of-command cwd report. The latter remains the kernel's continuity
+    // signal; this is the timeline's immediate semantic activity.
+    proc.chdir = ((directory: string) => {
+        if (opts.capture?.() === false) return realChdir(directory)
+        realChdir(directory)
+        opts.chdir(proc.cwd())
+    }) as typeof proc.chdir
 
     // The one Axon-owned global besides the process verbs. It is a
     // capsule-safe facade: local activity plus trusted host-backed methods.

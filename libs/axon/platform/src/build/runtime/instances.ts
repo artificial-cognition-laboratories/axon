@@ -9,7 +9,7 @@ import { Agent, type AgentT, type LinkedRuntime } from "./agent"
 import type { BootProgress, UnitTiming } from "./progress"
 import type { ResolveT } from "./resolve"
 import type { EscalationsT } from "./escalations"
-import type { EscalationCall, SupervisorToAgent } from "@arcforge/types"
+import type { EscalationCall, SupervisorToAgent, EngineSelection, EngineEffort } from "@arcforge/types"
 import type { AxonSessionT } from "@arcforge/session"
 
 /**
@@ -63,7 +63,7 @@ export type RemoteTarget = {
      * none or did not say — the caller renders an empty row rather than
      * inventing one.
      */
-    engine?: { provider: string; model: string | null } | null
+    engine?: { provider: string; model: string | null; effort?: EngineEffort } | null
 }
 
 /**
@@ -112,7 +112,7 @@ export type AgentSupervisor = {
         link: SupervisorToAgent & { close(): void }
         session: AxonSessionT
         bus: { onAny(handler: (type: string, data: unknown) => void): () => void }
-        engines?: unknown
+        engines?: EngineSelection
         blueprint: unknown
         tier: "none" | "auto" | "container" | "hardened"
         pid: number
@@ -167,6 +167,8 @@ export type SpawnOpts = {
     session?: string
     /** Job directory this run answers, for correlation — see AgentOpts.job. */
     job?: string
+    /** What this invocation says, over the agent's own `.env` — see AgentOpts.env. */
+    env?: Readonly<Record<string, string>>
     /** A local control channel the caller is listening on, published on the running record — see AgentOpts.control. */
     control?: { port: number; token: string }
     parentSessionId?: string
@@ -331,6 +333,7 @@ export function Instances(opts: InstancesOpts) {
         const agent = await Agent({
             project: project,
             ...(spawnOpts.job ? { job: spawnOpts.job } : {}),
+            ...(spawnOpts.env ? { env: spawnOpts.env } : {}),
             ...(spawnOpts.control ? { control: spawnOpts.control } : {}),
             /**
              * AGENTS ARE PROCESSES.
@@ -397,7 +400,7 @@ export function Instances(opts: InstancesOpts) {
                     link: live.link,
                     session: live.session,
                     bus: live.bus,
-                    ...(live.engines ? { engines: live.engines as never } : {}),
+                    ...(live.engines ? { engines: live.engines } : {}),
                     get blueprint() {
                         return current as never
                     },

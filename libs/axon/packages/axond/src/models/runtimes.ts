@@ -122,6 +122,19 @@ export function Runtimes(opts: RuntimesOpts = {}) {
         try { return await work } finally { installing.delete(id) }
     }
 
+    /** The installed runtime's entry point, or null when it is not installed. */
+    function resolve(id: RuntimeId): string | null {
+        const entry = spec(id)
+        if (!installed(id).installed) return null
+        try {
+            // Resolve from the Axon-owned runtime project, never from the
+            // mise/npm tree that installed the main CLI.
+            return Bun.resolveSync(entry.module, directory(id))
+        } catch (cause) {
+            throw err("MODEL_RUNTIME_INSTALL_FAILED", { detail: `installed ${id} runtime could not be resolved: ${cause instanceof Error ? cause.message : String(cause)}` })
+        }
+    }
+
     return {
         get root() { return root },
         state(): RuntimeState[] { return (Object.keys(SPECS) as RuntimeId[]).map(installed) },
@@ -131,16 +144,14 @@ export function Runtimes(opts: RuntimesOpts = {}) {
             await rm(directory(id), { recursive: true, force: true })
             return true
         },
+        resolve: resolve,
         async import(id: RuntimeId): Promise<unknown | null> {
-            const entry = spec(id)
-            if (!installed(id).installed) return null
+            const entrypoint = resolve(id)
+            if (entrypoint === null) return null
             try {
-                // Resolve from the Axon-owned runtime project, never from the
-                // mise/npm tree that installed the main CLI.
-                const entrypoint = Bun.resolveSync(entry.module, directory(id))
                 return await import(pathToFileURL(entrypoint).href)
-            } catch {
-                return null
+            } catch (cause) {
+                throw err("MODEL_RUNTIME_INSTALL_FAILED", { detail: `installed ${id} runtime could not be imported: ${cause instanceof Error ? cause.message : String(cause)}` })
             }
         },
     }

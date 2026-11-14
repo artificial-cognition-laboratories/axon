@@ -2,6 +2,34 @@ import { Capsule } from "@arcforge/capsule"
 import type { EscalationCall } from "@arcforge/capsule"
 
 describe("Capsule policy — escalate", () => {
+    it("can interrupt a run waiting for approval without executing a later-approved call", async () => {
+        const asked = Promise.withResolvers<void>()
+        const answer = Promise.withResolvers<boolean>()
+        const capsule = Capsule({
+            escalate: () => {
+                asked.resolve()
+                return answer.promise
+            },
+        })
+        await capsule.boot()
+        const events: string[] = []
+        const off = capsule.onAny(event => events.push(event.type))
+        try {
+            const run = capsule.run('await process.run("echo should-not-run")')
+            const outcome = run.then(() => null, error => error)
+            await asked.promise
+            capsule.interrupt()
+            expect(await outcome).toMatchObject({ message: expect.stringContaining("capsule run aborted") })
+            answer.resolve(true)
+            await Bun.sleep(10)
+            expect(events).not.toContain("process:proc:start")
+        } finally {
+            answer.resolve(false)
+            off()
+            await capsule.shutdown()
+        }
+    })
+
     it("calls the escalate callback with the right shape and allows when it resolves true", async () => {
         const calls: EscalationCall[] = []
         const capsule = Capsule({

@@ -1,3 +1,5 @@
+import { HttpError, type AxonEngineFaultCode } from "@arcforge/types"
+import { failure } from "../shared"
 import type { AxonEngineDef, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest, EngineAutoWeights, EngineAutoLimits, EngineEffort } from "@arcforge/types"
 
 export type AxonOptions = {
@@ -61,16 +63,41 @@ export function Axon(options: AxonOptions = {}): AxonEngineDef {
         create({ cloud }): AxonEngineDriver {
             return {
                 async *stream(req: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> {
-                    yield* cloud.cloud.engine.stream({
-                        request: req,
-                        ...(options.model !== undefined ? { model: options.model } : {}),
-                        ...(options.optimize !== undefined ? { optimize: options.optimize } : {}),
-                        ...(options.limit !== undefined ? { limit: options.limit } : {}),
-                        ...(options.id !== undefined ? { id: options.id } : {}),
-                        ...(options.url !== undefined ? { url: options.url } : {}),
-                    })
+                    try {
+                        yield* cloud.cloud.engine.stream({
+                            request: req,
+                            ...(options.model !== undefined ? { model: options.model } : {}),
+                            ...(options.optimize !== undefined ? { optimize: options.optimize } : {}),
+                            ...(options.limit !== undefined ? { limit: options.limit } : {}),
+                            ...(options.id !== undefined ? { id: options.id } : {}),
+                            ...(options.url !== undefined ? { url: options.url } : {}),
+                        })
+                    } catch (cause) {
+                        if (!(cause instanceof HttpError)) throw cause
+                        const code = cause.data?.code === "ENGINE_UPSTREAM_PROTOCOL"
+                            ? "PROTOCOL"
+                            : HTTP_FAULTS[cause.status]
+                        if (!code) throw cause
+                        throw failure({
+                            code: code,
+                            message: cause.message,
+                            retryable: code === "TRANSPORT" || code === "RATE_LIMIT",
+                            provider: "axon",
+                            status: cause.status,
+                            ...(options.model !== undefined ? { model: options.model } : {}),
+                            cause: cause,
+                        })
+                    }
                 },
             }
         },
     }
+}
+
+const HTTP_FAULTS: Partial<Record<number, AxonEngineFaultCode>> = {
+    401: "AUTH",
+    403: "AUTH",
+    402: "QUOTA",
+    429: "RATE_LIMIT",
+    503: "TRANSPORT",
 }

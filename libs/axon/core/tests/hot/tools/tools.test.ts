@@ -31,6 +31,7 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 /** A mediation double that records every decision and span it was asked for. */
 function recorder(verdict: (fn: string) => boolean = () => true) {
     const spans: string[] = []
+    const spanIds: string[] = []
     const checks: Array<{ fn: string; subject: string; owner: string }> = []
     const mediation: MediateOpts = {
         async check(fn, subject, _args, owner) {
@@ -38,12 +39,12 @@ function recorder(verdict: (fn: string) => boolean = () => true) {
             return verdict(fn)
         },
         emit: {
-            start: e => spans.push(`start:${e.fn}`),
-            complete: e => spans.push(`complete:${e.fn}`),
-            failed: e => spans.push(`failed:${e.fn}`),
+            async start(e) { spans.push(`start:${e.fn}`); return `span-${spans.length}` },
+            async complete(e) { spans.push(`complete:${e.fn}`); spanIds.push(e.spanId) },
+            async failed(e) { spans.push(`failed:${e.fn}`); spanIds.push(e.spanId) },
         },
     }
-    return { mediation, spans, checks }
+    return { mediation, spans, spanIds, checks }
 }
 
 function tool(over: Partial<AxonTool> & { name: string; source: string }): AxonTool {
@@ -160,12 +161,13 @@ describe("Tools — mediation", () => {
     })
 
     it("brackets a successful call with start and complete", async () => {
-        const { mediation, spans } = recorder()
+        const { mediation, spans, spanIds } = recorder()
         const tools = Tools({ mediation, scratch })
         await tools.install([greeter])
 
         await (tools.globals() as { greet(n: string): Promise<string> }).greet("x")
         expect(spans).toEqual(["start:greeter.greet", "complete:greeter.greet"])
+        expect(spanIds).toEqual(["span-1"])
     })
 
     it("closes the bracket with failed when the tool throws, and rethrows", async () => {

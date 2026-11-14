@@ -45,6 +45,19 @@ describe("readProviders", () => {
 })
 
 describe("addProvider", () => {
+    it("retains discovered sources in one write when adding the first local provider", async () => {
+        await config(`export default defineProfile({ settings: { theme: "arcnight" } })\n`)
+        await addProvider(root, "Ollama", { initial: ["Axon", "Codex", "Axon"] })
+        expect(await readProviders(root)).toEqual(["Axon", "Codex", "Ollama"])
+        expect(await read()).toContain('theme: "arcnight"')
+    })
+
+    it("never seeds defaults into an existing explicit policy", async () => {
+        await config(`export default defineProfile({ providers: [Ollama({ url: "http://box:11434" })] })\n`)
+        await addProvider(root, "Codex", { initial: ["Axon", "Anthropic"] })
+        expect(await readProviders(root)).toEqual(["Ollama", "Codex"])
+        expect(await read()).toContain('url: "http://box:11434"')
+    })
     it("appends to an existing array", async () => {
         await config(`export default defineProfile({\n    providers: [Axon()],\n})\n`)
 

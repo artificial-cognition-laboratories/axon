@@ -98,6 +98,9 @@ export type ModelRecord = {
     cached: boolean
     /** True when it is loaded and holding memory. */
     resident: boolean
+    /** Where a resident weight runs, when its runtime chose — and, on the CPU, why not the GPU. */
+    device?: "gpu" | "cpu"
+    deviceNote?: string
     /**
      * Whether it fits the ceiling in force — the declared budget, or the card.
      *
@@ -146,3 +149,6 @@ export type ModelsState = {
     /** Where the cache lives. Diagnostics — "where did my disk go" is otherwise unanswerable. */
     root: string
 }
+
+/** Streaming chat plus catalogue eligibility for complete executable chat artifacts. */
+export const MODEL_PROTOCOL = 7

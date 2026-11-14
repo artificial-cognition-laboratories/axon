@@ -8,7 +8,7 @@ import { isControlFrame, type ControlHello, type EditorSurface } from "./protoco
  *
  * Listens on an ephemeral port and mints a token, both of which the caller
  * writes into its `AxonInstance` record. That record is the discovery
- * mechanism: `Running()` already scans it, pid-checks it, GCs it and
+ * mechanism: the daemon's registry already scans it, pid-checks it, GCs it and
  * watches it, so the channel inherits liveness for free and needs no
  * announce protocol of its own. The port dies with the process, which is
  * exactly the fact the pid check already proves — so publishing it does not

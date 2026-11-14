@@ -31,6 +31,11 @@ export type AxonStackFrame = {
 export type AxonErrorSource =
     | "runtime" | "manifest" | "capsule" | "server" | "thread" | "cli"
     | "cloud" | "kernel" | "cognet" | "tui" | "bench"
+    // The memory substrate. Its own source rather than "runtime": a Locus
+    // failure is about the BASIS — the coordinate system stored beliefs are
+    // expressed in — and telling "your ontology changed, migrate" apart from
+    // "the runtime broke" is the difference between a sleep task and a bug.
+    | "locus"
     /**
      * A third-party inference provider — the user's own Codex, OpenRouter,
      * Ollama or Axon route.
@@ -52,6 +57,12 @@ export type AxonErrorSource =
     // and telling that apart from one agent's runtime fault is the difference
     // between "restart your agent" and "start the daemon".
     | "daemon"
+    /**
+     * A body, or the contract it speaks (`body/body.ts`). Its own source: a
+     * body that sends what the contract does not allow is the body's bug —
+     * a mod's, a bridge's — never the runtime's or the mind's.
+     */
+    | "body"
 
 /** Lifecycle impact of an error. */
 export type AxonErrorSeverity = "fatal" | "recovered" | "degraded"

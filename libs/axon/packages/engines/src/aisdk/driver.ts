@@ -54,6 +54,7 @@ export function AiSdk(options: AiSdkOptions): AxonEngineDriver {
     const provider = options.provider
 
     return {
+        ...(options.effort !== undefined ? { effort: options.effort } : {}),
         async *stream(req: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> {
             const collect = Collect({ provider, model: model.modelId })
             const started = Date.now()

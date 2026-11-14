@@ -1,9 +1,15 @@
 export { Platform, type PlatformT } from "./platform"
+// What `axon debug` asks. Promoted so the CLI names the shape its command takes.
+export type { DebugT } from "./debug"
 export type { ProjectKind, ProjectT } from "./build/project"
 // Promoted deliberately: the name of the default brain is a public fact about
 // the platform, and `arc`'s release preflight now asks the registry whether a
 // version of it exists for this kernel's ABI. Two consumers, one constant.
 export { DEFAULT_COGNET } from "./build/blueprint"
+// Session records are the durable conversation read model consumed by the
+// TUI's session shelf. Export the deliberate listing rule with the shape so
+// surfaces do not reach through Platform's runtime internals.
+export { isListableSession, type SessionRecord } from "./build/runtime"
 // The `@` palette renders these rows, so the shape is part of the platform's
 // public surface rather than an internal of the walk that produces it.
 export type { FileEntry, FilesT } from "./services/files"
@@ -15,6 +21,9 @@ export { procTree, appendOutput, type ProcNode } from "./procs"
 // both render it; the ordering rules are subtle enough that a second
 // implementation would drift rather than differ.
 export { forest, childrenOf, flatten, type ForestAgent, type ForestNode, type Indented } from "./procs"
+// Spawnable siblings are part of the packaged runtime contract. The TUI owns
+// additional workers and must resolve them with the same split-artifact rule.
+export { workerPath } from "./utils/packaged"
 // The supervisor ↔ agent transport. Moves bytes; the verbs it carries are
 // SupervisorToAgent / AgentToSupervisor in @arcforge/types.
 export { serve, connect, Channel, type LinkChannels, type SocketPaths, type ChannelT } from "./link"

@@ -24,11 +24,12 @@ import { err } from "@arcforge/err"
 import { readFileSync } from "node:fs"
 import { Axon, AxonBus } from "@arcforge/core"
 import { Routes, Middleware, Plugins } from "../build/blueprint"
-import type { AxonCommitContext, AxonMiddleware, AxonPartialBlueprint, AxonPlugin, AxonRoute } from "@arcforge/types"
+import { isEntryEvent, type AxonCommitContext, type AxonMiddleware, type AxonPartialBlueprint, type AxonPlugin, type AxonRoute } from "@arcforge/types"
 import {
     AGENT_BLUEPRINT_ENV,
     AgentRuntime,
     RemoteDriver,
+    RemoteTransform,
     agentHandlers,
     connect,
     readLinkEnv,
@@ -197,7 +198,10 @@ export async function main(): Promise<void> {
             //   remote   — inference crosses the link, so no credential is here
             //              (tools then load in this heap, see Axon())
             //   escalate — the DECIDER stays outside; this asks over a verb
-            remote: role => RemoteDriver({ role, supervisor }),
+            remote: {
+                generate: role => RemoteDriver({ role: role, supervisor: supervisor }),
+                transform: role => RemoteTransform({ role: role, supervisor: supervisor }),
+            },
             /*
              * Ask the supervisor, which asks the person.
              *
@@ -268,11 +272,18 @@ export async function main(): Promise<void> {
      * Returns undefined when neither is present, so an event with no
      * correlation commits with no context rather than an empty object.
      */
-    function contextOf(context: AxonCommitContext | undefined): AxonCommitContext | undefined {
-        if (!context) return undefined
-        const { runId, spanId } = context
-        if (!runId && !spanId) return undefined
-        return { ...(runId ? { runId } : {}), ...(spanId ? { spanId } : {}) }
+    /**
+     * What travels with a relayed event: its correlation, and — for an entry —
+     * the seq it was stamped with here, which the supervisor's re-stamp would
+     * otherwise lose. The mind addresses entries by this seq (a text span
+     * names one); `origin` is how it is found in the supervisor's log.
+     */
+    function contextOf(type: string, context: AxonCommitContext | undefined, seq: number): AxonCommitContext | undefined {
+        const runId = context?.runId
+        const spanId = context?.spanId
+        const origin = isEntryEvent(type) ? seq : undefined
+        if (!runId && !spanId && origin === undefined) return undefined
+        return { ...(runId ? { runId } : {}), ...(spanId ? { spanId } : {}), ...(origin !== undefined ? { origin: origin } : {}) }
     }
 
     function announce(type: string, payload: unknown): void {
@@ -297,12 +308,12 @@ export async function main(): Promise<void> {
          * reason about at this seam.
          */
         const carrier = payload as {
-            time?: unknown
+            time?: { ms: number; seq: number }
             data?: unknown
             type?: unknown
             context?: AxonCommitContext
         } | undefined
-        if (carrier && typeof carrier === "object" && "time" in carrier) {
+        if (carrier && typeof carrier === "object" && carrier.time !== undefined) {
             // The context travels WITH the payload, as its own argument.
             // Unwrapping the envelope and dropping `context` is what silently
             // un-correlated every span once agents moved into subprocesses:
@@ -310,7 +321,7 @@ export async function main(): Promise<void> {
             // complete share it, and nothing else joins them. The supervisor
             // re-envelopes on the far side, so this is the only place the ids
             // can be handed over.
-            forward(type, carrier.data, contextOf(carrier.context))
+            forward(type, carrier.data, contextOf(type, carrier.context, carrier.time.seq))
             return
         }
         // A raw event: strip the name it already travels under, keep the rest.
@@ -365,6 +376,21 @@ export async function main(): Promise<void> {
     }, 1_000)
     // Never hold the process open on our own account.
     watchdog.unref?.()
+
+    /**
+     * The supervisor ends this process, never a signal.
+     *
+     * Ctrl-C in a terminal signals the whole foreground group, this process
+     * included. Left to the default, it died on the spot, before the
+     * supervisor's `shutdown` reached it. The brain was never unloaded, no
+     * plugin's `shutdown` hook ran, and the session log simply stopped. Held
+     * here, the same way the CLI's own supervisor holds them: the supervisor
+     * hears the signal and asks for an orderly shutdown, and if it dies
+     * instead, the watchdog above ends this process.
+     */
+    const holdSignal = () => {}
+    process.on("SIGINT", holdSignal)
+    process.on("SIGTERM", holdSignal)
 
     // Readiness is the SOCKET connecting, which the supervisor already races
     // against process exit — nothing ever read this line. It stayed harmless

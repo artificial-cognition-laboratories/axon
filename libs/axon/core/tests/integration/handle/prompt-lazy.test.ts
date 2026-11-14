@@ -75,6 +75,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
             const runtime = await Axon({
                 blueprint: {
                     cognet: { name: "test", version: "1.0.0", abi: KERNEL_ABI_VERSION, definition: TestCognet() },
+                    profileProviders: [],
                     config: { providers: [Mock()] },
                     prompts: [{ name: "hello", kind: "static", filePath }],
                 },
@@ -108,6 +109,7 @@ describe("prompt rendering loads the Vue toolchain lazily", () => {
             const runtime = await Axon({
                 blueprint: {
                     cognet: { name: "test", version: "1.0.0", abi: KERNEL_ABI_VERSION, definition: TestCognet() },
+                    profileProviders: [],
                     config: { providers: [Mock()] },
                     prompts: [{ name: "hello", kind: "dynamic", filePath }],
                 },

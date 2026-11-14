@@ -13,7 +13,7 @@ export function modalities(value: Modality | Modality[]): Modality[] {
  * "unresolved" — a near miss the user can act on is the difference between
  * this system being usable offline and being a wall.
  */
-export function reject(req: EngineRequirement, cap: EngineCapability): string | null {
+export function reject(req: EngineRequirement, cap: EngineCapability, explicit = false): string | null {
     if (cap.type !== req.type) {
         return `${cap.id}: is ${cap.type}, needs ${req.type}`
     }
@@ -36,15 +36,15 @@ export function reject(req: EngineRequirement, cap: EngineCapability): string | 
     // Absent context is UNKNOWN, not zero. A source that does not report a
     // window (a codex-only id) must not be silently excluded from every role
     // that names one — that would quietly delete half the catalogue.
-    if (req.context !== undefined && cap.context !== undefined && cap.context < req.context) {
+    if (!explicit && req.context !== undefined && cap.context !== undefined && cap.context < req.context) {
         return `${cap.id}: context ${cap.context} < ${req.context}`
     }
 
-    // Structured output is the one capability where absent means NO. A model
+    // Automatic selection treats unknown structured output as NO. A model
     // that cannot be relied on to emit parseable blocks breaks the grammar,
     // and guessing optimistically here fails at the first tick instead of at
     // prepare.
-    if (req.structured === true && cap.structured !== true) {
+    if (!explicit && req.structured === true && cap.structured !== true) {
         return `${cap.id}: no structured output`
     }
 

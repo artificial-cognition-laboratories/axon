@@ -1,4 +1,6 @@
 import type { AxonError } from "../../error"
+import type { AgentUsage } from "../../usage"
+import type { Manifest } from "../../body/body"
 import type { AxonLogEvents } from "./log"
 import type { AxonCancellableSpan, AxonSpan } from "./span"
 
@@ -98,7 +100,7 @@ export type AxonRuntimeEvent =
     & AxonSpan<
         "axon:inference:provider",
         { provider: string; spanId: string },
-        { provider: string; spanId: string; capabilities: number; cached: boolean },
+        { provider: string; spanId: string; capabilities: number; cached: boolean; failure?: { message: string } },
         { provider: string; spanId: string; error: AxonError }
     >
 
@@ -342,6 +344,32 @@ export type AxonRuntimeEvent =
     // ── Capsule attachment (one capsule per session; telemetry lives in the capsule package) ──
     "process:attach": { capsuleId: string; cwd: string }
     "process:detach": { capsuleId: string; reason: "shutdown" | "crash" | "reload" }
+
+    // ── Body ─────────────────────────────────────────────────────────────────
+    /**
+     * The body the agent now wears, as it described itself — and again each
+     * time it describes itself anew. Durable, because every reading after it
+     * means something only in its terms: a replay, a score, a debugger read
+     * the body from here.
+     */
+    "axon:body:worn": { manifest: Manifest }
+    /** The body is gone: released, lost, or its world stopped. */
+    "axon:body:left": { why: string }
+    /**
+     * Whether the worn body is the mind's to move: embodied, or held (an
+     * emergency stop, a safe mode) or overridden (someone else drives it),
+     * and why. Its senses go on either way.
+     */
+    "axon:body:presence": { state: "embodied" | "held" | "overridden"; why?: string }
+
+    // ── Cost ─────────────────────────────────────────────────────────────────
+    /**
+     * What this agent is costing the machine, part by part — sampled by its
+     * supervisor every few seconds while it runs. In the session log so a
+     * reader scrubbing back in time sees what it cost THEN, beside what it
+     * was doing.
+     */
+    "axon:usage": AgentUsage
 
     // ── Server ───────────────────────────────────────────────────────────────
     "axon:server:request": { method: string; path: string; status: number; durationMs: number }

@@ -1,9 +1,13 @@
 import { existsSync, statSync, readdirSync } from "node:fs"
 import { join } from "node:path"
+import { Artifacts } from "./catalog"
+import { Conversation, Generation } from "./generation"
+import type { AxonEngineRequest } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import type { LoadedWeight, ModelAdapter } from "./adapter"
 import type { RuntimesT } from "./runtimes"
-import { optionalImport } from "./optional"
+import { optionalImport, optionalResolve } from "./optional"
+import { Offload, type Device, type OffloadT, type TaskName, type VisionLibrary, type VisionTask } from "./vision"
 
 /**
  * The transformers.js adapter — a model REPOSITORY, not a weight.
@@ -38,13 +42,23 @@ import { optionalImport } from "./optional"
  * never runs a local model does not carry it.
  */
 export function TransformersAdapter(runtimes?: RuntimesT): ModelAdapter {
+    const artifacts = Artifacts()
     let runtime: Promise<TransformersModule | null> | null = null
+    /** The thread image weights run on — one for every weight, started by the first. */
+    let offload: OffloadT | null = null
 
     async function load(): Promise<TransformersModule | null> {
         runtime ??= runtimes
-            ? runtimes.install("transformers").then(() => runtimes.import("transformers") as Promise<TransformersModule | null>)
-            : optionalImport("@huggingface/transformers").then(module => module as TransformersModule | null).catch(() => null)
-        return await runtime
+            ? runtimes.import("transformers") as Promise<TransformersModule | null>
+            : optionalImport("@huggingface/transformers").then(module => module as TransformersModule | null)
+        const result = await runtime
+        if (!result) runtime = null
+        return result
+    }
+
+    /** The library's entry point, or null when it is not installed. */
+    function entry(): string | null {
+        return runtimes ? runtimes.resolve("transformers") : optionalResolve("@huggingface/transformers")
     }
 
     return {
@@ -67,17 +81,28 @@ export function TransformersAdapter(runtimes?: RuntimesT): ModelAdapter {
                 // attributed to the wrong runtime.
                 return false
             }
-            return existsSync(join(path, "config.json"))
+            if (!existsSync(join(path, "config.json"))) return false
+            const directory = existsSync(join(path, "onnx")) ? join(path, "onnx") : path
+            return readdirSync(directory).some(file => file.endsWith(".onnx"))
         },
 
         async load(path: string): Promise<LoadedWeight> {
-            const module = await load()
-            if (!module) {
-                throw err("MODEL_RUNTIME_MISSING", {
-                    detail: "@huggingface/transformers is not installed — add it to run model repositories locally",
-                    context: { runtime: "transformers", path: path },
-                })
+            const missing = () => err("MODEL_RUNTIME_MISSING", {
+                detail: "@huggingface/transformers is not installed — run `axon daemon runtime install transformers` to run model repositories locally",
+                context: { runtime: "transformers", path: path },
+            })
+            const task = taskFor(path)
+            // Image tasks load in a worker, which imports the library itself:
+            // this thread never holds a weight it would then run native work for.
+            if (task === "image-feature-extraction" || task === "mask-generation" || task === "depth-estimation") {
+                const library = entry()
+                if (library === null) throw missing()
+                offload ??= Offload({ library: library })
+                return await vision(offload, path, task)
             }
+
+            const module = await load()
+            if (!module) throw missing()
             const transformers: TransformersModule = module
 
             /*
@@ -93,11 +118,11 @@ export function TransformersAdapter(runtimes?: RuntimesT): ModelAdapter {
             transformers.env.allowRemoteModels = false
             transformers.env.allowLocalModels = true
 
-            const task = taskFor(path)
-
             let pipe: Pipeline
             try {
-                pipe = await transformers.pipeline(task, path, { local_files_only: true })
+                const directory = existsSync(join(path, "onnx")) ? join(path, "onnx") : path
+                const dtype = artifacts.dtype(readdirSync(directory))
+                pipe = await transformers.pipeline(task, path, { local_files_only: true, dtype: dtype })
             } catch (cause) {
                 // Claimed and unloadable is a FAULT, distinct from not
                 // claiming: a repository missing its tokeniser must not look
@@ -164,6 +189,34 @@ export function TransformersAdapter(runtimes?: RuntimesT): ModelAdapter {
 
                 ...(generative
                     ? {
+                        chat(request: AxonEngineRequest) {
+                            return Generation({
+                                model: path,
+                                request: request,
+                                run: async (onText, signal) => {
+                                    const stopping = new transformers.InterruptableStoppingCriteria()
+                                    const interrupt = () => stopping.interrupt()
+                                    signal.addEventListener("abort", interrupt, { once: true })
+                                    let tokens = 0
+                                    try {
+                                        signal.throwIfAborted()
+                                        const streamer = new transformers.TextStreamer(pipe.tokenizer, {
+                                            skip_prompt: true,
+                                            callback_function: onText,
+                                            token_callback_function: (chunk: unknown[]) => { tokens += chunk.length },
+                                        })
+                                        await pipe(Conversation({ messages: request.messages }).messages() as never, {
+                                            streamer: streamer,
+                                            stopping_criteria: [stopping],
+                                            ...(request.maxTokens !== undefined ? { max_new_tokens: request.maxTokens } : {}),
+                                            ...(request.temperature !== undefined ? { temperature: request.temperature, do_sample: request.temperature > 0 } : {}),
+                                        } as never)
+                                        signal.throwIfAborted()
+                                        return request.maxTokens !== undefined && tokens >= request.maxTokens ? "length" : "end"
+                                    } finally { signal.removeEventListener("abort", interrupt) }
+                                },
+                            }).stream()
+                        },
                         async generate(request: { prompt: string; maxTokens?: number; temperature?: number }): Promise<string> {
                             const out = await call(request.prompt, {
                                 ...(request.maxTokens !== undefined ? { max_new_tokens: request.maxTokens } : {}),
@@ -177,12 +230,58 @@ export function TransformersAdapter(runtimes?: RuntimesT): ModelAdapter {
                 run: call,
 
                 async unload(): Promise<void> {
-                    // Best effort: an already-disposed pipeline throwing must
-                    // not make unloading twice an error.
-                    try { await pipe.dispose?.() } catch { /* already gone */ }
+                    await pipe.dispose?.()
                 },
             }
         },
+    }
+}
+
+/**
+ * Load a vision task, on the GPU when this machine offers one.
+ *
+ * WebGPU first — it reaches the card over Vulkan with no CUDA install, and a
+ * dense encoder is ~20× faster there. When the runtime cannot open a GPU the
+ * weight loads on the CPU, and SAYS so: `device` is on the weight and on the
+ * resident record, and the refusal is kept as `deviceNote`. A perception
+ * stack running at a twentieth of the speed it was sized for must be able to
+ * find out why.
+ */
+async function vision(offload: OffloadT, path: string, task: TaskName): Promise<LoadedWeight> {
+    let device: Device = "gpu"
+    let note: string | undefined
+    let loaded: VisionTask
+    try {
+        loaded = await offload.load(task, path, "gpu")
+    } catch (cause) {
+        device = "cpu"
+        note = `no GPU: ${cause instanceof Error ? cause.message : String(cause)}`
+        try {
+            loaded = await offload.load(task, path, "cpu")
+        } catch (failure) {
+            throw err("MODEL_LOAD_FAILED", { detail: `${path} — ${failure instanceof Error ? failure.message : String(failure)} (${note})`, context: { runtime: "transformers", path: path, task: task }, cause: failure })
+        }
+    }
+
+    const call = async (input: unknown): Promise<unknown> => {
+        try {
+            return await loaded.call(input)
+        } catch (cause) {
+            // Input faults keep their own code: a wrong-sized image is the
+            // caller's to fix, not a model that failed.
+            if ((cause as { code?: string })?.code) throw cause
+            throw err("MODEL_RUN_FAILED", { detail: `${path} — ${cause instanceof Error ? cause.message : String(cause)}`, context: { runtime: "transformers", path: path, task: task }, cause })
+        }
+    }
+
+    return {
+        bytes: sizeOf(path),
+        engine: "transform",
+        device: device,
+        ...(note ? { deviceNote: note } : {}),
+        transform: call,
+        run: call,
+        unload: () => loaded.dispose(),
     }
 }
 
@@ -286,9 +385,14 @@ function taskFor(path: string): PipelineTask {
     const arch = architectures.join(" ").toLowerCase()
 
     if (kind.includes("whisper") || arch.includes("whisper")) return "automatic-speech-recognition"
-    if (arch.includes("forcausallm") || arch.includes("forconditionalgeneration")) return "text-generation"
+    if (arch.includes("forcausallm")) return "text-generation"
+    if (arch.includes("forconditionalgeneration")) throw err("MODEL_NO_RUNTIME", { detail: `${path} is an encoder-decoder model; conversational generation requires a causal language model` })
     const visual = existsSync(join(path, "preprocessor_config.json"))
     if (visual) {
+        // A promptable segmenter: an image and points in, a region per point out.
+        if (kind === "sam2" || kind === "sam") return "mask-generation"
+        // A monocular depth model: an image in, how near each part of it is out.
+        if (kind.includes("depth") || arch.includes("fordepthestimation")) return "depth-estimation"
         if (kind.includes("owl") && arch.includes("forobjectdetection")) return "zero-shot-object-detection"
         if (arch.includes("forobjectdetection")) return "object-detection"
         if (arch.includes("imageclassification")) return "image-classification"
@@ -334,11 +438,11 @@ function taskFor(path: string): PipelineTask {
     return "feature-extraction"
 }
 
-function read(path: string): Record<string, unknown> | null {
+function read(path: string): Record<string, unknown> {
     try {
         return JSON.parse(require("node:fs").readFileSync(path, "utf-8")) as Record<string, unknown>
-    } catch {
-        return null
+    } catch (cause) {
+        throw err("MODEL_LOAD_FAILED", { detail: `model config could not be read: ${path}`, cause: cause })
     }
 }
 
@@ -376,11 +480,13 @@ type PipelineTask =
     | "image-feature-extraction"
     | "object-detection"
     | "zero-shot-object-detection"
+    | "mask-generation"
+    | "depth-estimation"
 
 /** Tasks whose input is an image, which crosses the socket as an ImageInput. */
-const IMAGE_TASKS = new Set<PipelineTask>(["image-classification", "image-feature-extraction", "object-detection", "zero-shot-object-detection"])
+const IMAGE_TASKS = new Set<PipelineTask>(["image-classification", "object-detection", "zero-shot-object-detection"])
 
-type Pipeline = ((input: never, opts?: never) => Promise<unknown>) & { dispose?(): Promise<void> }
+type Pipeline = ((input: never, opts?: never) => Promise<unknown>) & { tokenizer: unknown; dispose?(): Promise<void> }
 
 /**
  * The slice of `@huggingface/transformers` this uses.
@@ -389,10 +495,11 @@ type Pipeline = ((input: never, opts?: never) => Promise<unknown>) & { dispose?(
  * OPTIONAL — a type import would make the build require what the runtime
  * deliberately does not.
  */
-type TransformersModule = {
+type TransformersModule = VisionLibrary & {
+    TextStreamer: new (tokenizer: unknown, opts: { skip_prompt: boolean; callback_function(text: string): void; token_callback_function(tokens: unknown[]): void }) => unknown
+    InterruptableStoppingCriteria: new () => { interrupt(): void }
     pipeline(task: string, model: string, opts?: Record<string, unknown>): Promise<Pipeline>
     env: { allowRemoteModels: boolean; allowLocalModels: boolean }
-    RawImage: new (data: Uint8ClampedArray, width: number, height: number, channels: number) => unknown
 }
 
 /**

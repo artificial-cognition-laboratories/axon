@@ -1,5 +1,6 @@
 import { Channel, type ChannelHandlers } from "../../src/channel"
-import { supervisorHandlers, agentServices } from "../../src/supervisor"
+import { supervisorHandlers } from "../../src/supervisor"
+import { supervisorProxy } from "../../src/agent"
 import type { AxonCommitContext, AxonEventMap } from "@arcforge/types"
 import { describe, it, expect } from "bun:test"
 
@@ -16,7 +17,7 @@ import { describe, it, expect } from "bun:test"
  *
  * That is the regression these pin. `ctx` is part of the wire contract, not
  * decoration on the payload, so it is asserted at the seam itself: what
- * `agentServices` sends is what `supervisorHandlers` delivers.
+ * `supervisorProxy` sends is what `supervisorHandlers` delivers.
  */
 function pair(handlers: ChannelHandlers) {
     let left: ReturnType<typeof Channel>
@@ -40,15 +41,18 @@ type Received = { type: string; data: unknown; ctx?: AxonCommitContext }
 
 function wire() {
     const received: Received[] = []
+    let messages = 0
     const services = {
         infer: () => { throw new Error("not used") },
         commit: (type: keyof AxonEventMap, data: unknown, ctx?: AxonCommitContext) => {
             received.push({ type: type as string, data, ctx })
         },
     }
-    const channel = pair(supervisorHandlers(services as never).data as ChannelHandlers)
-    const agent = agentServices({ data: channel, control: channel } as never)
-    return { agent, received }
+    const handlers = supervisorHandlers(services as never).data as ChannelHandlers
+    const counted: ChannelHandlers = { ...handlers, send: (verb, arg) => { messages++; handlers.send!(verb, arg) } }
+    const channel = pair(counted)
+    const agent = supervisorProxy({ data: channel, control: channel } as never)
+    return { agent, received, messages: () => messages }
 }
 
 describe("commit context across the link", () => {
@@ -98,5 +102,14 @@ describe("commit context across the link", () => {
         await Bun.sleep(10)
 
         expect(received[0]!.data).toEqual({ provider: "test" })
+    })
+
+    it("sends a turn's commits as one batch, in the order they were made", async () => {
+        const { agent, received, messages } = wire()
+        for (let tick = 0; tick < 50; tick++) agent.commit("cognet:tick:complete" as never, { tick: tick, durationMs: 1 } as never)
+        expect(received).toHaveLength(0)
+        await new Promise(resolve => setImmediate(resolve))
+        expect(messages()).toBe(1)
+        expect(received.map(item => (item.data as { tick: number }).tick)).toEqual(Array.from({ length: 50 }, (_, tick) => tick))
     })
 })

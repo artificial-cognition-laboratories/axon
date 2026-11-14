@@ -1,0 +1,6 @@
+export { Space, type SpaceHandle } from "./space"
+export { Axes, type AxesHandle } from "./axes"
+export { Domains, type DomainsHandle } from "./domains"
+export { Candidates, type CandidatesHandle } from "./candidates"
+export { fingerprint } from "./version"
+export type { Axis, AxisKind, Metric, Domain, Candidate, SpaceOpts } from "./types"

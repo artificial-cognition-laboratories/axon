@@ -1,5 +1,5 @@
 import type { AxonEngineDef, EngineEffort, AxonEngineDriver, AxonEngineRawEvent, AxonEngineRequest } from "@arcforge/types"
-import { Collect } from "../shared"
+import { Collect, UsageDriver } from "../shared"
 import { CodexBackend } from "./backend"
 
 type CodexCurrentModel =
@@ -21,7 +21,7 @@ export type CodexOptions = {
  * runtime's job: the backend leaf mints a narrow vault token through the
  * cloud client per request (cached until expiry client-side, refreshed
  * server-side) so rotation never rebuilds the driver. Connect once with
- * `:provider openai connect` (or the dashboard) and every agent on the
+ * `:providers codex connect` in the terminal app and every agent on the
  * account can use Codex — locally or deployed. An unconnected account
  * fails loudly on first use with the backend's VAULT_NOT_CONNECTED.
  *
@@ -47,7 +47,8 @@ export function Codex(options: CodexOptions = {}): AxonEngineDef {
         create({ cloud }): AxonEngineDriver {
             const backend = CodexBackend({ cloud, model, effort })
 
-            return {
+            const driver: AxonEngineDriver = {
+                effort: effort,
                 async *stream(req: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent> {
                     const collect = Collect({ provider: "codex", model })
 
@@ -59,6 +60,7 @@ export function Codex(options: CodexOptions = {}): AxonEngineDef {
                     yield collect.done({ ...(req.signal ? { signal: req.signal } : {}) })
                 },
             }
+            return UsageDriver({ driver: driver, cloud: cloud, provider: "codex", model: model, source: "account" })
         },
     }
 }

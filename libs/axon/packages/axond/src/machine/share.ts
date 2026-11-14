@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { cpus } from "node:os"
 import type { AxonShare } from "./types"
-import { ask } from "./ask"
+import { ask } from "@arcforge/platform/services/probe"
 
 type ShareOpts = {
     /**

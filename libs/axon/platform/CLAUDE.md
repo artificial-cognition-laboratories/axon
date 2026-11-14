@@ -35,7 +35,8 @@ generated output in one dotted directory, grouped by what the contents ARE:
   cache/    tool caches, module lock         regenerable, disposable
   build/    Dockerfile, image.json, tarball  regenerable
   cognet/   the compiled brain               regenerable, PINNED (wire contract)
-  data/     sessions, state, sensory         NOT regenerable — user history
+            + schema/: code generated from the cognet's .proto files, imported as #schema/…
+  data/     sessions, state, sensory, memory NOT regenerable — user history
 ```
 
 Everything except `data/` can be deleted and rebuilt, which is what makes
@@ -310,6 +311,7 @@ src/
 │   ├── extensions/ the user's TUI config: read the list, import, track disposers
 │   ├── runtime/    instances, agent, requests, zeno, profile, sessions
 │   └── bench/      benchmark definitions and runs
+├── debug/        what `axon debug` asks: sessions, graph, events, timings (README.md is the spec)
 ├── services/
 │   ├── test/       Bun runs projected into a structured event stream
 │   ├── ollama/     local models: installed, available, pull
@@ -332,6 +334,7 @@ platform.registry   // clone/fork a published artifact
 platform.updates    // check + hand off a self-update
 platform.ollama     // local models: installed, available, pull
 platform.tests      // TestRunner(): run files, stream lifecycle events
+platform.debug      // Debug(): see inside a recorded or running mind — sessions, graph, errors, events, perf
 ```
 
 ## Known Debt

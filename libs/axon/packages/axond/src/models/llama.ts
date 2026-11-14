@@ -1,4 +1,6 @@
 import { openSync, readSync, closeSync, statSync } from "node:fs"
+import { Generation, Conversation } from "./generation"
+import type { AxonEngineRequest } from "@arcforge/types"
 import { err } from "@arcforge/err"
 import type { LoadedWeight, ModelAdapter } from "./adapter"
 import type { RuntimesT } from "./runtimes"
@@ -45,9 +47,11 @@ export function LlamaAdapter(runtimes?: RuntimesT): ModelAdapter {
 
     async function load(): Promise<LlamaModule | null> {
         runtime ??= runtimes
-            ? runtimes.install("llama.cpp").then(() => runtimes.import("llama.cpp") as Promise<LlamaModule | null>)
-            : optionalImport("node-llama-cpp").then(module => module as LlamaModule | null).catch(() => null)
-        return await runtime
+            ? runtimes.import("llama.cpp") as Promise<LlamaModule | null>
+            : optionalImport("node-llama-cpp").then(module => module as LlamaModule | null)
+        const result = await runtime
+        if (!result) runtime = null
+        return result
     }
 
     return {
@@ -134,8 +138,32 @@ export function LlamaAdapter(runtimes?: RuntimesT): ModelAdapter {
                         // Best effort, and after the session: a sequence
                         // released while its session still holds it is a
                         // use-after-free in native code.
-                        try { sequence.dispose?.() } catch { /* already gone */ }
+                        sequence.dispose?.()
                     }
+            }
+
+            function chat(request: AxonEngineRequest) {
+                return Generation({
+                    model: path,
+                    request: request,
+                    run: async (onText, signal) => {
+                        const conversation = Conversation({ messages: request.messages }).llama()
+                        const sequence = context.getSequence()
+                        const chat = new llamaCpp.LlamaChat({ contextSequence: sequence, autoDisposeSequence: false })
+                        try {
+                            const result = await chat.generateResponse(conversation, {
+                                signal: signal,
+                                onTextChunk: onText,
+                                ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+                                ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+                            })
+                            return result.metadata.stopReason === "maxTokens" ? "length" : "end"
+                        } finally {
+                            chat.dispose()
+                            sequence.dispose?.()
+                        }
+                    },
+                }).stream()
             }
 
             return {
@@ -166,6 +194,7 @@ export function LlamaAdapter(runtimes?: RuntimesT): ModelAdapter {
                  * that can drift.
                  */
                 generate: generate,
+                chat: chat,
 
                 /**
                  * One completion, for a caller that has not narrowed its input.
@@ -190,8 +219,8 @@ export function LlamaAdapter(runtimes?: RuntimesT): ModelAdapter {
                     // Best-effort and in order — context before model, because
                     // a context outliving its model is a use-after-free in
                     // native code rather than a tidy error.
-                    try { await context.dispose?.() } catch { /* already gone */ }
-                    try { await model.dispose?.() } catch { /* already gone */ }
+                    await context.dispose?.()
+                    await model.dispose?.()
                 },
             }
         },
@@ -231,6 +260,10 @@ type GenerateInput = { prompt?: unknown; maxTokens?: number; temperature?: numbe
  */
 type LlamaModule = {
     getLlama(): Promise<{ loadModel(opts: { modelPath: string }): Promise<LlamaModel> }>
+    LlamaChat: new (opts: { contextSequence: unknown; autoDisposeSequence: boolean }) => {
+        generateResponse(history: ReturnType<ReturnType<typeof Conversation>["llama"]>, opts: Record<string, unknown>): Promise<{ metadata: { stopReason: string } }>
+        dispose(): void
+    }
     LlamaChatSession: new (opts: { contextSequence: unknown }) => LlamaSession
 }
 
@@ -251,6 +284,8 @@ type LlamaSequence = {
 }
 
 type LlamaSession = {
+    setChatHistory(history: Array<{ type: "system" | "user"; text: string } | { type: "model"; response: string[] }>): void
+    promptWithMeta(text: string, opts?: Record<string, unknown>): Promise<{ stopReason: string }>
     prompt(text: string, opts?: Record<string, unknown>): Promise<string>
     dispose?(): void
 }

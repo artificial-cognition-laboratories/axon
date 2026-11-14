@@ -37,14 +37,17 @@ const dynamicImport = new Function("specifier", "return import(specifier)") as (
     specifier: string,
 ) => Promise<unknown>
 
-/**
- * Resolve an optional package at runtime, or reject.
- *
- * Callers own the absence: every adapter turns a rejection into `null` and
- * reports MODEL_RUNTIME_MISSING with the install command. This function does
- * NOT swallow the error — an adapter that cannot say why it has no runtime is
- * worse than one that crashes.
- */
-export function optionalImport(specifier: string): Promise<unknown> {
-    return dynamicImport(specifier)
+/** Where the package's entry point is, or null when it is not installed. Errors other than absence propagate. */
+export function optionalResolve(specifier: string): string | null {
+    try { return Bun.resolveSync(specifier, import.meta.dir) }
+    catch (cause) {
+        if (cause instanceof Error && "code" in cause && cause.code === "MODULE_NOT_FOUND") return null
+        throw cause
+    }
+}
+
+/** Absence is optional; errors importing an installed runtime propagate. */
+export async function optionalImport(specifier: string): Promise<unknown | null> {
+    const entrypoint = optionalResolve(specifier)
+    return entrypoint === null ? null : dynamicImport(entrypoint)
 }

@@ -40,6 +40,12 @@ function cloudWithToken(): EngineCloud {
 }
 
 describe("Codex engine authentication", () => {
+    it("exposes the configured effort through the usage wrapper", () => {
+        const opts = { env: {}, cloud: cloudWithToken() }
+        expect(Codex().create(opts).effort).toBe("medium")
+        expect(Codex({ effort: "low" }).create(opts).effort).toBe("low")
+    })
+
     it("classifies a missing OpenAI vault connection as non-retryable", async () => {
         const missing = new HttpError(404, "/api/user/vault/connections/openai/token", "not connected", {
             code: "VAULT_CONNECTION_NOT_FOUND",
@@ -59,7 +65,7 @@ describe("Codex engine authentication", () => {
                 retryable: false,
                 status: 404,
             })
-            expect((error as Error).message).toContain(":provider codex connect")
+            expect((error as Error).message).toContain(":providers codex connect")
         }
     })
 

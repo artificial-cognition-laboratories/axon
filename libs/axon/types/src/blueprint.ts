@@ -1,6 +1,8 @@
+import type { EngineRequirements } from "./inference"
+import type { EngineEffort } from "./engine"
 import { AxonConfig } from "./config"
 import type { CapsulePartialConfig } from "./capsule-config"
-import { CognetBlueprint } from "./cognet/blueprint"
+import type { CognetBlueprint, CognetBlueprintInput } from "./cognet/blueprint"
 import { AxonPlugin } from "./plugin"
 import { AxonRoute } from "./route"
 import { AxonMiddleware } from "./middleware"
@@ -127,6 +129,19 @@ export type AxonBlueprint = {
     prompts: AxonPrompt[]
     scripts: AxonScript[]
     /**
+     * The providers the agent writes itself — `providers/*.provider.ts` —
+     * by the name a grant gives them (`"./providers/features"`), each with the
+     * file that defines it. Loaded on the agent's side, never the cognet's.
+     */
+    serviceProviders: Array<{
+        name: string
+        filePath: string
+        /** The interface it implements, read from it without running it. */
+        implements: string
+        /** The machine's engines it needs, by its own names for them — resolved like a cognet's, as `<name>/<engine>`. */
+        engines: EngineRequirements
+    }>
+    /**
      * Every knowledge file this agent can reach — its own `data/knowledge/`
      * plus each installed module's, namespaced by module.
      *
@@ -162,7 +177,7 @@ export type AxonBlueprint = {
      * control loop genuinely has no model, and inventing one would put a
      * dead row in every client's header.
      */
-    engine?: { provider: string; model: string | null }
+    engine?: { provider: string; model: string | null; effort?: EngineEffort }
 
     paths: {
         /** agent root — still needed for capsule fs-tool sandboxing, not for discovery */
@@ -186,12 +201,13 @@ export type AxonPartialBlueprint = {
     config?: AxonBlueprint["config"]
     profilePolicy?: AxonBlueprint["profilePolicy"]
     profileProviders?: AxonBlueprint["profileProviders"]
-    cognet?: CognetBlueprint
+    cognet?: CognetBlueprintInput
     env?: AxonBlueprint["env"]
     hostEnv?: AxonBlueprint["hostEnv"]
     tools?: AxonBlueprint["tools"]
     prompts?: AxonBlueprint["prompts"]
     scripts?: AxonBlueprint["scripts"]
+    serviceProviders?: AxonBlueprint["serviceProviders"]
     knowledge?: AxonBlueprint["knowledge"]
     server?: Partial<AxonServerBlueprint>
     modules?: AxonBlueprint["modules"]

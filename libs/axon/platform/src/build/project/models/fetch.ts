@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises"
 import { err } from "@arcforge/err"
+import { onnx } from "./onnx"
 import { basenameOf, downloadUrl, type ParsedModel } from "./specifier"
 import type { ModelStoreT, StoredModel } from "./store"
 
@@ -24,12 +25,21 @@ import type { ModelStoreT, StoredModel } from "./store"
  * so the cache is content-addressed either way.
  */
 
+/** Own acquisition of files and complete repositories. Construction does no I/O. */
+export function Fetch(opts: { store: ModelStoreT; fetch?: ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>) }) {
+    return {
+        file: (model: ParsedModel, input: Omit<FetchOpts, "store" | "fetch"> = {}) => fetchModel(model, { ...opts, ...input }),
+        manifest: (input: { repo: { host: "hf"; repo: string; rev: string; key: string }; files: string[]; primary: string; options?: Omit<FetchOpts, "store" | "fetch">; traits?: ModelTraitsInput }) =>
+            fetchManifest(input.repo, input.files, input.primary, { ...opts, ...input.options }, input.traits),
+    }
+}
+
 /** The hash HF claims for this file, when it can be known before downloading. */
-async function expectedHash(model: ParsedModel): Promise<string | null> {
+async function expectedHash(model: ParsedModel, signal?: AbortSignal, doFetch: ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>) = fetch): Promise<string | null> {
     if (model.sha256) return model.sha256
 
     try {
-        const response = await fetch(downloadUrl(model), { method: "HEAD", redirect: "follow" })
+        const response = await doFetch(downloadUrl(model), { method: "HEAD", redirect: "follow", signal: signal })
         if (!response.ok) return null
 
         // ONLY `x-linked-etag`. That header is the LFS object's sha256 — the
@@ -43,7 +53,8 @@ async function expectedHash(model: ParsedModel): Promise<string | null> {
         // hash at all.
         const linked = response.headers.get("x-linked-etag")?.replace(/"/g, "").trim()
         return linked && /^[0-9a-f]{64}$/i.test(linked) ? linked.toLowerCase() : null
-    } catch {
+    } catch (cause) {
+        if (signal?.aborted) throw cause
         // A HEAD that fails is not itself a failure — the GET below reports
         // the real problem with a better message.
         return null
@@ -51,6 +62,8 @@ async function expectedHash(model: ParsedModel): Promise<string | null> {
 }
 
 export type FetchOpts = {
+    fetch?: ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>)
+    signal?: AbortSignal
     store: ModelStoreT
     /** Called before a download actually starts — nothing is emitted for a cache hit. */
     onDownload?: (model: ParsedModel) => void
@@ -90,10 +103,17 @@ export type FetchOpts = {
  * broken, and discovering that at first inference is far worse than at
  * prepare.
  */
-export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<StoredModel> {
+async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<StoredModel> {
+    const doFetch = opts.fetch ?? fetch
+    opts.signal?.throwIfAborted()
     // A pinned model is answerable from its own address, with no network.
     const cached = await opts.store.find(model)
-    if (cached) return cached
+    if (cached) {
+        if (opts.remember !== false) {
+            await opts.store.remember(specifierOf(model), cached, basenameOf(model), { traits: model.traits, signal: opts.signal })
+        }
+        return cached
+    }
 
     // An unpinned one needs the index: without a declared hash there is no
     // address to look up, and a registry may not publish a usable one either.
@@ -104,7 +124,7 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
         return remembered
     }
 
-    const expected = await expectedHash(model)
+    const expected = await expectedHash(model, opts.signal, doFetch)
     if (expected && opts.store.has(expected, basenameOf(model))) {
         const path = opts.store.pathFor(expected, basenameOf(model))
         const hit = {
@@ -117,8 +137,7 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
             bytes: (await stat(path)).size,
         }
         if (opts.remember !== false) {
-            await opts.store.remember(specifierOf(model), hit, basenameOf(model))
-            if (model.traits) await opts.store.describe(specifierOf(model), model.traits)
+            await opts.store.remember(specifierOf(model), hit, basenameOf(model), { traits: model.traits, signal: opts.signal })
         }
         return hit
     }
@@ -127,7 +146,7 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
 
     let response: Response
     try {
-        response = await fetch(downloadUrl(model), { redirect: "follow" })
+        response = await doFetch(downloadUrl(model), { redirect: "follow", signal: opts.signal })
     } catch (cause) {
         throw err("MODEL_FETCH_FAILED", {
             detail: `${model.key}: could not reach huggingface.co for ${model.repo}/${model.file}`,
@@ -147,15 +166,20 @@ export async function fetchModel(model: ParsedModel, opts: FetchOpts): Promise<S
         })
     }
 
-    const data = opts.onProgress
-        ? await readWithProgress(response, model, opts.onProgress)
-        : new Uint8Array(await response.arrayBuffer())
-    // put() hashes and refuses a mismatch — verification lives at the write,
-    // so nothing can reach the cache unverified by any path.
-    const stored = await opts.store.put(basenameOf(model), data, expected ?? undefined)
+    if (!response.body) throw err("MODEL_FETCH_FAILED", { detail: `${model.key}: model response has no body` })
+    const length = response.headers.get("content-length")
+    const total = length === null ? null : Number(length)
+    opts.onProgress?.({ model: model, received: 0, total: total })
+    const stored = await opts.store.receive({
+        filename: basenameOf(model),
+        body: response.body,
+        ...(expected ? { expected: expected } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        progress: received => opts.onProgress?.({ model: model, received: received, total: total }),
+    })
+    opts.signal?.throwIfAborted()
     if (opts.remember !== false) {
-        await opts.store.remember(specifierOf(model), stored, basenameOf(model))
-        if (model.traits) await opts.store.describe(specifierOf(model), model.traits)
+        await opts.store.remember(specifierOf(model), stored, basenameOf(model), { traits: model.traits, signal: opts.signal })
     }
     return stored
 }
@@ -220,10 +244,12 @@ async function discoverManifest(repo: { host: "hf"; repo: string; rev: string })
         })
     }
 
-    return { files: names, primary }
+    // An ONNX repository holds the graph once per quantisation; a runtime
+    // loads one. Take that one set, not the repository.
+    return onnx.plan(names) ?? { files: names, primary }
 }
 
-export async function fetchManifest(
+async function fetchManifest(
     repo: { host: "hf"; repo: string; rev: string; key: string },
     files: string[],
     primary: string,
@@ -254,6 +280,7 @@ export async function fetchManifest(
         })
     }
 
+    opts.signal?.throwIfAborted()
     await opts.store.rememberSet(specifier, collected, resolvedPrimary, traits)
 
     const resolved = await opts.store.resolved(specifier)
@@ -281,39 +308,7 @@ export async function fetchManifest(
  * verification — this changes how the bytes arrive, not whether they are
  * checked.
  */
-async function readWithProgress(
-    response: Response,
-    model: ParsedModel,
-    onProgress: NonNullable<FetchOpts["onProgress"]>,
-): Promise<Uint8Array> {
-    const declared = Number.parseInt(response.headers.get("content-length") ?? "", 10)
-    const total = Number.isFinite(declared) && declared > 0 ? declared : null
 
-    const body = response.body
-    if (!body) return new Uint8Array(await response.arrayBuffer())
-
-    const reader = body.getReader()
-    const chunks: Uint8Array[] = []
-    let received = 0
-
-    onProgress({ model, received: 0, total })
-    for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (!value) continue
-        chunks.push(value)
-        received += value.byteLength
-        onProgress({ model, received, total })
-    }
-
-    const data = new Uint8Array(received)
-    let offset = 0
-    for (const chunk of chunks) {
-        data.set(chunk, offset)
-        offset += chunk.byteLength
-    }
-    return data
-}
 
 /** The index key: what was declared, including the revision it was declared at. */
 function specifierOf(model: ParsedModel): string {

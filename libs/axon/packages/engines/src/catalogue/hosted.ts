@@ -63,7 +63,7 @@ export function HostedProvider(opts: HostedOpts): AxonProvider {
         /**
          * Set when the catalogue this provider read was served from disk.
          * Read by the boot trace to report whether inference paid for the
-         * wire — see `axon:inference:provider`.
+         * wire — see `axon:inference:providers`.
          */
         get cachedAt() {
             return opts.cloud.registry.models.wasCached?.() ? Date.now() : undefined

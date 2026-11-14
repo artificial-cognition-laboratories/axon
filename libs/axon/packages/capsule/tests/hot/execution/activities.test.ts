@@ -1,5 +1,8 @@
 import { Capsule } from "@arcforge/capsule"
 import type { CapsuleEvent } from "@arcforge/capsule"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 function collectActivityEvents(capsule: ReturnType<typeof Capsule>) {
     const events: CapsuleEvent["process:activity"][] = []
@@ -8,6 +11,106 @@ function collectActivityEvents(capsule: ReturnType<typeof Capsule>) {
 }
 
 describe("Capsule activities", () => {
+    it("emits a semantic activity around process.run() without tool author cooperation", async () => {
+        const capsule = Capsule({ policy: { shell: { allow: ["echo"] } } })
+        const events = collectActivityEvents(capsule)
+        await capsule.boot()
+
+        await capsule.run(`await process.run("echo hello")`)
+
+        expect(events.map(event => event.activity)).toEqual(["proc:exec", "proc:exec"])
+        expect(events.map(event => event.phase)).toEqual(["declared", "done"])
+        expect(events[0]?.data).toMatchObject({ command: "echo hello", startedAt: expect.any(Number) })
+        expect(events.at(-1)?.data).toMatchObject({ outputBytes: 6, exitCode: 0 })
+        await capsule.shutdown()
+    })
+
+    it("emits directory changes immediately from process.chdir()", async () => {
+        const target = mkdtempSync(join(tmpdir(), "axon-activity-cwd-"))
+        const capsule = Capsule()
+        const events = collectActivityEvents(capsule)
+        await capsule.boot()
+
+        try {
+            await capsule.run(`process.chdir(${JSON.stringify(target)})`)
+
+            expect(events.map(event => event.activity)).toEqual(["process:chdir", "process:chdir"])
+            expect(events.map(event => event.phase)).toEqual(["declared", "done"])
+            expect(events[0]?.data).toEqual({ cwd: target })
+        } finally {
+            await capsule.shutdown()
+            rmSync(target, { recursive: true, force: true })
+        }
+    })
+
+    it("marks a nonzero shell exit as a failed activity", async () => {
+        const capsule = Capsule({ policy: { shell: { allow: ["false"] } } })
+        const events = collectActivityEvents(capsule)
+        await capsule.boot()
+        try {
+            await capsule.run(`await process.run("false")`)
+            expect(events.map(event => event.phase)).toEqual(["declared", "failed"])
+            expect(events.at(-1)?.data).toMatchObject({ exitCode: 1 })
+            expect(events.at(-1)?.error).toBe("exit 1")
+        } finally {
+            await capsule.shutdown()
+        }
+    })
+
+    it("reports bounded output progress before a long command exits", async () => {
+        const capsule = Capsule({ policy: { shell: { allow: ["node"] } } })
+        const events = collectActivityEvents(capsule)
+        await capsule.boot()
+        try {
+            const command = `node -e 'process.stdout.write("a"); setTimeout(() => process.stdout.write("b"), 1100)'`
+            await capsule.run(`await process.run(${JSON.stringify(command)})`)
+            expect(events.map(event => event.phase)).toEqual(["declared", "declared", "done"])
+            expect(events[1]?.data).toMatchObject({ outputBytes: 2 })
+            expect(events[2]?.data).toMatchObject({ outputBytes: 2 })
+        } finally {
+            await capsule.shutdown()
+        }
+    })
+
+    it("tracks a spawned process through start and an explicit kill", async () => {
+        const capsule = Capsule({ policy: { shell: { allow: ["sleep"], spawn: true } } })
+        const events = collectActivityEvents(capsule)
+        await capsule.boot()
+
+        await capsule.run(`
+            const proc = process.spawn("sleep 30")
+            await proc.started
+        `)
+
+        // The creating script has completed, but the child has not. That is
+        // the exact state the TUI must render as still-live.
+        expect(events.map(event => event.phase)).toEqual(["declared", "declared"])
+        expect(events[1]?.data).toMatchObject({ pid: expect.any(Number) })
+        expect(capsule.process.list()).toHaveLength(1)
+
+        const child = capsule.process.list()[0]!
+        child.kill()
+        await child.exited
+
+        // `spawn` declares once, then announces its real pid while it remains
+        // open. It settles only after the managed child exits.
+        expect(events.map(event => event.activity)).toEqual(["proc:spawn", "proc:spawn", "proc:kill", "proc:kill", "proc:spawn"])
+        expect(events.map(event => event.phase)).toEqual(["declared", "declared", "declared", "done", "done"])
+        await capsule.shutdown()
+    })
+
+    it("marks a refused spawn as failed after its creating script has returned", async () => {
+        const capsule = Capsule()
+        const events = collectActivityEvents(capsule)
+        await capsule.boot()
+
+        await capsule.run(`await process.spawn("sleep 30").started`)
+
+        expect(events.map(event => event.phase)).toEqual(["declared", "failed"])
+        expect(events[1]?.error).toContain("denied")
+        await capsule.shutdown()
+    })
+
     it("emits declared then done for an explicit activity lifecycle, correlated to the run", async () => {
         const capsule = Capsule()
         const events = collectActivityEvents(capsule)

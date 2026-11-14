@@ -31,6 +31,7 @@ import { readFile, writeFile } from "node:fs/promises"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { err } from "@arcforge/err"
+import type { ProfilePermissions } from "@arcforge/types"
 import { fsx } from "../../utils/fs"
 import { tsast } from "../../utils/tsast"
 import { parseRef } from "./store"
@@ -422,6 +423,68 @@ export async function readPolicy(profileRoot: string): Promise<Record<string, un
     return literalOf(value) as Record<string, unknown>
 }
 
+/** The profile-wide command mediation preset. */
+export async function readPermissions(profileRoot: string): Promise<ProfilePermissions> {
+    const path = configPath(profileRoot)
+    if (!fsx.exists(path)) return "normal"
+    const located = locateConfig(path, await readFile(path, "utf-8"))
+    if (!located) return "normal"
+
+    const value = tsast.prop(located.object, "permissions")
+    if (!value) return "normal"
+    if (!tsc().isStringLiteralLike(value) || !["normal", "allow", "ask"].includes(value.text)) {
+        throw err("PROFILE_CONFIG_UNEDITABLE", {
+            detail: `permissions must be \"normal\", \"allow\", or \"ask\" in ${path}`,
+            context: { path },
+        })
+    }
+    return value.text as ProfilePermissions
+}
+
+/** Write the profile-wide permission preset without rewriting the user's file. */
+export async function setPermissions(profileRoot: string, permissions: ProfilePermissions): Promise<EditResult> {
+    const path = configPath(profileRoot)
+    if (!fsx.exists(path)) throw err("PROFILE_CONFIG_MISSING", { detail: path, context: { path } })
+
+    const text = await readFile(path, "utf-8")
+    const located = locateConfig(path, text)
+    if (!located) {
+        throw err("PROFILE_CONFIG_UNEDITABLE", {
+            detail: `could not find a defineProfile({ ... }) call in ${path}`,
+            context: { path },
+        })
+    }
+
+    const existing = located.object.properties.find(
+        prop => tsc().isPropertyAssignment(prop) && nameOf(prop.name) === "permissions",
+    )
+    if (existing && tsc().isPropertyAssignment(existing)) {
+        if (tsc().isStringLiteralLike(existing.initializer) && existing.initializer.text === permissions) return { changed: false }
+        const next = text.slice(0, existing.initializer.getStart(located.source))
+            + render(permissions, indentOf(text, existing.getStart(located.source)))
+            + text.slice(existing.initializer.getEnd())
+        await writeFile(path, verified(next, path))
+        return { changed: true }
+    }
+
+    const props = located.object.properties
+    const last = props[props.length - 1]
+    const indent = " ".repeat(last ? indentOf(text, last.getStart(located.source)) : 4)
+    const entry = `\n\n${indent}permissions: ${render(permissions, indent.length)},`
+    if (last) {
+        const trailing = text.slice(last.getEnd()).match(/^\s*,/)
+        const insertAt = last.getEnd() + (trailing ? trailing[0].length : 0)
+        const next = text.slice(0, insertAt) + `${trailing ? "" : ","}` + entry + text.slice(insertAt)
+        await writeFile(path, verified(next, path))
+        return { changed: true }
+    }
+
+    const open = located.object.getStart(located.source) + 1
+    const next = text.slice(0, open) + entry + "\n" + text.slice(open)
+    await writeFile(path, verified(next, path))
+    return { changed: true }
+}
+
 /**
  * Set one key on `settings`, creating the block if it is absent.
  *
@@ -646,7 +709,7 @@ export async function readProviders(profileRoot: string): Promise<string[]> {
  * profile that never named a provider works rather than throwing about a
  * missing array.
  */
-export async function addProvider(profileRoot: string, factory: string): Promise<EditResult> {
+export async function addProvider(profileRoot: string, factory: string, opts?: { initial?: readonly string[] }): Promise<EditResult> {
     const path = configPath(profileRoot)
     if (!fsx.exists(path)) {
         throw err("PROFILE_CONFIG_MISSING", { detail: path, context: { path } })
@@ -693,7 +756,8 @@ export async function addProvider(profileRoot: string, factory: string): Promise
     const first = object.object.properties[0]
     const insertAt = first ? first.getStart(object.source) : object.object.getStart(object.source) + 1
     const indent = first ? " ".repeat(indentOf(text, insertAt)) : "    "
-    const field = `providers: [${factory}()],`
+    const factories = [...new Set([...(opts?.initial ?? []), factory])]
+    const field = `providers: [${factories.map(name => `${name}()`).join(", ")}],`
     const next = first
         ? text.slice(0, insertAt) + `${field}\n\n${indent}` + text.slice(insertAt)
         : text.slice(0, insertAt) + `\n${indent}${field}\n` + text.slice(insertAt)

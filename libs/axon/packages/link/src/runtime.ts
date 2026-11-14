@@ -1,5 +1,7 @@
 import { err } from "@arcforge/err"
-import type { AxonBlueprint, AxonStimulusEntry, AxonStimulusInput } from "@arcforge/types"
+import type { AxonBlueprint, AxonIngest, AxonStimulusEntry, AxonStimulusInput } from "@arcforge/types"
+import { timingSafeEqual } from "node:crypto"
+import type { ServeInput } from "@arcforge/types"
 import type { AgentServices } from "./agent"
 
 /**
@@ -44,8 +46,8 @@ export type RuntimeForAgent = {
 const SERVE_ATTEMPTS = 20
 
 export function AgentRuntime(runtime: RuntimeForAgent): AgentServices {
-    /** The bound socket, once serve() has run. One per agent — serve is idempotent. */
-    let bound: { port: number } | null = null
+    /** The bound socket, once serve() has run — and the terms it was bound on. One per agent. */
+    let bound: { port: number; host: ServeInput["host"]; token: string | null } | null = null
 
     return {
         /**
@@ -123,12 +125,8 @@ export function AgentRuntime(runtime: RuntimeForAgent): AgentServices {
          * way, and a wake that is not running will be started by the
          * scheduler's own subscription.
          */
-        async ingest(entry: AxonStimulusEntry): Promise<void> {
-            const { content, channel } = toRequestInput(entry)
-            await runtime.kernel.ingest({
-                ...(content !== undefined ? { content } : {}),
-                ...(channel !== undefined ? { channel } : {}),
-            })
+        async ingest(input: AxonIngest): Promise<void> {
+            await runtime.kernel.ingest({ content: input.content, channel: input.channel })
         },
 
         interrupt(reason: "user" | "shutdown") {
@@ -199,14 +197,36 @@ export function AgentRuntime(runtime: RuntimeForAgent): AgentServices {
          * The bound port goes back to the caller, which is the only honest
          * answer once walking is possible.
          */
-        async serve(port: number): Promise<{ port: number }> {
-            if (bound) return bound
+        async serve(input: ServeInput): Promise<{ port: number }> {
+            if (bound) {
+                // Idempotent for the same terms. Different terms are refused: an
+                // agent already open to the network cannot be quietly "re-served"
+                // to loopback, nor a gated one opened up.
+                if (bound.host !== input.host || bound.token !== input.token) {
+                    throw err("AGENT_SERVE_CONFLICT", {
+                        detail: `already serving on port ${bound.port} (${bound.host}, ${bound.token ? "token" : "open"})`,
+                        context: { port: bound.port },
+                    })
+                }
+                return { port: bound.port }
+            }
+            const hostname = input.host === "loopback" ? "127.0.0.1" : "0.0.0.0"
+            const gate = input.token === null ? null : Buffer.from(`Bearer ${input.token}`)
 
-            for (let candidate = port; candidate < port + SERVE_ATTEMPTS; candidate++) {
+            for (let candidate = input.port; candidate < input.port + SERVE_ATTEMPTS; candidate++) {
                 try {
-                    const started = Bun.serve({ port: candidate, fetch: request => runtime.server.handler(request) })
-                    bound = { port: started.port ?? candidate }
-                    return bound
+                    const started = Bun.serve({
+                        port: candidate,
+                        hostname: hostname,
+                        fetch: request => {
+                            if (gate !== null && !admitted(request.headers.get("authorization"), gate)) {
+                                return new Response("unauthorized", { status: 401 })
+                            }
+                            return runtime.server.handler(request)
+                        },
+                    })
+                    bound = { port: started.port ?? candidate, host: input.host, token: input.token }
+                    return { port: bound.port }
                 } catch (cause) {
                     // Only a taken port is worth walking past. Anything else
                     // (a permission denied, a malformed host) is a real fault
@@ -216,8 +236,8 @@ export function AgentRuntime(runtime: RuntimeForAgent): AgentServices {
             }
 
             throw err("AGENT_SERVE_NO_PORT", {
-                detail: `no free port in ${port}–${port + SERVE_ATTEMPTS - 1}`,
-                context: { from: port, attempts: SERVE_ATTEMPTS },
+                detail: `no free port in ${input.port}–${input.port + SERVE_ATTEMPTS - 1}`,
+                context: { from: input.port, attempts: SERVE_ATTEMPTS },
             })
         },
 
@@ -278,4 +298,11 @@ function isAddrInUse(cause: unknown): boolean {
     const code = (cause as { code?: string })?.code
     const message = cause instanceof Error ? cause.message : String(cause)
     return code === "EADDRINUSE" || /address already in use|in use|EADDRINUSE/i.test(message)
+}
+
+/** Whether a request carries the serve token — compared in constant time. */
+function admitted(header: string | null, gate: Buffer): boolean {
+    if (header === null) return false
+    const given = Buffer.from(header)
+    return given.length === gate.length && timingSafeEqual(given, gate)
 }

@@ -122,7 +122,7 @@ process.env.AXON_STORE_ROOT ??= join(
 process.env.AXON_TREE_CACHE_ROOT ??= join(tmpdir(), "axon-test-tree-cache")
 process.env.AXON_TREE_CACHE_MAX ??= "96"
 
-const sweepLock = join(tmpdir(), `axon-tui-test-bootstrap-${process.ppid}`)
+const sweepLock = join(tmpdir(), `axon-tui-test-bootstrap-${process.env.BUN_TEST_RUN_ID ?? process.ppid}`)
 
 // mkdirSync, not `await mkdir`: sibling workers DO share a ppid, so all but one
 // hit EEXIST — and an async rejection during preload evaluation escapes this
@@ -141,10 +141,10 @@ try {
 }
 
 if (ownsProcessSweep) {
-    try {
-        Bun.spawnSync(["pkill", "-f", "libs/axon/packages/docker/boot.ts"])
-    } catch {
-        // no matching processes — pkill exits non-zero, nothing to clean up
+    const sweep = Bun.spawnSync(["pkill", "-f", "libs/axon/packages/docker/boot.ts"])
+    // Exit 1 means no matching processes; every other failure is unexpected.
+    if (sweep.exitCode !== 0 && sweep.exitCode !== 1) {
+        throw new Error(`preload: stale deployment sweep failed (${sweep.exitCode}): ${sweep.stderr.toString()}`)
     }
 
     // Sweep locks older than an hour. A process.on("exit") handler does not
@@ -154,16 +154,20 @@ if (ownsProcessSweep) {
     // out; an hour is far longer than any run and far shorter than the ppid
     // reuse that would otherwise make a leaked lock suppress a real sweep.
     const HOUR_MS = 60 * 60 * 1000
-    try {
-        for (const entry of readdirSync(tmpdir())) {
-            if (!entry.startsWith("axon-tui-test-bootstrap-")) continue
-            const path = join(tmpdir(), entry)
-            if (path === sweepLock) continue
-            if (Date.now() - statSync(path).mtimeMs < HOUR_MS) continue
-            rmSync(path, { recursive: true, force: true })
+    for (const entry of readdirSync(tmpdir())) {
+        if (!entry.startsWith("axon-tui-test-bootstrap-")) continue
+        const path = join(tmpdir(), entry)
+        if (path === sweepLock) continue
+        let modifiedAt: number
+        try {
+            modifiedAt = statSync(path).mtimeMs
+        } catch (error) {
+            // A concurrent runner may already have removed this stale lock.
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") continue
+            throw error
         }
-    } catch {
-        // best-effort — a leaked lock is untidy, not broken
+        if (Date.now() - modifiedAt < HOUR_MS) continue
+        rmSync(path, { recursive: true, force: true })
     }
 }
 
@@ -181,6 +185,7 @@ const { PUBLISHED_VERSION_ENV } = await import("./framework-version")
 process.env[PUBLISHED_VERSION_ENV] ??= await repo.framework.published()
 
 const { backendUrl } = await repo.daemon.connect()
+process.env.AXON_API_BASE = backendUrl
 
 // Stripe test-mode secret key — same one the local staging backend runs
 // against. Loaded directly from the backend's own env file rather than

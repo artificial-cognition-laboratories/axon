@@ -1,9 +1,11 @@
+import { fsx } from "../../../utils/fs"
+import { Blobs } from "./blobs"
+import { Index } from "./storage"
 import { createHash } from "node:crypto"
 import { link, mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { err } from "@arcforge/err"
-import { fsx } from "../../../utils/fs"
 import { basenameOf, type ParsedModel } from "./specifier"
 
 /**
@@ -116,7 +118,6 @@ function isSet(entry: Entry): entry is SetEntry {
 }
 
 /** The on-disk index: specifier → where the bytes are, and what they are. */
-type IndexEntry = Record<string, Entry>
 
 function defaultRoot(): string {
     return process.env.AXON_MODELS_DIR ?? join(homedir(), ".axon", "models")
@@ -125,7 +126,8 @@ function defaultRoot(): string {
 export function ModelStore(opts: ModelStoreOpts = {}) {
     const root = opts.root ?? defaultRoot()
     /** specifier → { sha256, file, traits? }. A hint for unpinned models; see resolved(). */
-    const indexPath = join(root, "index.json")
+    const blobs = Blobs({ root: root })
+    const indexStore = Index<Entry>({ root: root })
 
     /** Where a given hash's file lives. Pure — no I/O. */
     function pathFor(sha256: string, filename: string): string {
@@ -203,7 +205,7 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
          * refetch and cannot produce wrong bytes.
          */
         async resolved(specifier: string): Promise<StoredModel | null> {
-            const index = await fsx.readJson<IndexEntry>(indexPath)
+            const index = await indexStore.read()
             const hit = index?.[specifier]
             if (!hit) return null
 
@@ -256,7 +258,7 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
             primary?: string
             traits?: ModelTraits
         }[]> {
-            const index = await fsx.readJson<IndexEntry>(indexPath)
+            const index = await indexStore.read()
             if (!index) return []
 
             const found: {
@@ -322,15 +324,15 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
          * rest survives.
          */
         async describe(specifier: string, traits: ModelTraits): Promise<void> {
-            const index = (await fsx.readJson<IndexEntry>(indexPath)) ?? {}
+            return indexStore.update(async index => {
             const hit = index[specifier]
             // Describing something the store has never seen would write an
             // entry with no bytes behind it, which `list()` would then skip
             // forever. Silent because a describe racing a removal is ordinary.
-            if (!hit) return
+            if (!hit) throw err("MODEL_NOT_CACHED", { detail: `${specifier} has no stored model to describe` })
             index[specifier] = { ...hit, traits: { ...hit.traits, ...traits } }
             await mkdir(root, { recursive: true })
-            await Bun.write(indexPath, JSON.stringify(index, null, 4))
+            })
         },
 
         /**
@@ -371,6 +373,7 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
             primary: string,
             traits?: ModelTraits,
         ): Promise<void> {
+            return indexStore.update(async index => {
             const name = treeNameFor(specifier)
             const tree = treeFor(name)
 
@@ -390,7 +393,6 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
                 }
             }
 
-            const index = (await fsx.readJson<IndexEntry>(indexPath)) ?? {}
             const previous = index[specifier]
             index[specifier] = {
                 tree: name,
@@ -401,18 +403,19 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
                 ...(traits ?? previous?.traits ? { traits: traits ?? previous?.traits } : {}),
             }
             await mkdir(root, { recursive: true })
-            await Bun.write(indexPath, JSON.stringify(index, null, 4))
+            })
         },
 
         /** Record what a specifier resolved to, so the next run can skip the network. */
-        async remember(specifier: string, stored: StoredModel, filename: string): Promise<void> {
-            const index = (await fsx.readJson<IndexEntry>(indexPath)) ?? {}
+        async remember(specifier: string, stored: StoredModel, filename: string, opts?: { traits?: ModelTraits; signal?: AbortSignal }): Promise<void> {
+            return indexStore.update(async index => {
+            opts?.signal?.throwIfAborted()
             // Traits are preserved across a re-fetch: they describe the MODEL,
             // not the bytes, and re-downloading the same weight must not
             // forget what it is.
-            index[specifier] = { ...index[specifier], sha256: stored.sha256, file: filename }
+            index[specifier] = { ...index[specifier], sha256: stored.sha256, file: filename, ...(opts?.traits ? { traits: opts.traits } : {}) }
             await mkdir(root, { recursive: true })
-            await Bun.write(indexPath, JSON.stringify(index, null, 4))
+            })
         },
 
         /**
@@ -431,6 +434,8 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
          * throws rather than storing: caching corrupt weights is worse than
          * failing to cache.
          */
+        receive: blobs.receive,
+
         async put(filename: string, data: Uint8Array, expected?: string): Promise<StoredModel> {
             const sha256 = createHash("sha256").update(data).digest("hex")
 
@@ -500,13 +505,12 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
          * has.
          */
         async remove(specifier: string): Promise<boolean> {
-            const index = await fsx.readJson<IndexEntry>(indexPath)
+            return indexStore.update(async index => {
             const hit = index?.[specifier]
             if (!index || !hit) return false
 
             delete index[specifier]
             await mkdir(root, { recursive: true })
-            await Bun.write(indexPath, JSON.stringify(index, null, 4))
 
             /*
              * Every hash the survivors still reference, from BOTH shapes.
@@ -539,6 +543,7 @@ export function ModelStore(opts: ModelStoreOpts = {}) {
                 await rm(join(root, sha256), { recursive: true, force: true })
             }
             return true
+            })
         },
     }
 }

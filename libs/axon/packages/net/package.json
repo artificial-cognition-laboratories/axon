@@ -1,0 +1,12 @@
+{
+    "name": "@arcforge/axon-net",
+    "version": "0.1.0",
+    "private": true,
+    "description": "axon-net — the machine network's transport sidecar. A Rust binary; this file is its place in the test contract.",
+    "scripts": {
+        "build": "cargo build --release",
+        "test": "bun run test:full",
+        "test:hot": "cargo test --quiet",
+        "test:full": "bun run test:hot"
+    }
+}

@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/capsule",
-    "version": "2.0.219",
+    "version": "2.0.242",
     "type": "module",
     "main": "./src/index.ts",
     "exports": {
@@ -22,11 +22,11 @@
         "lint": "tsc --noEmit",
         "test": "bun run test:full",
         "test:hot": "bun test tests/hot",
-        "test:full": "bun test tests/hot"
+        "test:full": "bun test tests/hot tests/full"
     },
     "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5"
     },
-    "axonRevision": "bfbb695da8a820cef52f99cbf6cc084f872c3f87"
+    "axonRevision": "99908cacd44ba4553e69d591f3b66811d4cf7d42"
 }

@@ -1,5 +1,5 @@
 export default defineCognet({
-    mode: { kind: "continuous" },
+    mode: { kind: "continuous", hz: 30 },
 
     // models: {
     //     asr: {

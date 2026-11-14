@@ -58,13 +58,14 @@ const IMPLICIT_PROVIDERS: readonly ProviderEntry[] = [
 export function providerPool(
     profile: readonly ProviderEntry[] | undefined,
     agent: readonly ProviderEntry[] | undefined,
+    account: readonly ProviderEntry[] = [],
 ): ProviderEntry[] {
     // NOT CONFIGURED is not the same as NONE.
     //
     // A profile with no `providers:` has never been asked the question —
     // every profile written before the field existed is in this state — and
     // answering "you have no inference" for it means every one of them
-    // refuses to boot. So absent takes the default: the managed route.
+    // refuses to boot. Absent takes the managed route plus active account connections.
     //
     // An EMPTY array is a real answer and is honoured. A user who cleared
     // their providers has removed Axon deliberately, and gets exactly that.
@@ -72,7 +73,7 @@ export function providerPool(
     // role — which is the right outcome for a cognet that needs no LLM at
     // all: a control loop asks for nothing, and refusing to start it because
     // no inference was declared assumes a model this system does not require.
-    const declared = profile ?? DEFAULT_PROVIDERS
+    const declared = profile ?? [...DEFAULT_PROVIDERS, ...account]
 
     const pool: ProviderEntry[] = []
     const seen = new Set<string>()

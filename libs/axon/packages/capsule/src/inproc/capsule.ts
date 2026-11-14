@@ -3,6 +3,7 @@ import { err } from "@arcforge/err"
 import type { CapsuleBlueprint, CapsuleTool } from "../../types"
 import type { CapsuleBusT } from "../../platform/bus"
 import { Activities } from "../process/activities"
+import { CommandActivity } from "../process/command-activity"
 import { Console } from "../process/console"
 import { Execution } from "../process/execution"
 import { Mediator } from "../process/mediator"
@@ -75,8 +76,9 @@ export function InProcSandbox(opts: InProcOpts) {
     // are the agent's own tree rather than the host's temp directory.
     const scratch = opts.config.scratch ?? join(configuredCwd, ".agent", "cache", "tools")
     const scope = Scope({ dispatch: false, mediator, wire, execution, scratch })
-    const procs = SandboxProcs({ mediator, wire })
     const activities = Activities({ wire, execution })
+    const commandActivity = CommandActivity({ activities })
+    const procs = SandboxProcs({ mediator, wire, commandActivity })
     const runner = Runner({ dispatch: false, scope, wire, console: sandboxConsole, execution, activities })
 
     /**
@@ -86,7 +88,7 @@ export function InProcSandbox(opts: InProcOpts) {
      * `policy:response` command to come back. Across the wire that round trip
      * went host → decider → guest; here it is the same round trip with
      * `wire.deliver()` standing in for the send, so the mediator's own
-     * pending-map and timeout are untouched.
+     * pending-map still correlates each answer.
      *
      * The DECIDER stays outside: a program able to reach it could raise and
      * answer its own escalations, which is exactly as true in one process as
@@ -122,6 +124,10 @@ export function InProcSandbox(opts: InProcOpts) {
             procs: () => procs.list(),
             proc: procId => procs.get(procId),
             write: (level, data) => sandboxConsole.write(level, data),
+            chdir: cwd => {
+                const activity = activities.activity("process:chdir", { cwd: cwd })
+                activity.done()
+            },
             // Only capture while a command is running — the host shares this
             // process's stdout and must not be silenced by an agent's
             // existence. See installScope.

@@ -41,8 +41,8 @@ const channels = await connect({
         async request() {
             return { ok: true }
         },
-        async serve(port: number) {
-            return { port }
+        async serve(input) {
+            return { port: input.port }
         },
         async prompts(request) {
             return { served: request.action, ...(request.name ? { name: request.name } : {}) }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { Axond } from "../src/axond"
+import { MachineAxond } from "../src/machine-axond"
 import { Cli } from "../src/control/index"
 import packageJson from "../package.json" with { type: "json" }
 
@@ -14,7 +14,12 @@ import packageJson from "../package.json" with { type: "json" }
  * handed to `Axond()` rather than derived there: a module resolving its own
  * path finds itself, not the binary.
  */
-const axond = Axond({
+// The daemon's own profiling options, read by Bun at start, are not for its
+// children: a runtime install or an agent must not inherit them silently.
+// Agents get their own, per session, when AXON_PROFILE is set.
+delete process.env.BUN_OPTIONS
+
+const axond = MachineAxond({
     version: packageJson.version,
     entrypoint: import.meta.path,
 })
@@ -26,6 +31,9 @@ try {
     switch (verb) {
         case "up":
             console.log(await cli.up(process.argv.includes("--json")))
+            break
+        case "restart":
+            console.log(await cli.restart(process.argv.includes("--json")))
             break
         case "down":
             console.log(cli.down())

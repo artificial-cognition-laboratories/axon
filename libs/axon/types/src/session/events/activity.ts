@@ -32,7 +32,15 @@ export type ActivityPayloads = {
     "file:delete": { path: string }
     "file:move": { from: string; to: string }
     "file:search": { query: string; scope?: string; matches?: number }
-    "proc:exec": { command: string; cwd?: string; exitCode?: number }
+    "file:list": { path: string; entries?: number }
+    "vcs:status": { cwd?: string }
+    "vcs:diff": { args?: string }
+    "vcs:log": { args?: string }
+    "vcs:show": { args?: string }
+    "process:chdir": { cwd: string }
+    "proc:spawn": { command: string; procId?: string; pid?: number; exitCode?: number; stopped?: boolean; startedAt?: number; outputBytes?: number }
+    "proc:kill": { procId: string; command?: string }
+    "proc:exec": { command: string; cwd?: string; exitCode?: number; startedAt?: number; outputBytes?: number }
     "http": { method: string; url: string; status?: number }
     "speech": { text: string }
     /** Escape hatch — a plain sentence for anything outside the vocabulary. */
@@ -72,6 +80,10 @@ export type AxonAmbient = {
 }
 
 export type ActivityHandle<T extends ActivityType = ActivityType> = {
+    /** Amend an open activity without changing its lifecycle phase. */
+    update(data: Partial<ActivityPayloads[T]>): void
     /** Settle the activity with the rest of its payload. Idempotent. */
     done(data?: Partial<ActivityPayloads[T]>): void
+    /** Settle the activity as failed with the boundary's reason. */
+    fail(data: Partial<ActivityPayloads[T]>, error: string): void
 }

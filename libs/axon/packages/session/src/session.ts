@@ -1,5 +1,5 @@
 import { err, errScope } from "@arcforge/err"
-import { isBuildEvent, isEntryEvent, isKernelEvent, SENSORY_EVENTS, STIMULUS_TRANSIENT_EVENTS } from "@arcforge/types"
+import { isBuildEvent, isEntryEvent, isKernelEvent, SENSORY_EVENTS, STIMULUS_TRANSIENT_EVENTS, TELEMETRY_EVENTS } from "@arcforge/types"
 import type {
     AxonBlueprint,
     AxonEntry,
@@ -14,7 +14,10 @@ import type {
 } from "@arcforge/types"
 import type { AxonSpanName } from "@arcforge/types"
 import { home } from "./home"
+import { Media } from "./media"
 import { SensoryRing } from "./sensory"
+import { Retention } from "./retention"
+import { TelemetryRing } from "./telemetry"
 import path from "node:path"
 
 /**
@@ -87,6 +90,24 @@ function Writer(persist = true) {
         },
     }
 }
+
+/** Kernel telemetry events held in memory for catching up — about fifteen seconds of a continuous mind at 20Hz. */
+const KERNEL_WINDOW = 20_000
+/** How far past the window it grows before trimming back. */
+const KERNEL_SLACK = 2_000
+/**
+ * The most memory the window's events may hold, by estimate.
+ *
+ * A count alone bounds nothing: an event that carries a field is thousands
+ * of times the size of one that carries a duration. Twenty thousand of
+ * Terry's events held about 140MB (measured 2026-10-02), in the agent and
+ * again in its supervisor. A mind that writes fields keeps a shorter window —
+ * seconds, which is what a reader catching up asks for — and `kernelFloor`
+ * says so.
+ */
+const KERNEL_BYTES = 48 * 1024 * 1024
+/** How far past that it grows before trimming back. */
+const KERNEL_BYTES_SLACK = 8 * 1024 * 1024
 
 /** drain() must never hang shutdown indefinitely — race it against a hard ceiling. */
 const DRAIN_TIMEOUT_MS = 5_000
@@ -216,8 +237,50 @@ async function SessionState(opts: SessionStateOpts) {
     // announces — so a projection that also wrote the ring would put each
     // sensation on disk twice, into the same segment files.
     const sensory = SensoryRing({ root: opts.root, sessionId: opts.sessionId, ...(persist ? {} : { maxBytes: 0 }) })
+    // The bytes sensory events refer to — see media.ts. Kept by whichever
+    // process holds the producer, persisting or not: an event is relayed to
+    // the session that owns the record, but the bytes it names are written
+    // once, here, and never cross the link.
+    const media = Media({ root: opts.root, sessionId: opts.sessionId })
+    // The mind's high-rate narration — see TELEMETRY_EVENTS. Same ownership
+    // rule as the sensory ring: only the session that owns the file writes.
+    const telemetry = TelemetryRing({
+        root: opts.root,
+        sessionId: opts.sessionId,
+        ...(persist ? {} : { maxBytes: 0 }),
+        failed: cause => commitError({ error: err("TELEMETRY_WRITE_FAILED", { cause: cause }) }),
+    })
     const log: AxonSessionEvent[] = []
+    /**
+     * The newest kernel telemetry, held for readers catching up (a debugger
+     * attaching, `since=` queries) — a WINDOW, not the session. A continuous
+     * mind commits over a thousand of these a second; holding every one was
+     * millions of objects an hour in every process with the session open.
+     * The log on disk is the whole record; `kernelFloor` says where the
+     * window begins, so a reader asking for older events knows it got less.
+     */
     const kernelLog: AxonKernelEvent[] = []
+    /** What each held event weighs, beside it. */
+    const kernelWeights: number[] = []
+    let kernelBytes = 0
+    let kernelFloor = 0
+    function keep(event: AxonKernelEvent): void {
+        const weight = weigh(event.data)
+        kernelLog.push(event)
+        kernelWeights.push(weight)
+        kernelBytes += weight
+        // Trimmed in chunks, not per event: one splice per few thousand
+        // commits, or per few megabytes. The newest event always stays.
+        if (kernelLog.length <= KERNEL_WINDOW + KERNEL_SLACK && kernelBytes <= KERNEL_BYTES + KERNEL_BYTES_SLACK) return
+        let drop = Math.max(0, kernelLog.length - KERNEL_WINDOW)
+        let dropped = 0
+        for (let index = 0; index < drop; index++) dropped += kernelWeights[index]!
+        while (kernelBytes - dropped > KERNEL_BYTES && drop < kernelLog.length - 1) dropped += kernelWeights[drop++]!
+        kernelLog.splice(0, drop)
+        kernelWeights.splice(0, drop)
+        kernelBytes -= dropped
+        kernelFloor = kernelLog[0]!.time.seq
+    }
     const entries: AxonEntry[] = []
     let seq = 0
 
@@ -248,11 +311,12 @@ async function SessionState(opts: SessionStateOpts) {
             time: { ms: Date.now(), seq: seq++ },
             // Only correlation ids that actually vary per event survive
             // here. An event with neither carries no context key at all.
-            ...(ctx?.runId || ctx?.spanId
+            ...(ctx?.runId || ctx?.spanId || ctx?.origin !== undefined
                 ? {
                     context: {
                         ...(ctx.runId ? { runId: ctx.runId } : {}),
                         ...(ctx.spanId ? { spanId: ctx.spanId } : {}),
+                        ...(ctx.origin !== undefined ? { origin: ctx.origin } : {}),
                     },
                 }
                 : {}),
@@ -304,7 +368,16 @@ async function SessionState(opts: SessionStateOpts) {
             return event as AxonSessionEvent
         }
 
-        if (isKernelEvent(type as string)) kernelLog.push(event as AxonKernelEvent)
+        if (TELEMETRY_EVENTS.has(type as string)) {
+            // Held in the window and announced like any kernel event; kept
+            // on disk by the ring, never the log.
+            keep(event as AxonKernelEvent)
+            telemetry.record(event)
+            await opts.bus.forward(event as AxonSessionEvent)
+            return event as AxonKernelEvent
+        }
+
+        if (isKernelEvent(type as string)) keep(event as AxonKernelEvent)
         else log.push(event as AxonSessionEvent)
 
         await writer.push(() => home.data.sessions.append(opts.root, opts.sessionId, event))
@@ -433,12 +506,23 @@ async function SessionState(opts: SessionStateOpts) {
         // from its own type namespace, the same rule the write path uses
         for (const event of prior) {
             if (isEntryEvent(event.type)) entries.push(event as AxonEntry)
-            else if (isKernelEvent(event.type)) kernelLog.push(event as AxonKernelEvent)
+            else if (isKernelEvent(event.type)) keep(event as AxonKernelEvent)
             else log.push(event as AxonSessionEvent)
         }
 
         // restore the seq high-water mark before the first commit
         seq = prior.reduce((max, e) => Math.max(max, e.time.seq + 1), 0)
+    }
+    // The ring's events consumed seqs the log never saw — continue past them too.
+    if (persist) seq = Math.max(seq, (await telemetry.last()) + 1)
+
+    // The agent's older sessions held to the retention rule — see Retention. Not
+    // awaited: clearing what earlier sessions left must never delay this one.
+    if (persist) {
+        const retention = Retention({ root: opts.root })
+        retention.plan({ now: Date.now(), current: opts.sessionId }).then(plan => retention.apply(plan)).catch((cause: unknown) => {
+            commitError({ error: err("RETENTION_FAILED", { cause: cause }) })
+        })
     }
 
     /**
@@ -482,6 +566,8 @@ async function SessionState(opts: SessionStateOpts) {
         log: log as readonly AxonSessionEvent[],
         /** internal tick/phase/system telemetry — devtools/flame-graph material, never rendered to the user. */
         kernelLog: kernelLog as readonly AxonKernelEvent[],
+        /** The oldest seq `kernelLog` still holds — 0 until the window first trims. Older events are on disk only. */
+        get kernelFloor() { return kernelFloor },
         /** the session's one entry log */
         entries: entries as readonly AxonEntry[],
         /** The next sequence number — see nextSeq(). */
@@ -505,6 +591,8 @@ async function SessionState(opts: SessionStateOpts) {
             },
         },
 
+        media: media,
+
         /** the error sink's commit path — bounded queue, never the ordered writer */
         commitError,
 
@@ -522,7 +610,7 @@ async function SessionState(opts: SessionStateOpts) {
             // anything the user asked for, and a debug window must never be
             // the reason a shutdown hangs.
             await Promise.race([
-                sensory.drain(),
+                Promise.all([sensory.drain(), telemetry.drain(), media.drain()]),
                 new Promise<void>(resolve => setTimeout(resolve, DRAIN_TIMEOUT_MS)),
             ])
             // Release the append handles last — every writer above has
@@ -535,6 +623,27 @@ async function SessionState(opts: SessionStateOpts) {
 }
 
 type SessionStateHandle = Awaited<ReturnType<typeof SessionState>>
+
+/**
+ * Roughly the bytes a value holds in memory — for bounding a window, never
+ * for accounting. A long run of numbers is judged by its length, not walked:
+ * a field is the case that matters, and walking it would cost what holding
+ * it does.
+ */
+function weigh(value: unknown): number {
+    if (typeof value === "string") return 16 + value.length * 2
+    if (typeof value !== "object" || value === null) return 8
+    if (ArrayBuffer.isView(value)) return 64 + value.byteLength
+    if (Array.isArray(value)) {
+        if (value.length > 16 && typeof value[0] === "number") return 16 + value.length * 8
+        let total = 16
+        for (const item of value) total += weigh(item)
+        return total
+    }
+    let total = 32
+    for (const key in value) total += 16 + weigh((value as Record<string, unknown>)[key])
+    return total
+}
 
 // ── AxonSession ───────────────────────────────────────────────────────────────
 
@@ -576,6 +685,9 @@ export async function AxonSession(opts: AxonSessionOpts) {
 
         /** internal tick/phase/system telemetry — devtools/flame-graph material, never rendered to the user */
         get kernelLog() { return current.kernelLog },
+
+        /** Where the kernelLog window begins — see SessionState. */
+        get kernelFloor() { return current.kernelFloor },
 
         /** the session's one entry log */
         get entries() { return current.entries },
@@ -649,6 +761,14 @@ export async function AxonSession(opts: AxonSessionOpts) {
                 return current.stimuli.ingest(type, data)
             },
             drain() { return current.stimuli.drain() },
+        },
+
+        /**
+         * Keep heavy bytes beside the session and get the reference an event
+         * carries instead — see media.ts.
+         */
+        media: {
+            keep(bytes: Uint8Array, mime: string) { return current.media.keep(bytes, mime) },
         },
 
         /**

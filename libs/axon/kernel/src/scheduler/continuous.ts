@@ -22,8 +22,8 @@ type ContinuousOpts = {
  *
  * The resolution is that these are different quantities. How fast frames
  * arrive is the body's. How often it is worth thinking about them is the
- * mind's. So a cognet plugin drives `kernel.wake()`, and the body only ever
- * emits stimuli.
+ * mind's. So the brain declares `mode.hz` in its own config, its host drives
+ * `kernel.wake()` at that rate, and the body only ever emits stimuli.
  *
  * OVERLAP POLICY: wakes overlap. Every wake starts, always, however long the
  * last one is still taking.

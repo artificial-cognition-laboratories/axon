@@ -1,4 +1,5 @@
 import type { AxonEngineFault, AxonEngineMessage, AxonEngineMeta } from "../../engine"
+import type { AxonError } from "../../error"
 import type { AxonLogEvents } from "./log"
 import type { AxonCancellableSpan, AxonSpan } from "./span"
 
@@ -72,6 +73,25 @@ export type AxonKernelEventMap =
         { role: string; provider: string; model?: string },
         { role: string; durationMs: number },
         { role: string; fault: AxonEngineFault }
+    >
+    /**
+     * A service call — what a cognet asked of a use, and which provider
+     * answered. The agent's record, never the cognet's: the cognet sees the
+     * interface, and this is where the provider that answered is kept.
+     *
+     * A stream is one span, open to its end, with how many `events` it gave;
+     * left early by its reader, it is interrupted. A session is bracketed at
+     * open and close, never per push — a voice detector at 30Hz would drown
+     * the log, and the session's lifetime is the interval that means
+     * something. The payload never appears: the log records what happened,
+     * not what moved.
+     */
+    & AxonCancellableSpan<
+        "kernel:service",
+        { use: string; method: string; kind: "call" | "stream" | "session"; provider: string },
+        { use: string; method: string; events?: number },
+        { use: string; method: string; error: AxonError },
+        { use: string; method: string; events?: number }
     >
     & {
         /**

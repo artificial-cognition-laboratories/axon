@@ -1,3 +1,4 @@
+import { Attribution } from "./attribution"
 import { Hardware } from "./hardware"
 import { Budget } from "./budget"
 import { Identity } from "./identity"
@@ -88,6 +89,8 @@ export function Machine(opts: MachineOpts = {}) {
     const probe = Probe()
     const residency = Residency(opts.residencyRoot !== undefined ? { root: opts.residencyRoot } : {})
     const budget = Budget(opts.budgetPath !== undefined ? { path: opts.budgetPath } : {})
+    // GPU per process, averaged — shared by every reader, running only while read.
+    const attribution = Attribution()
 
     /**
      * The declared ceiling, read fresh on every ask.
@@ -149,6 +152,7 @@ export function Machine(opts: MachineOpts = {}) {
         hardware: hardware,
         samples: samples,
         residency: residency,
+        attribution: attribution,
 
         /**
          * The declared ceiling: read it, set it, clear it with null.
@@ -273,6 +277,7 @@ export function Machine(opts: MachineOpts = {}) {
          */
         stop(): void {
             samples.stop()
+            attribution.stop()
             residency.releaseAll()
         },
     }

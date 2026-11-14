@@ -431,10 +431,7 @@ export function Cloud(opts: CloudOpts) {
          * or key paste) and uploads the credential; nothing is persisted
          * on this machine. Pure delegation to AxonCloud's vault surface.
          */
-        connections: {
-            openai: client.user.vault.connections.openai,
-            openrouter: client.user.vault.connections.openrouter,
-        },
+        connections: client.user.vault.connections,
     }
 }
 

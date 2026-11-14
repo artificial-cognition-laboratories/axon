@@ -16,6 +16,25 @@ export type DaemonPaths = {
     pid: string
     /** Where a detached daemon's stdout and stderr land. */
     log: string
+    /**
+     * This distribution's store — `~/.axon` installed, `~/.axon-dev` from source.
+     *
+     * What the daemon OWNS, as distinct from what it observes: Fleet reads both
+     * stores to describe the whole machine, but running records are written
+     * here, and the machine network advertises only what lives here — dev and
+     * prod are separate networks.
+     */
+    store: string
+    /**
+     * Whether this daemon's world is ONLY its root — set when a root is given.
+     *
+     * A daemon normally observes the whole machine: both stores' agents, both
+     * stores' running records. A scratch daemon must not, or two test daemons
+     * would see each other (and the developer's real agents) through the
+     * shared home directory, and no test of a network of machines could tell
+     * one box from another.
+     */
+    isolated: boolean
 }
 
 /**

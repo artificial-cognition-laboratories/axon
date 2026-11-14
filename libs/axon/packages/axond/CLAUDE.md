@@ -124,12 +124,15 @@ const daemon = AxonDaemon(opts) // client: what every consumer holds
 daemon.machine.state()          // hardware, budget, what is held
 daemon.agents.list()            // every agent on this machine
 daemon.agents.at(id)            // one instance, as a handle
-daemon.models.resident()        // what is loaded
+daemon.models.state()           // cached weights, residency and downloads
 ```
 
 ## Known Debt
 
-`models` and `schedule` are unwired and throw. See `debt.md`.
+`models` owns acquisition, inventory, runtime installation, admission and conversational streaming.
+The TUI uses `AxonDaemon().models` so inference and downloads outlive a palette session.
+See [local models](src/models/README.md) for the lifecycle and worker boundaries.
+`schedule` persists schedules; its execution policy is separate from model management.
 
 ~~Whisper hallucinates on silence~~ — resolved by the duty-cycle gate in
 `Segments`; see `debt.md`.

@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs"
-import { mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { existsSync, readdirSync, statSync } from "node:fs"
+import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises"
 import type { FileHandle } from "node:fs/promises"
 import path from "node:path"
 
@@ -54,6 +54,20 @@ function sensorySegment(root: string, sessionId: string, index: number): string 
     // sort filenames without parsing them, and `ls` shows the truth.
     return path.join(sensoryDir(root, sessionId), `${String(index).padStart(6, "0")}.jsonl`)
 }
+
+function mediaDir(root: string, sessionId: string): string {
+    return path.join(root, "media", sessionId)
+}
+
+function telemetryDir(root: string, sessionId: string): string {
+    return path.join(root, "telemetry", sessionId)
+}
+
+function telemetrySegment(root: string, sessionId: string, index: number): string {
+    return path.join(telemetryDir(root, sessionId), `${String(index).padStart(6, "0")}.axt`)
+}
+
+/** The per-session window trees under a data root — each `<root>/<kind>/<sessionId>/`. */
 
 /**
  * Open append handles, keyed by absolute path.
@@ -359,6 +373,116 @@ export const home = {
             /** read one segment back, in order — same torn-line tolerance as the log */
             async read(file: string): Promise<unknown[]> {
                 return readLines(file)
+            },
+        },
+
+        /**
+         * The telemetry ring — <root>/telemetry/<sessionId>/<nnnnnn>.axt.
+         *
+         * The sensory ring's sibling for the mind's high-rate narration (see
+         * TELEMETRY_EVENTS): segmented for O(1) eviction, binary because a
+         * thousand JSON lines a second was most of every reader's time. Like
+         * the sensory ring, deleting it is always safe — it is a window.
+         */
+        telemetry: {
+            dir: telemetryDir,
+
+            segment: telemetrySegment,
+
+            /**
+             * What a previous run of this session left, oldest first, with
+             * sizes — so a resumed ring continues after it rather than
+             * appending into a segment whose string table it never saw.
+             * Synchronous: read once, at the ring's first write.
+             */
+            existing(root: string, sessionId: string): Array<{ file: string; index: number; bytes: number }> {
+                const dir = telemetryDir(root, sessionId)
+                if (!existsSync(dir)) return []
+                return readdirSync(dir)
+                    .filter(name => name.endsWith(".axt"))
+                    .sort()
+                    .map(name => ({ file: path.join(dir, name), index: Number(name.slice(0, -4)), bytes: statSync(path.join(dir, name)).size }))
+            },
+
+            /** Append encoded records to one segment. */
+            async append(file: string, bytes: Uint8Array): Promise<void> {
+                const handle = await handleFor(file)
+                await handle.write(bytes)
+            },
+
+            /** One segment's bytes. */
+            async read(file: string): Promise<Uint8Array> {
+                return new Uint8Array(await readFile(file))
+            },
+
+            /** Release a segment the ring has rolled past. */
+            async close(file: string): Promise<void> {
+                await closeHandles(file)
+            },
+
+            /** Drop the oldest segment — the eviction primitive. */
+            async evict(file: string): Promise<void> {
+                await closeHandles(file)
+                if (existsSync(file)) await unlink(file)
+            },
+        },
+
+        /**
+         * Kept media — <root>/media/<sessionId>/<nnnnnnnnnn>.<ext>.
+         *
+         * The bytes a sensory event refers to: one frame or clip a file, as
+         * it was captured, never encoded into an event. An event that says
+         * "there is a frame" is a hundred bytes on every wire it crosses;
+         * the frame itself is read from here by whoever actually looks.
+         *
+         * A window like the rings beside it: bounded, oldest dropped first,
+         * and always safe to delete.
+         */
+        media: {
+            dir: mediaDir,
+
+            /** Absolute path of one kept item. Zero-padded, so lexical order is the order kept. */
+            file(root: string, sessionId: string, index: number, extension: string): string {
+                return path.join(mediaDir(root, sessionId), `${String(index).padStart(10, "0")}.${extension}`)
+            },
+
+            /**
+             * What a previous run of this session left, oldest first, with
+             * sizes — so a resumed store counts it against the bound and
+             * numbers after it. Synchronous: read once, at the first keep.
+             */
+            existing(root: string, sessionId: string): Array<{ file: string; index: number; bytes: number }> {
+                const dir = mediaDir(root, sessionId)
+                if (!existsSync(dir)) return []
+                return readdirSync(dir)
+                    .filter(name => /^\d{10}\.\w+$/.test(name))
+                    .sort()
+                    .map(name => ({ file: path.join(dir, name), index: Number(name.slice(0, 10)), bytes: statSync(path.join(dir, name)).size }))
+            },
+
+            /** Write one item whole. Renamed into place, so a reader never opens half of one. */
+            async write(file: string, bytes: Uint8Array): Promise<void> {
+                await mkdir(path.dirname(file), { recursive: true })
+                const partial = `${file}.part`
+                await writeFile(partial, bytes)
+                await rename(partial, file)
+            },
+
+            /** Drop the oldest item — the eviction primitive. */
+            async evict(file: string): Promise<void> {
+                if (existsSync(file)) await unlink(file)
+            },
+        },
+
+        /**
+         * Long-term memory — <root>/memory/<cognet-name>/<name>.db. What the
+         * mind has learned: never derived, so never a cache, and nothing here
+         * ever deletes it. Its own tree rather than under `state/`, which is
+         * always safe to delete.
+         */
+        memory: {
+            path(root: string, cognet: string, name: string): string {
+                return path.join(root, "memory", cognet, `${name}.db`)
             },
         },
 

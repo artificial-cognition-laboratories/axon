@@ -1,5 +1,5 @@
 import { err } from "@arcforge/err"
-import type { EngineType } from "@arcforge/types"
+import type { AxonEngineRequest, AxonEngineRawEvent, EngineType } from "@arcforge/types"
 import type { ModelRuntime } from "./types"
 
 /**
@@ -27,6 +27,15 @@ export type LoadedWeight = {
     engine: EngineType
 
     /**
+     * Where it runs, when the adapter chose. Absent for runtimes that do not
+     * choose (llama.cpp decides its own offload). `deviceNote` says why a
+     * weight that wanted the GPU is on the CPU — a model running at a
+     * twentieth of the speed it was sized for must be able to say why.
+     */
+    device?: "gpu" | "cpu"
+    deviceNote?: string
+
+    /**
      * Text in, text out. Present when `engine` is "generate".
      *
      * Typed, where `run` is not, and the distinction is the point. The kernel
@@ -35,6 +44,8 @@ export type LoadedWeight = {
      * left `run` uncallable by anyone who did not already know the model's
      * graph — a chat model and a caller with a question could not meet.
      */
+    chat?(request: AxonEngineRequest): AsyncGenerator<AxonEngineRawEvent>
+
     generate?(input: { prompt: string; maxTokens?: number; temperature?: number }): Promise<string>
 
     /**

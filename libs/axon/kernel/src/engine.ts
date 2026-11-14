@@ -9,6 +9,7 @@ import type {
     AxonEngineFaultCode,
     AxonEngineResponse,
     EngineCloud,
+    RemoteEngines,
 } from "@arcforge/types"
 import { asEngineFault, EngineFailure } from "@arcforge/engines"
 import type { AxonErrorCode } from "@arcforge/err"
@@ -61,7 +62,7 @@ type EngineOpts = {
      * idle-stall guard — stays here and cannot tell the tokens crossed a
      * process boundary to arrive.
      */
-    remote?: (role: string) => AxonEngineDriver
+    remote?: RemoteEngines
 }
 
 type EngineContext = {
@@ -442,7 +443,7 @@ export function Engine(opts: EngineOpts) {
         // with. Checked before `engines` so a runtime that happens to carry
         // both cannot silently prefer the in-process path and pull a key
         // inside the boundary.
-        if (opts.remote) return { driver: opts.remote(role), name: "supervisor" }
+        if (opts.remote) return { driver: opts.remote.generate(role), name: "supervisor" }
 
         if (!opts.engines) return null
         const bound = opts.engines.get(role)

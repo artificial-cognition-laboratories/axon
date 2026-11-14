@@ -40,7 +40,7 @@ describe("resolved engine — reaching a confined agent", () => {
             join(import.meta.dir, "../../../packages/axond/src/agents/supervise.ts"),
             "utf-8",
         )
-        expect(supervise).not.toContain("services.engine")
+        expect(supervise).not.toMatch(/services\.engine\b/)
     })
 
     it("the blueprint type carries it on both the strict and partial shapes", () => {
@@ -51,7 +51,7 @@ describe("resolved engine — reaching a confined agent", () => {
             join(import.meta.dir, "../../../types/src/blueprint.ts"),
             "utf-8",
         )
-        expect(blueprint).toContain("engine?: { provider: string; model: string | null }")
+        expect(blueprint).toContain("engine?: { provider: string; model: string | null; effort?: EngineEffort }")
         expect(blueprint).toContain(`engine?: AxonBlueprint["engine"]`)
     })
 

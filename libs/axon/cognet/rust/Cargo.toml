@@ -1,0 +1,9 @@
+# The cognet runtime's Rust side: what a `*.system.rs` is written against.
+[workspace]
+resolver = "2"
+members = ["cognet", "cognet-macros"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "UNLICENSED"

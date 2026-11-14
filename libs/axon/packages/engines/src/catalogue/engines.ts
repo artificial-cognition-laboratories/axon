@@ -5,8 +5,7 @@ import type {
     EngineRequirements,
     EngineResolution,
 } from "@arcforge/types"
-import { resolveEngines, primaryRole, preference } from "../resolver"
-import { matchesPin, parsePin } from "../resolver/pin"
+import { resolveEngines, primaryRole, preference, reject, matchesPin, parsePin } from "../resolver"
 import { EngineFailure } from "../shared"
 import type { AxonProvider } from "./provider"
 
@@ -29,6 +28,8 @@ type EnginesOpts = {
      * Applied to the primary role as a preference. Absent means rank normally.
      */
     model?: string
+    /** Roles the agent granted a provider by name — bound to what they name, or missing. See resolveEngines. */
+    granted?: Readonly<Record<string, string>>
 }
 
 /** One bound role, live: the binding plus the driver serving it. */
@@ -53,10 +54,12 @@ type Live = {
  * already happened before the cognet's first wake.
  */
 export function Engines(opts: EnginesOpts) {
+    let capabilities = [...opts.capabilities]
     const order = [...opts.providers.keys()]
     const rank = preference(order)
     const resolution = resolveEngines(opts.requirements, opts.capabilities, {
         ...(opts.model !== undefined ? { model: opts.model } : {}),
+        ...(opts.granted ? { granted: opts.granted } : {}),
         order,
     })
     const live = new Map<string, Live>()
@@ -121,10 +124,22 @@ export function Engines(opts: EnginesOpts) {
         // order: these are what a picker offers and what a failed binding
         // falls back to, so "best first" has to mean the same thing here as
         // it did when the winner was chosen.
-        const others = opts.capabilities
+        const others = capabilities
             .filter(candidate => candidate.id !== binding.capability.id && candidate.type === binding.requirement.type)
             .sort(rank)
         alternates.set(binding.role, others)
+    }
+
+    async function refresh(name: string): Promise<void> {
+        const provider = opts.providers.get(name)
+        if (!provider) throw new EngineFailure({ code: "INVALID_REQUEST", message: `ENGINE_PROVIDER_MISSING: ${name} is not declared`, retryable: false, provider: name })
+        const fresh = await provider.catalogue()
+        if (fresh.some(candidate => candidate.provider !== name)) throw new EngineFailure({ code: "INVALID_REQUEST", message: `ENGINE_CATALOGUE_INVALID: ${name} returned another provider's capability`, retryable: false, provider: name })
+        capabilities = [...capabilities.filter(candidate => candidate.provider !== name), ...fresh]
+        for (const [role, entry] of live) {
+            alternates.set(role, capabilities.filter(candidate => candidate.type === entry.binding.requirement.type
+                && (candidate.id !== entry.binding.capability.id || candidate.provider !== entry.binding.capability.provider)).sort(rank))
+        }
     }
 
     return {
@@ -163,7 +178,9 @@ export function Engines(opts: EnginesOpts) {
                     provider: "unbound",
                 })
             }
-            return { driver: entry.driver, binding: entry.binding }
+            const effort = "effort" in entry.driver ? entry.driver.effort : undefined
+            const binding = { ...entry.binding, ...(effort !== undefined ? { effort: effort } : {}) }
+            return { driver: entry.driver, binding: binding }
         },
 
         /**
@@ -176,6 +193,8 @@ export function Engines(opts: EnginesOpts) {
          * never reaches for something they did not declare.
          */
         rebind: rebindRole,
+        /** Refresh one declared provider after its inventory changes; live bindings stay in place. */
+        refresh: refresh,
 
         /**
          * Other capabilities that satisfy this role, best first.
@@ -232,7 +251,9 @@ export function Engines(opts: EnginesOpts) {
             // The gathered pool only — the same rule `rebind()` enforces:
             // choosing among what the user declared, never reaching for
             // something they did not.
-            const match = opts.capabilities.find(candidate => matchesPin(pin, candidate))
+            const requirement = opts.requirements[role]
+            if (!requirement) throw new Error(`missing requirement for bound role ${role}`)
+            const match = capabilities.find(candidate => matchesPin(pin, candidate) && reject(requirement, candidate, true) === null)
             if (!match) return null
 
             // Already serving this role — nothing to do, and rebuilding the

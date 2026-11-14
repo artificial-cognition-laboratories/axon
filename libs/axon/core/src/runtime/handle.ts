@@ -5,6 +5,7 @@ import { foldChunks, type AxonBlueprint, type AxonOutputEvent, type AxonRequestI
 import { Inject, type AxonBusT, type AxonHooksT } from "../platform"
 import { Prompt } from "./source/render"
 import { Scripts } from "./source/scripts"
+import { Connections } from "./connect"
 import { AxonKernelT } from "@arcforge/kernel"
 import type { Output as OutputFactory } from "@arcforge/air/output"
 import type { AxonSessionT } from "@arcforge/session"
@@ -159,6 +160,7 @@ export function AxonHandle(opts: AxonHandleOpts) {
 
 
     const invoke = Invoke({ kernel })
+    const connections = Connections({ kernel: kernel, bus: opts.bus })
 
     const handle = {
         // Getter, not a snapshot: a reload can unload the brain at any time,
@@ -254,6 +256,8 @@ export function AxonHandle(opts: AxonHandleOpts) {
 
         stream: invoke.stream,
 
+        connect: connections.open,
+
         /**
          * The sense door. Delegates straight to the session's ingest, which
          * commits the stimulus and queues it for the next wake — the buffer's
@@ -264,6 +268,12 @@ export function AxonHandle(opts: AxonHandleOpts) {
          * written for; the machinery predates the verb.
          */
         stim: session.stimuli.ingest,
+
+        /** Where a producer keeps the bytes its stimulus refers to. */
+        media: session.media,
+
+        /** The body this agent wears — told by what connects it to one, kept by the kernel, read by the cognet. */
+        body: opts.kernel.body,
 
         /**
          * Observe what the brain emits — the counterpart to stim().
@@ -296,7 +306,7 @@ export function AxonHandle(opts: AxonHandleOpts) {
         // No tick() here. The body emits stimuli and never decides when the
         // brain looks at them: how fast frames arrive is a property of a
         // sensor, how often it is worth thinking about them is a property of
-        // a mind. A cognet plugin drives kernel.tick() from inside the brain.
+        // a mind. The brain's own host drives kernel.wake() at its `mode.hz`.
         //
         // This also makes bodies swappable — one that drove a specific brain
         // had to be rewritten whenever the brain changed — and it is the only
@@ -340,6 +350,7 @@ export function AxonHandle(opts: AxonHandleOpts) {
             get entries() { return session.entries },
             get log() { return session.log },
             get kernelLog() { return session.kernelLog },
+            get kernelFloor() { return session.kernelFloor },
         },
     }
 

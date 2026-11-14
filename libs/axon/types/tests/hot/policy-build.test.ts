@@ -138,6 +138,29 @@ describe("Policy — the profile is a ceiling", () => {
         expect(policy.tools?.fs).toBe("escalate")
     })
 
+    it("the allow preset grants an agent that does not narrow it", () => {
+        const { policy } = Policy({
+            blueprint: blueprint({ profilePolicy: { shell: { allow: ["*"], raw: true, spawn: true }, tools: true } }),
+            tools: ["fs"],
+        })
+        expect(policy.shell?.allow).toEqual(["*"])
+        expect(policy.shell?.raw).toBe(true)
+        expect(policy.shell?.spawn.rule).toBe(true)
+        expect(policy.tools?.["*"]).toBe(true)
+    })
+
+    it("the ask preset holds even when an agent grants a named tool", () => {
+        const { policy } = Policy({
+            blueprint: blueprint({
+                profilePolicy: { shell: { spawn: "escalate" }, tools: "escalate" },
+                policy: { shell: { spawn: true }, tools: { fs: true } },
+            }),
+            tools: ["fs"],
+        })
+        expect(policy.shell?.spawn.rule).toBe("escalate")
+        expect(policy.tools?.fs).toBe("escalate")
+    })
+
     it("the profile's fs wins outright — bind mounts cannot intersect globs", () => {
         const { policy } = Policy({
             blueprint: blueprint({

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { cpus, totalmem } from "node:os"
 import type { MachineCapacity, VramSource } from "./types"
-import { ask, pending } from "./ask"
+import { ask, pending } from "@arcforge/platform/services/probe"
 
 /**
  * Hardware — what this box HAS.

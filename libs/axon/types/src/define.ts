@@ -1,3 +1,4 @@
+import type { AxonEngineDriver, AxonTransformDriver } from "./engine"
 import type { AxonConfig } from "./config"
 import type { BenchConfig, BenchDefinition } from "./bench"
 import type { ModuleConfig, ModuleEmitMap, ModuleOptionSchema } from "./module"
@@ -285,3 +286,36 @@ export type AxonTestHandle = {
  * @see https://axon.arclabs.it/docs/v2/agent/testing
  */
 export type AxonTest = () => Promise<AxonTestHandle>
+
+/**
+ * A provider the agent writes — the default export of `providers/<name>.provider.ts`.
+ * It implements one interface: say which, and write its methods as the
+ * interface does — that every method is there is checked when it is granted,
+ * and that each answers as the interface means by `axon conform`. What it
+ * needs of the machine it declares in `engines`, as a cognet declares roles —
+ * resolved against the machine's models, never bundled — and its methods
+ * reach them as `this.engines`.
+ *
+ * ```ts
+ * export default defineProvider({
+ *     implements: "@cody/terry/features@1",
+ *     engines: { dino: { type: "transform", in: "image", out: "features" } },
+ *     describe: () => ({ patch: 16 }),
+ *     async extract(picture: Picture) { return this.engines.dino.transform(…) },
+ * })
+ * ```
+ */
+export function defineProvider<const E extends Readonly<Record<string, ProviderEngine>> = {}>(
+    definition: {
+        implements: string
+        engines?: E
+        describe(): Readonly<Record<string, unknown>>
+        release?(handle: string): Promise<void>
+        [method: string]: unknown
+    } & ThisType<{ engines: { [K in keyof E]: E[K]["type"] extends "transform" ? AxonTransformDriver : AxonEngineDriver } }>,
+): typeof definition {
+    return definition
+}
+
+/** One engine a provider needs of the machine — as a cognet's `engines:` writes a role. */
+export type ProviderEngine = { type: "generate" | "transform"; in: string | readonly string[]; out: string | readonly string[] }

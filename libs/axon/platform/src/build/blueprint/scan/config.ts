@@ -1,6 +1,4 @@
 import { join, resolve } from "node:path"
-import { createHash } from "node:crypto"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { AxonConfig, ModuleEntry } from "@arcforge/types"
 import { err } from "@arcforge/err"
@@ -9,7 +7,6 @@ import { resolveModulePaths, type ResolvedModulePath } from "./moduleImports"
 import { resolveCognetPath } from "./cognetImports"
 import type { ResolvedDeclaration } from "./configImports"
 import { ProviderGlobals } from "./provider-globals"
-import { Frame } from "../../frame"
 
 /**
  * Config — loads and evaluates axon.config.ts. The ONE place in the
@@ -52,55 +49,6 @@ export type LoadedConfig = {
      * here — the only place it exists, since `defineCognet()` stamps nothing.
      */
     cognetPath: ResolvedDeclaration | null
-}
-
-/**
- * Config evaluation executes the agent's declaration graph. Keep that result
- * while the project watcher vouches that the root has not changed; a new
- * process still evaluates once, and every observed edit clears the entry.
- */
-const cached = new Map<string, LoadedConfig>()
-
-/** Called by the project watcher when any authored input may have changed. */
-export function invalidateConfig(root: string): void {
-    cached.delete(resolve(root))
-}
-
-type DiskConfig = { hash: string; loaded: LoadedConfig }
-
-/**
- * A cross-process cache for declarative, self-contained agent configs.
- *
- * We deliberately do not cache arbitrary evaluated code. A config that imports
- * anything, reads an environment value, or calls require can have inputs that
- * are not its own bytes, so it is evaluated normally. The common literal
- * config has exactly one input; content-addressing that input makes a cache
- * hit precise rather than an mtime guess.
- */
-function configCache(root: string, source: string): { hash: string; path: string } | null {
-    if (/\bimport\b|\brequire\s*\(|\bprocess\.|\bBun\.env\b|\bDeno\.env\b/.test(source)) return null
-    return {
-        hash: createHash("sha256").update(source).digest("hex"),
-        path: Frame({ root: root, kind: "agent" }).file("cache", "config.json"),
-    }
-}
-
-function readCachedConfig(cache: { hash: string; path: string }): LoadedConfig | null {
-    if (!existsSync(cache.path)) return null
-    try {
-        const stored = JSON.parse(readFileSync(cache.path, "utf-8")) as DiskConfig
-        return stored.hash === cache.hash ? stored.loaded : null
-    } catch {
-        // Derived cache data is non-authoritative. A torn cache entry is
-        // replaced by the successful evaluation below; authored config errors
-        // still throw at their boundary.
-        return null
-    }
-}
-
-function writeCachedConfig(cache: { hash: string; path: string }, loaded: LoadedConfig): void {
-    Frame({ root: loaded.root, kind: "agent" }).ensure("cache")
-    writeFileSync(cache.path, JSON.stringify({ hash: cache.hash, loaded: loaded }) + "\n", "utf-8")
 }
 
 type ConfigEvaluation = {
@@ -219,22 +167,12 @@ installAuthoringGlobals()
 
 export async function Config(root: string): Promise<LoadedConfig> {
     const resolvedRoot = resolve(root)
-    const cachedConfig = cached.get(resolvedRoot)
-    if (cachedConfig) return cachedConfig
-
     const configPath = join(resolvedRoot, "axon.config.ts")
     if (!fsx.exists(configPath)) {
         throw err("CONFIG_NOT_FOUND", { context: { root } })
     }
     const source = await fsx.readText(configPath)
     if (source === null) throw err("CONFIG_NOT_FOUND", { context: { root } })
-    const disk = configCache(resolvedRoot, source)
-    const fromDisk = disk ? readCachedConfig(disk) : null
-    if (fromDisk) {
-        cached.set(resolvedRoot, fromDisk)
-        return fromDisk
-    }
-
     let captured: AxonConfig | null = null
     const evaluation: ConfigEvaluation = { capture: config => { captured = config } }
 
@@ -295,8 +233,6 @@ export async function Config(root: string): Promise<LoadedConfig> {
             modulePaths: await resolveModulePaths(configPath),
             cognetPath: await resolveCognetPath(configPath),
         }
-        cached.set(resolvedRoot, loaded)
-        if (disk) writeCachedConfig(disk, loaded)
         return loaded
     } finally {
         state.current = null

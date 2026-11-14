@@ -1,14 +1,15 @@
 import { err } from "@arcforge/err"
 import type {
-    AgentToSupervisor,
     AxonBlueprint,
     AxonCommitContext,
     AxonEngineRawEvent,
     AxonEventMap,
+    AxonIngest,
     AxonStimulusEntry,
     EscalationCall,
     InferCall,
     SupervisorToAgent,
+    TransformCall,
 } from "@arcforge/types"
 import type { LinkChannels } from "./socket"
 
@@ -37,6 +38,8 @@ export type SupervisorServices = {
      * the manager moves agent-side, and AIR never crosses.
      */
     infer(call: InferCall, signal: AbortSignal): AsyncIterable<AxonEngineRawEvent>
+    /** Run one transform with the engine bound to the call's role. Same boundary as `infer`. */
+    transform(call: TransformCall, signal: AbortSignal): Promise<unknown>
     /**
      * Append to the session log. The agent may add to the record, never
      * rewrite it.
@@ -72,7 +75,9 @@ export const VERB = {
     prompts: "prompts",
     serve: "serve",
     infer: "infer",
+    transform: "transform",
     commit: "commit",
+    commits: "commits",
     escalate: "escalate",
 } as const
 
@@ -100,8 +105,8 @@ export function SupervisorLink(opts: SupervisorLinkOpts): SupervisorToAgent & { 
          * land WHILE inference streams on the data channel, not queue behind
          * the tokens it is meant to join.
          */
-        ingest(entry: AxonStimulusEntry) {
-            return channels.control.call<void>(VERB.ingest, entry)
+        ingest(input: AxonIngest) {
+            return channels.control.call<void>(VERB.ingest, input)
         },
 
         update(blueprint: AxonBlueprint) {
@@ -148,8 +153,8 @@ export function SupervisorLink(opts: SupervisorLinkOpts): SupervisorToAgent & { 
             return channels.control.call(VERB.prompts, request)
         },
 
-        serve(port) {
-            return channels.control.call(VERB.serve, port) as Promise<{ port: number }>
+        serve(input) {
+            return channels.control.call(VERB.serve, input) as Promise<{ port: number }>
         },
 
         close() {
@@ -163,8 +168,8 @@ export function SupervisorLink(opts: SupervisorLinkOpts): SupervisorToAgent & { 
  *
  * Split across the two channels by whether the request can be made to wait
  * behind inference. `escalate` is on control because a human decision can take
- * 30 seconds and must not sit behind a token stream; `commit` and `infer` are
- * on data because they ARE the stream.
+ * 30 seconds and must not sit behind a token stream; `commit`, `infer` and
+ * `transform` are on data because they ARE the stream.
  */
 export function supervisorHandlers(services: SupervisorServices) {
     return {
@@ -178,34 +183,25 @@ export function supervisorHandlers(services: SupervisorServices) {
             },
         },
         data: {
+            async call(verb: string, arg: unknown, signal: AbortSignal): Promise<unknown> {
+                if (verb !== VERB.transform) throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
+                return services.transform(arg as TransformCall, signal)
+            },
             send(verb: string, arg: unknown): void {
-                if (verb !== VERB.commit) throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
-                const { type, data, ctx } = arg as {
-                    type: keyof AxonEventMap
-                    data: AxonEventMap[keyof AxonEventMap]
-                    ctx?: AxonCommitContext
+                type Commit = { type: keyof AxonEventMap; data: AxonEventMap[keyof AxonEventMap]; ctx?: AxonCommitContext }
+                // One commit, or a batch of them in order — an agent batches per turn.
+                if (verb === VERB.commits) {
+                    for (const { type, data, ctx } of arg as Commit[]) services.commit(type, data, ctx)
+                    return
                 }
+                if (verb !== VERB.commit) throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
+                const { type, data, ctx } = arg as Commit
                 services.commit(type, data, ctx)
             },
             stream(verb: string, arg: unknown, signal: AbortSignal): AsyncIterable<unknown> {
                 if (verb !== VERB.infer) throw err("LINK_NO_HANDLER", { detail: verb, context: { verb } })
                 return services.infer(arg as InferCall, signal)
             },
-        },
-    }
-}
-
-/** The agent-facing half, as the agent calls it. Built over the same channels. */
-export function agentServices(channels: LinkChannels): AgentToSupervisor {
-    return {
-        infer(call: InferCall, signal: AbortSignal) {
-            return channels.data.stream<AxonEngineRawEvent>(VERB.infer, call, signal)
-        },
-        commit(type, data, ctx) {
-            channels.data.send(VERB.commit, { type, data, ...(ctx ? { ctx } : {}) })
-        },
-        escalate(call: EscalationCall) {
-            return channels.control.call<{ allow: boolean }>(VERB.escalate, call)
         },
     }
 }
