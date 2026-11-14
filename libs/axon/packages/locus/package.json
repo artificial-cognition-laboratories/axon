@@ -1,6 +1,7 @@
 {
     "name": "@arcforge/locus",
     "version": "2.0.219",
+    "license": "Apache-2.0",
     "description": "Memory as geometry \u2014 records stored at a coordinate in a manifest conceptual space, queried by predicate and ranked by distance.",
     "type": "module",
     "private": true,

@@ -1,6 +1,7 @@
 {
     "name": "@arcforge/types",
     "version": "2.0.242",
+    "license": "Apache-2.0",
     "type": "module",
     "private": false,
     "main": "./src/index.ts",
