@@ -52,7 +52,7 @@ async function tarballOf(files: Record<string, string>): Promise<{ tarball: stri
     return { tarball, cleanup: () => rm(dir, { recursive: true, force: true }) }
 }
 
-const CONFIG = `export default defineCognet({ name: "probe", version: "1.0.0", abi: "9", mode: { kind: "invocation" } })`
+const CONFIG = `export default defineCognet({ abi: "9", mode: { kind: "invocation" } })`
 
 describe("publish verification", () => {
     test("REJECTS a cognet whose imported file was left out of the package", async () => {

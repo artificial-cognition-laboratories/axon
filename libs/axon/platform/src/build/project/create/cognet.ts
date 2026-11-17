@@ -36,8 +36,8 @@ message Reading {
 message Components {
   option (cognet.components) = true;
 
-  // The newest temperature the room reported. Public: act/ reads it.
-  Reading temperature = 1 [(cognet.component) = { public: true }];
+  // The newest temperature the room reported. act/ reads it.
+  Reading temperature = 1;
 }
 `
 

@@ -1,5 +1,5 @@
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import { createFileRegistry, fromBinary, type FileRegistry } from "@bufbuild/protobuf"
 import { FileDescriptorSetSchema } from "@bufbuild/protobuf/wkt"
 import { err } from "@arcforge/err"
@@ -25,7 +25,7 @@ export const compile = {
     stage(stage: string, sources: readonly Source[], agentRoot: string): void {
         rmSync(stage, { recursive: true, force: true })
         mkdirSync(stage, { recursive: true })
-        const runtime = Bun.resolveSync("@arcforge/cognet/proto/cognet.proto", agentRoot)
+        const runtime = runtimeSchema(agentRoot)
         const runtimeAt = join(stage, RUNTIME)
         mkdirSync(dirname(runtimeAt), { recursive: true })
         copyFileSync(runtime, runtimeAt)
@@ -48,6 +48,28 @@ export const compile = {
         }
         return createFileRegistry(fromBinary(FileDescriptorSetSchema, readFileSync(out)))
     },
+}
+
+/**
+ * The runtime's `cognet.proto`, from the `@arcforge/cognet` installed for `agentRoot`.
+ *
+ * Found on disk rather than through `Bun.resolveSync`, because Bun's resolver
+ * caches directory lookups for the life of the process: a process that
+ * resolved from `agentRoot` before its install (the TUI, Fleet, the test
+ * runner — anything that scaffolds and then compiles) is told the package
+ * does not exist after it does.
+ */
+function runtimeSchema(agentRoot: string): string {
+    for (let dir = resolve(agentRoot); ; dir = dirname(dir)) {
+        const pkg = join(dir, "node_modules", "@arcforge", "cognet")
+        if (existsSync(join(pkg, "package.json"))) {
+            const manifest = JSON.parse(readFileSync(join(pkg, "package.json"), "utf-8")) as { exports?: Record<string, string> }
+            const entry = manifest.exports?.["./proto/cognet.proto"]
+            if (!entry) throw err("COGNET_RUNTIME_UNAVAILABLE", { detail: `${pkg} does not export ./proto/cognet.proto — it predates cognet schemas` })
+            return join(pkg, entry)
+        }
+        if (dirname(dir) === dir) throw err("COGNET_RUNTIME_UNAVAILABLE", { detail: `@arcforge/cognet is not installed for ${agentRoot}` })
+    }
 }
 
 /** The `buf` this platform was installed with. */
