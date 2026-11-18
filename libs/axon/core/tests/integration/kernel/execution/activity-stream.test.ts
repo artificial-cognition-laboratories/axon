@@ -15,9 +15,12 @@ describe("kernel activity stream", () => {
 
         try {
             const request = runtime.kernel.request({ content: "/go" })
-            await new Promise(resolve => setTimeout(resolve, 20))
+            // Poll until the command is declared; the request is still running (sleep 0.1).
+            const find = () => runtime.session.kernelLog.find(event => event.type === "process:activity")
+            const deadline = Date.now() + 10_000
+            while (!find() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5))
 
-            const activity = runtime.session.kernelLog.find(event => event.type === "process:activity")
+            const activity = find()
             expect(activity).toMatchObject({
                 data: {
                     activity: "proc:exec",

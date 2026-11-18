@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/vstr",
-    "version": "2.0.242",
+    "version": "2.0.244",
     "license": "Apache-2.0",
     "type": "module",
     "main": "./src/index.ts",
@@ -29,5 +29,5 @@
         "@types/bun": "latest",
         "@types/turndown": "^5.0.6"
     },
-    "axonRevision": "99908cacd44ba4553e69d591f3b66811d4cf7d42"
+    "axonRevision": "6b7c31b386531c7829eb28a9f00480022cdc01f8"
 }

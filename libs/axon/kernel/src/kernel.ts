@@ -1140,17 +1140,24 @@ export async function Kernel(opts: KernelOpts) {
     // The kernel owns this bracket rather than the cognet: exec'ing an
     // untrusted artifact is boot's most failure-prone step, and a brain that
     // dies inside load() could never close a bracket it opened itself.
+    //
+    // Attached BEFORE load(), the boot-side mirror of shutdown's detach-after-
+    // unload: a continuous brain starts its own clock inside load(), and that
+    // clock may fire before load() — or the commit after it — resolves. If
+    // the scheduler did not hold the cognet yet, those ticks threw
+    // NO_COGNET_LOADED into the brain's interval.
     const loadStarted = Date.now()
     await session.commit("cognet:load:start", { name: cognet.name })
+    scheduler.attach(cognet)
     try {
         await cognet.load(abi)
     } catch (cause) {
+        scheduler.detach()
         const failure = err(cause)
         await session.commit("cognet:load:failed", { name: cognet.name, error: failure, durationMs: Date.now() - loadStarted })
         throw failure
     }
     await session.commit("cognet:load:complete", { name: cognet.name, durationMs: Date.now() - loadStarted })
-    scheduler.attach(cognet)
 
     return {
         /** The body the agent wears: told here by whatever connects it to one, read by the cognet as `body()`. */
