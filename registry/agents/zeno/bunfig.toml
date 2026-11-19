@@ -1,2 +1,2 @@
 [install.scopes]
-axon = { url = "http://127.0.0.1:3099/api/registry/npm/-" }
+axon = { url = "https://axon-api-t53zrgvpga-ew.a.run.app/api/registry/npm/-" }

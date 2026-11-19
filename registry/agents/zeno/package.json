@@ -18,7 +18,7 @@
   },
   "axon": {
     "trackedFrom": {
-      "@axon/zero": "http://127.0.0.1:3099"
+      "@axon/zero": "https://axon-api-t53zrgvpga-ew.a.run.app"
     }
   },
   "overrides": {
