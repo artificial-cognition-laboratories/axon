@@ -3,7 +3,9 @@ import type { body } from "@arcforge/types"
 type Pace = body.Pace
 
 /**
- * Every lab implementation registered in this daemon build.
+ * Every lab implementation registered in this daemon build: Terraverse, for now.
+ * Minecraft and Terraria stay in the tree (`labs/minecraft`, `labs/terraria`),
+ * unregistered; adding one back is one entry here and one in `Labs`.
  *
  * The LIST is the source of truth and the union is derived from it, so a
  * surface that has to cover every lab — the daemon client, Fleet's tree — can
@@ -11,9 +13,12 @@ type Pace = body.Pace
  * as a type because the daemon ships the implementations; open as a value
  * because everything above it is generic over them.
  */
-export const LAB_IDS = ["terraria", "minecraft", "atrium"] as const
+export const LAB_IDS = ["terraverse"] as const
 
 export type LabId = (typeof LAB_IDS)[number]
+
+/** Every lab implemented in the tree, registered or not: what a lab's state may call itself. */
+export type LabKind = LabId | "minecraft" | "terraria"
 
 /** Debugger interventions are addressed to one running world, never an agent cable. */
 export type TerrariaAction =
@@ -26,11 +31,8 @@ export type MinecraftAction =
     | { kind: "world.difficulty"; world: string; value: "peaceful" | "easy" | "normal" | "hard" }
     | { kind: "player.teleport"; world: string; player: string; x: number; y: number; z: number }
     | { kind: "player.gamemode"; world: string; player: string; value: "survival" | "creative" | "adventure" | "spectator" }
-/** Atrium runs its worlds by the world contract (atrium.world/0): these are its verbs a person may use. */
-export type AtriumAction =
-    | { kind: "world.reset"; world: string }
-    | { kind: "world.pace"; world: string; pace: Pace }
-export type LabAction = TerrariaAction | MinecraftAction | AtriumAction
+/** Terraverse has none yet; the unregistered labs' are kept with them. */
+export type LabAction = TerrariaAction | MinecraftAction
 export type MinecraftPlayer = { name: string; x: number; y: number; z: number; health: number; food: number; gamemode: "survival" | "creative" | "adventure" | "spectator" }
 /** A named, server-coordinate landmark in a managed Minecraft world. */
 export type MinecraftPlace = { id: string; name: string; x: number; y: number; z: number; createdAt: string }
@@ -89,19 +91,6 @@ export type ScenarioRun = {
     endedAt: string | null
 }
 
-/** One body or world Atrium's library holds, as `atrium list` says it. */
-export type LibraryEntry = {
-    kind: "body" | "world"
-    name: string
-    /** Where it was imported from: a path, or `atrium` for one built in. */
-    source: string
-    /** Its folder in the library; null for one built into Atrium. */
-    path: string | null
-}
-
-/** What an import into Atrium's library baked. */
-export type Imported = { kind: "body" | "world"; name: string; dir: string }
-
 /** Where the authoring client's window lives: on the person's own desktop, or streamed into Fleet. */
 export type StudioPlace = "desktop" | "fleet"
 /** An open authoring client; Fleet's frame needs the stream's address. */
@@ -149,7 +138,7 @@ export type Observer = { id: string; kind: "geometry"; label: string; url: strin
  *
  * A warm game client is `booting` to the menu, `ready` there with nobody
  * inside, `joining`, then `embodied` in the world under a lease; `failed`
- * carries why, and the pool replaces it. A body a lab places (Atrium) is
+ * carries why, and the pool replaces it. A body a lab places in its world (Terraverse) is
  * `ready` in the world until a mind wears it, then `embodied`.
  */
 export type BodyState = "booting" | "ready" | "joining" | "embodied" | "leaving" | "failed" | "stopped"
@@ -249,7 +238,7 @@ export type Notice = { at: string; text: string }
 
 export type LabState = {
     /** Stable routing key across daemon, Fleet and agent modules. */
-    id: LabId
+    id: LabKind
     /** Human-facing environment name. */
     title: string
     /** Interventions this lab's running bridge supports. An empty list is explicit. */

@@ -8,4 +8,4 @@
  */
 export type { DaemonPaths, DaemonStarted, DaemonStatus } from "./daemon"
 export { LAB_IDS } from "../src/labs/contract"
-export type { AtriumAction, BodyClient, BodyInfo, BodyState, BridgeState, Embodiment, Imported, LabId, LeaseInput, LibraryEntry, LabState, LabT, Lease, Notice, Observer, RunningWorld, StudioOpened, StudioPlace, ScenarioEvent, ScenarioProgress, ScenarioRun, WorldInfo } from "../src/labs/contract"
+export type { BodyClient, BodyInfo, BodyState, BridgeState, Embodiment, LabId, LabKind, LeaseInput, LabState, LabT, Lease, Notice, Observer, RunningWorld, StudioOpened, StudioPlace, ScenarioEvent, ScenarioProgress, ScenarioRun, WorldInfo } from "../src/labs/contract"

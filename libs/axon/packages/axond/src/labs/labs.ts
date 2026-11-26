@@ -1,15 +1,15 @@
 import { join } from "node:path"
 import type { LauncherT } from "../launcher/index"
-import { AtriumLab } from "./atrium/index"
-import { MinecraftLab } from "./minecraft/index"
-import { TerrariaLab } from "./terraria/index"
+import { TerraverseLab } from "./terraverse/index"
 import { LAB_IDS, type LabId, type LabT } from "./types"
 
 export type LabsOpts = {
     /** Machine-wide lab state. Each lab owns one child folder named after it. */
     root: string
-    /** Boots the agents a lab's scenario runs put in a world. */
+    /** Boots the agents a lab's scenario runs put in a world. Minecraft's, while it is registered. */
     launcher: LauncherT
+    /** Which build of axond this is: an installed one runs installed games, one from source their checkouts. */
+    build: "production" | "development"
 }
 
 /**
@@ -26,18 +26,13 @@ export type LabsOpts = {
  * stay inside their own folders, where the differences actually are.
  */
 export function Labs(opts: LabsOpts) {
-    // Each lab under its own name. Terraria used to be handed the shared root
-    // itself, so its mods/, bodies/ and pids.json sat beside Minecraft's folder
-    // rather than inside one of its own — two labs at one level, one of them
-    // colonising the parent.
-    const terraria = TerrariaLab({ root: join(opts.root, "terraria") })
-    const minecraft = MinecraftLab({ root: join(opts.root, "minecraft"), launcher: opts.launcher })
-    const atrium = AtriumLab({ root: join(opts.root, "atrium") })
+    // Each lab under its own name. Minecraft and Terraria are in the tree,
+    // unregistered: MinecraftLab({ root: join(opts.root, "minecraft"), launcher:
+    // opts.launcher }) and TerrariaLab({ root: join(opts.root, "terraria") }).
+    const terraverse = TerraverseLab({ root: join(opts.root, "terraverse"), build: opts.build })
 
     const all: Record<LabId, LabT> = {
-        terraria: terraria,
-        minecraft: minecraft,
-        atrium: atrium,
+        terraverse: terraverse,
     }
 
     return {

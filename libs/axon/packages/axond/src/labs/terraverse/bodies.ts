@@ -11,11 +11,14 @@ export type BodiesOpts = {
     notice: (text: string) => void
 }
 
+/** Terraverse has one body: a player. Asking for none asks for it. */
+const PLAYER = "player"
+
 /** A body placed in the running world, as the lab keeps it. */
 type Placement = {
     /** Its placement's name in the world — the identity it was leased as, or `<body>-<n>` when a person put it there. */
     name: string
-    /** Which of the library's bodies. */
+    /** Which body it is: `player`. */
     model: string
     bridge: string
     lease: Lease | null
@@ -29,9 +32,9 @@ type Placement = {
  * other, and a body belongs to exactly one of them. The lab fans its own
  * body verbs across them.
  *
- * Unlike a game lab's pool, nothing is kept warm: a body is placed when it is
- * leased, by the name of the body the agent asked for, and taken out when it
- * is released — or when its agent's process is gone. A body a person places
+ * A body is placed when it is leased, and taken out when it is released — or
+ * when its agent's process is gone. The world keeps its own warm bodies; the
+ * lab only asks for one and hands it on. A body a person places
  * is worn by whoever connects first; a leased one only by its lease's token,
  * which the world checks itself.
  */
@@ -85,14 +88,14 @@ export function Bodies(opts: BodiesOpts) {
 
         leases: leases,
 
-        /** One of the library's bodies placed for anyone to wear, beside the others. */
+        /** A body placed for anyone to wear, beside the others. */
         async add(input?: { body?: string }): Promise<BodyInfo> {
             const world = opts.world
-            if (!input?.body) throw err("WORLD_BODY_UNKNOWN", { detail: "Atrium places a body by name — say which of the library's bodies (probe, go2, …)" })
+            const model = input?.body ?? PLAYER
             added += 1
-            const name = `${input.body}-${added}`
-            const bridge = await place(world, { body: input.body, name: name })
-            const placement: Placement = { name: name, model: input.body, bridge: bridge, lease: null, startedAt: new Date().toISOString() }
+            const name = `${model}-${added}`
+            const bridge = await place(world, { body: model, name: name })
+            const placement: Placement = { name: name, model: model, bridge: bridge, lease: null, startedAt: new Date().toISOString() }
             placed.set(name, placement)
             return info(placement)
         },
@@ -100,15 +103,16 @@ export function Bodies(opts: BodiesOpts) {
         /** The body the agent asked for, placed in the running world as its identity, worn only with the lease's token. */
         async lease(input: LeaseInput): Promise<Embodiment> {
             const world = opts.world
-            if (!input.body) throw err("WORLD_BODY_UNKNOWN", { detail: "Atrium's bodies are many: say which to wear — ?body=<body> in the world address, e.g. world://localhost/atrium/kitchen?body=go2" })
-            const name = input.identity.replace(/[^A-Za-z0-9_-]/g, "-")
+            const model = input.body ?? PLAYER
+            // a player's name: 1–20 letters, digits, - and _ (terra refuses any other)
+            const name = input.identity.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 20)
             const held = placed.get(name)
             if (held?.lease) throw err("WORLD_CHARACTER_LEASED", { detail: `${input.identity} is embodied by ${held.lease.agent} in ${world.name}`, context: { identity: input.identity } })
             if (held) throw err("WORLD_CHARACTER_LEASED", { detail: `a body is already placed as ${name} in ${world.name}`, context: { identity: input.identity } })
             const token = randomBytes(24).toString("base64url")
-            const bridge = await place(world, { body: input.body, name: name, token: token })
+            const bridge = await place(world, { body: model, name: name, token: token })
             const lease: Lease = { id: randomUUID(), body: name, world: world.name, agent: input.agent, pid: input.pid, identity: input.identity, stateDir: input.stateDir, at: new Date().toISOString() }
-            placed.set(name, { name: name, model: input.body, bridge: bridge, lease: lease, startedAt: lease.at })
+            placed.set(name, { name: name, model: model, bridge: bridge, lease: lease, startedAt: lease.at })
             return { lease: lease.id, body: name, world: world.name, identity: input.identity, endpoint: bridge, token: token }
         },
 

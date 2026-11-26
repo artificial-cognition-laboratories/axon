@@ -75,6 +75,7 @@ export function Cli(opts: { axond: AxondT }) {
         worlds: worlds.worlds,
         world: worlds.world,
         place: worlds.place,
+        at: worlds.at,
         runStart: worlds.runStart,
         runCancel: worlds.runCancel,
         worn: worlds.worn,

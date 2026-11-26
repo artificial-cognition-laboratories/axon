@@ -12,10 +12,10 @@ import { err } from "@arcforge/err"
  * name to wear it under are properties of this arrival, not of the place, so
  * they are query.
  *
- *     world://localhost/atrium/kitchen?body=go2        wear a go2 in the kitchen
- *     world://localhost/atrium/kitchen/reach-the-door  a run: it ends, and reports
- *     world://localhost/minecraft/osnea                a lab whose bodies are all one kind
- *     world://localhost/atrium?body=go2                whatever atrium already runs
+ *     world://localhost/terraverse/kilns               a player's body, in the kilns server
+ *     world://localhost/terraverse/kilns/reach-the-door a run: it ends, and reports
+ *     world://localhost/terraverse/kilns?as=Terry      worn under a name of its own
+ *     world://localhost/terraverse                     whatever terraverse already runs
  *
  * A lab IS a universe: there is no level above it, and the first segment names
  * one directly.
@@ -26,7 +26,7 @@ import { err } from "@arcforge/err"
  *
  * ── The shorthand ───────────────────────────────────────────────────────────
  *
- * `atrium/go2`, and `minecraft`, are also addresses: the old `AXON_BODY` form,
+ * `terraverse`, and `terraverse/player`, are also addresses: the old `AXON_BODY` form,
  * which names a lab and a body but no world. They parse to the same shape with
  * `world: null`, meaning "whatever that lab is already running" — an address
  * that can join a world but never start one. Everything downstream reads one
@@ -74,7 +74,7 @@ export const address = {
     /** `text` as a connection, or a thrown reason it is not one. */
     parse(text: string): Connection {
         const said = text.trim()
-        if (!said) throw err("WORLD_ADDRESS_INVALID", { detail: "an empty world address — say where to plug in, e.g. world://localhost/atrium/kitchen?body=go2" })
+        if (!said) throw err("WORLD_ADDRESS_INVALID", { detail: "an empty world address — say where to plug in, e.g. world://localhost/terraverse/kilns" })
         return said.includes("://") ? full(said) : short(said)
     },
 
@@ -131,11 +131,11 @@ function full(said: string): Connection {
     }
 }
 
-/** The shorthand: `minecraft`, or `atrium/go2` — a lab and a body, with no world. */
+/** The shorthand: `terraverse`, or `terraverse/player` — a lab and a body, with no world. */
 function short(said: string): Connection {
     const parts = said.split("/")
     if (parts.length > 2) {
-        throw err("WORLD_ADDRESS_INVALID", { detail: `${said} is neither a lab and a body (atrium/go2) nor a world address (world://localhost/atrium/kitchen?body=go2)` })
+        throw err("WORLD_ADDRESS_INVALID", { detail: `${said} is neither a lab and a body (terraverse/player) nor a world address (world://localhost/terraverse/kilns)` })
     }
     for (const part of parts) named(part, said)
     return {

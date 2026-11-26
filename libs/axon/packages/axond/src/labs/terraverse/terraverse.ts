@@ -2,38 +2,36 @@ import { join } from "node:path"
 import { err } from "@arcforge/err"
 import { Interventions } from "../interventions"
 import { Processes } from "../processes"
-import type { AtriumAction, BodyInfo, Embodiment, LabAction, LabActionResult, LabState, Lease, LeaseInput, Notice, RunningWorld, ScenarioRun } from "../types"
-import { Binary } from "./binary"
-import { Library } from "./library"
+import type { BodyInfo, Embodiment, LabAction, LabActionResult, LabState, Lease, LeaseInput, Notice, RunningWorld, ScenarioRun } from "../types"
+import { Servers } from "./servers"
+import { Terra } from "./terra"
 import { Worlds } from "./worlds"
 
-export type AtriumLabOpts = {
-    /** The lab's state folder: its staged binary, its worlds' senses, its process ledger. */
+export type TerraverseLabOpts = {
+    /** The lab's state folder: its process ledger, its interventions. */
     root: string
-    /** The Atrium Cargo project; see Binary. */
-    source?: string
-    /** A library of its own — a test's. Absent: Atrium's own, shared with whoever imports at a terminal. */
-    library?: string
+    /** Which build of axond this is: which terra it runs (see Terra). */
+    build: "production" | "development"
+    /** The `terra` to run; see Terra. */
+    terra?: string
 }
 
-const CONTROLS: Array<AtriumAction["kind"]> = ["world.reset", "world.pace"]
-
 /**
- * AtriumLab — Axon's own lab: any body, in any world, with real physics.
+ * TerraverseLab — Terraverse: a player's body, in a whole planet.
  *
- * Its worlds are the library's — imported once from wherever they were
- * found, baked by Atrium — and as many are served at once as are asked for,
- * each as `atrium serve` run over the world contract. Its bodies are the
- * library's too: an agent's address names the world to be in and the body to
- * wear, the world is started if it is not already up, and the body is placed
- * in it and worn over the body contract straight from the world.
+ * Its worlds are the player's own, the game's Play list (terra says which),
+ * and as many are served at once as are asked for, each as `terra serve
+ * --world <name> --world-contract` run over the world contract. An agent's
+ * address names the server; it is started if it is not already up, and a
+ * player's body is placed in it and worn over the body contract, through the
+ * bridge terra serves.
  *
  * A pure orchestrator: `Worlds` owns what is running, each world owns its
  * own bodies, and this fans the lab's verbs across them.
  */
-export function AtriumLab(opts: AtriumLabOpts) {
-    const binary = Binary({ root: opts.root, ...(opts.source ? { source: opts.source } : {}) })
-    const library = Library({ binary: binary, ...(opts.library ? { root: opts.library } : {}) })
+export function TerraverseLab(opts: TerraverseLabOpts) {
+    const terra = Terra({ build: opts.build, ...(opts.terra ? { path: opts.terra } : {}) })
+    const servers = Servers({ terra: terra })
     const processes = Processes({ ledger: join(opts.root, "pids.json") })
     const notices: Notice[] = []
     const notice = (text: string) => {
@@ -41,28 +39,16 @@ export function AtriumLab(opts: AtriumLabOpts) {
         if (notices.length > 100) notices.splice(0, notices.length - 100)
     }
     const worlds = Worlds({
-        binary: binary,
-        library: library,
+        terra: terra,
+        servers: servers,
         processes: processes,
-        root: opts.root,
         notice: (world, text) => notice(`${world}: ${text}`),
     })
     const interventions = Interventions({ root: opts.root, execute: action => execute(action) })
 
+    /** Terraverse has no interventions yet: every one is refused, saying so. */
     async function execute(action: LabAction): Promise<LabActionResult> {
-        const named = "world" in action ? action.world : null
-        const world = named ? worlds.served(named) : null
-        if (!world) throw err("WORLD_NOT_RUNNING", { detail: `${named ?? "that world"} is not running` })
-        switch (action.kind) {
-            case "world.reset":
-                await world.ask({ type: "reset" })
-                return { at: Date.now(), world: world.name, action: action, result: "every body back at its placement, at rest" }
-            case "world.pace":
-                await world.ask({ type: "pace", pace: action.pace })
-                return { at: Date.now(), world: world.name, action: action, result: `pace ${action.pace.kind === "scaled" ? `× ${action.pace.factor}` : action.pace.kind}` }
-            default:
-                throw err("WORLD_REFUSED", { detail: `Atrium does not support ${action.kind}` })
-        }
+        throw err("WORLD_REFUSED", { detail: `Terraverse does not support ${action.kind} yet` })
     }
 
     /**
@@ -77,23 +63,23 @@ export function AtriumLab(opts: AtriumLabOpts) {
     }
 
     return {
-        library: library,
         async state(): Promise<LabState> {
-            const problem = binary.problem()
+            const problem = terra.problem()
             const live = worlds.state()
             return {
-                id: "atrium",
-                title: "Atrium",
-                controls: live.length > 0 ? [...CONTROLS] : [],
-                controlProblem: live.length > 0 ? null : "no world is running",
+                id: "terraverse",
+                title: "Terraverse",
+                controls: [],
+                controlProblem: live.length > 0 ? "Terraverse has no interventions yet" : "no world is running",
                 problem: problem,
+                // terra says which worlds there are: without it there are none to show, and `problem` says why
                 worlds: problem ? [] : await worlds.list(),
                 running: live,
                 bodies: worlds.each().flatMap(world => world.bodies.list()),
                 halted: null,
                 notices: [...notices],
                 leases: worlds.each().flatMap(world => world.bodies.leases()),
-                bridge: await binary.state(),
+                bridge: await terra.state(),
             }
         },
         start: (input: { name: string }): Promise<RunningWorld> => worlds.start(input.name),
@@ -108,18 +94,18 @@ export function AtriumLab(opts: AtriumLabOpts) {
         },
         act: interventions.act,
         history: interventions.history,
-        bridge: { state: binary.state, build: binary.build },
+        bridge: { state: terra.state, build: terra.build },
         /**
-         * Atrium has no scenarios yet. Said, not answered with an empty list:
+         * Terraverse has no scenarios yet. Said, not answered with an empty list:
          * "this world has none" and "this lab cannot" are different facts, and
          * a surface that cannot tell them apart shows the wrong one.
          */
-        scenarios: (): Promise<string[]> => { throw err("WORLD_REFUSED", { detail: "Atrium has no scenarios yet — connect to a world itself: world://localhost/atrium/<world>" }) },
+        scenarios: (): Promise<string[]> => { throw err("WORLD_REFUSED", { detail: "Terraverse has no scenarios yet — connect to a server itself: world://localhost/terraverse/<server>" }) },
         runs: {
-            start: (): Promise<ScenarioRun> => { throw err("WORLD_REFUSED", { detail: "Atrium has no scenarios to run yet" }) },
-            get: (): Promise<ScenarioRun> => { throw err("WORLD_REFUSED", { detail: "Atrium has no runs yet" }) },
-            list: (): Promise<ScenarioRun[]> => { throw err("WORLD_REFUSED", { detail: "Atrium has no runs yet" }) },
-            cancel: (): Promise<void> => { throw err("WORLD_REFUSED", { detail: "Atrium has no runs yet" }) },
+            start: (): Promise<ScenarioRun> => { throw err("WORLD_REFUSED", { detail: "Terraverse has no scenarios to run yet" }) },
+            get: (): Promise<ScenarioRun> => { throw err("WORLD_REFUSED", { detail: "Terraverse has no runs yet" }) },
+            list: (): Promise<ScenarioRun[]> => { throw err("WORLD_REFUSED", { detail: "Terraverse has no runs yet" }) },
+            cancel: (): Promise<void> => { throw err("WORLD_REFUSED", { detail: "Terraverse has no runs yet" }) },
         },
         bodies: {
             list: (): BodyInfo[] => worlds.each().flatMap(world => world.bodies.list()),
@@ -128,7 +114,7 @@ export function AtriumLab(opts: AtriumLabOpts) {
                 worlds.bodies(await intended(input?.world)).add(input),
             /** The body the agent's address asked for, in the world it named — started here if it was not already up. */
             lease: async (input: LeaseInput): Promise<Embodiment> => {
-                if (input.scenario) throw err("WORLD_REFUSED", { detail: "Atrium has no scenarios yet — connect to the world itself: world://localhost/atrium/<world>" })
+                if (input.scenario) throw err("WORLD_REFUSED", { detail: "Terraverse has no scenarios yet — connect to the server itself: world://localhost/terraverse/<server>" })
                 return worlds.bodies(await intended(input.world)).lease(input)
             },
             /** A lease belongs to one world; which, is found rather than asked for. */
@@ -143,4 +129,4 @@ export function AtriumLab(opts: AtriumLabOpts) {
     }
 }
 
-export type AtriumLabT = ReturnType<typeof AtriumLab>
+export type TerraverseLabT = ReturnType<typeof TerraverseLab>

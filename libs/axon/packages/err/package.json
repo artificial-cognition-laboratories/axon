@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/err",
-    "version": "2.0.244",
+    "version": "2.0.247",
     "license": "Apache-2.0",
     "description": "Structured Axon errors — the code map every user-facing failure is rendered from.",
     "type": "module",
@@ -44,5 +44,5 @@
         "agent-runtime",
         "typescript"
     ],
-    "axonRevision": "6b7c31b386531c7829eb28a9f00480022cdc01f8"
+    "axonRevision": "cd0410b6a55d1024b46dae23a9abf3b850fd4547"
 }

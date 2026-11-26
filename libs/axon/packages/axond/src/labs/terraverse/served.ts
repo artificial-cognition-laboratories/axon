@@ -1,3 +1,4 @@
+import { createSocket } from "node:dgram"
 import { world as checked } from "@arcforge/body"
 import { err } from "@arcforge/err"
 import { world } from "@arcforge/types"
@@ -5,18 +6,14 @@ import type { ProcessesT } from "../processes"
 
 export type ServedOpts = {
     processes: ProcessesT
-    /** The `atrium` executable. */
-    binary: string
-    /** What points Atrium at the library — none for its own. */
-    library: string[]
-    /** Where its bodies' cameras keep their pictures. */
-    senses: string
-    /** Which world of the library. */
+    /** The `terra` executable. */
+    terra: string
+    /** The world's name in the player's Play list (`terra worlds`). */
     name: string
 }
 
-/** How long a world has to load and say it is ready. A baked world takes a fraction of a second; a large one, a few. */
-const READY_MS = 30_000
+/** How long a server has to prepare its mods, make its universe and take players. A first start compiles its mods. */
+const READY_MS = 120_000
 /** How long a world has to answer a request. */
 const ANSWER_MS = 10_000
 /** How much of what the world said is kept for the lab's logs. */
@@ -26,8 +23,8 @@ const KEPT_LINES = 500
 export type Said = { at: string; text: string }
 
 /**
- * Served — one world, running: `atrium serve --controlled`, spoken to over
- * the world contract (atrium.world/0) on its stdin and stdout. Resolves once
+ * Served — one world, running: `terra serve --world-contract`, spoken to over
+ * the world contract (axon.world/0) on its stdin and stdout. Resolves once
  * the world says it is ready, so a handle is never half-started.
  *
  * Every request carries an id, and is answered or refused by it; a refusal
@@ -37,9 +34,11 @@ export type Said = { at: string; text: string }
  * whatever is still asked of it fails, saying how it ended.
  */
 export async function Served(opts: ServedOpts & { heard: (said: Said) => void }) {
+    // the port players join on: one the machine has free now
+    const port = await freePort()
     const proc = opts.processes.spawn({
-        label: `atrium:${opts.name}`,
-        cmd: [opts.binary, ...opts.library, "serve", "--controlled", "--world", opts.name, "--senses", opts.senses],
+        label: `terraverse:${opts.name}`,
+        cmd: [opts.terra, "serve", "--world", opts.name, "--world-contract", "--port", String(port)],
         stdout: "pipe",
         stdin: "pipe",
     })
@@ -151,8 +150,8 @@ export async function Served(opts: ServedOpts & { heard: (said: Said) => void })
         pid: proc.pid,
         startedAt: startedAt,
         ready: said,
-        /** The port bodies are worn and the world watched on. */
-        port: Number(new URL(said.bridge).port),
+        /** The port players join on: the address the world's `view` names. */
+        port: port,
         get ended(): string | null { return ended },
         /** The world's time, and how many of its seconds pass in a wall second, as it last said. */
         get pace(): { time: number; factor: number } { return { time: time, factor: factor } },
@@ -175,6 +174,18 @@ export async function Served(opts: ServedOpts & { heard: (said: Said) => void })
 }
 
 export type ServedT = Awaited<ReturnType<typeof Served>>
+
+/** A UDP port nothing on this machine holds, as the OS hands one out. */
+function freePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const socket = createSocket("udp4")
+        socket.once("error", reject)
+        socket.bind(0, "127.0.0.1", () => {
+            const port = socket.address().port
+            socket.close(() => resolve(port))
+        })
+    })
+}
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 

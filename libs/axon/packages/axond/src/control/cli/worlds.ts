@@ -147,6 +147,31 @@ type Survey = { lab: LabId; worlds: string[]; running: Set<string>; problem: str
             await resolve(`${input.lab}/${input.world}`)
         },
 
+        /**
+         * The world address of what a game's address names: `terra://localhost:52559`, the one a
+         * Terraverse player joins by, as the lab world serving on that port. Only a world a lab
+         * runs takes bodies: one started elsewhere (from the game, or `terra serve` in a terminal)
+         * is refused saying so, never guessed at.
+         */
+        async at(said: string): Promise<string> {
+            let url: URL
+            try {
+                url = new URL(said)
+            } catch {
+                throw err("WORLD_ADDRESS_INVALID", { detail: `${said} is not an address` })
+            }
+            if (url.protocol !== "terra:") throw err("WORLD_ADDRESS_INVALID", { detail: `${said} is not a game's address (terra://host:port)` })
+            if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+                throw err("WORLD_ADDRESS_REMOTE", { detail: `${url.hostname} is not this machine, and a lab elsewhere is not wired yet` })
+            // a Terraverse server's port when the address names none (the game's DEFAULT_PORT)
+            const port = url.port === "" ? 30000 : Number(url.port)
+            const surveyed = await Promise.all(LAB_IDS.map(async id => ({ lab: id, running: (await opts.client.labs[id].state()).running })))
+            const hit = surveyed.flatMap(lab => lab.running.filter(world => world.port === port && world.state === "running").map(world => ({ lab: lab.lab, world: world.name })))
+            if (hit.length === 0)
+                throw err("WORLD_NOT_FOUND", { detail: `nothing a lab runs is at ${said} — a world started from the game or by terra serve takes no bodies; start it in Axon Fleet, or name a lab's world: world://localhost/terraverse/<world>` })
+            return `world://localhost/${hit[0]!.lab}/${encodeURIComponent(hit[0]!.world)}`
+        },
+
         /** Puts `agent` through a scenario in a world; the run is the daemon's and carries on without this terminal. */
         runStart(input: { lab: LabId; world: string; scenario: string; agent: string }): Promise<ScenarioRun> {
             return opts.client.labs[input.lab].runs.start({ world: input.world, scenario: input.scenario, agent: input.agent })

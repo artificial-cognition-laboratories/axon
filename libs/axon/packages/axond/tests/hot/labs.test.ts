@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { Labs } from "../../src/labs"
 import { MinecraftLab } from "../../src/labs/minecraft"
 import { TerrariaLab } from "../../src/labs/terraria"
+import { TerraverseLab } from "../../src/labs/terraverse"
 
 const roots: string[] = []
 /** These tests boot no agent; a launch reaching here is a bug in the test. */
@@ -16,15 +17,41 @@ const launcher = {
 async function lab() {
     const root = await mkdtemp(join(tmpdir(), "axond-labs-"))
     roots.push(root)
-    return Labs({ root: root, launcher: launcher })
+    return Labs({ root: root, launcher: launcher, build: "development" })
 }
 
 describe("labs", () => {
-    test("constructs the Terraria lab without probing its installation", async () => {
+    test("registers Terraverse alone, without probing for terra", async () => {
         const labs = await lab()
 
-        expect(labs.all.terraria).toBeDefined()
-        expect(labs.all.minecraft).toBeDefined()
+        expect(Object.keys(labs.all)).toEqual(["terraverse"])
+    })
+
+    test("says when terra is missing, and lists no worlds it can't ask for", async () => {
+        const root = await mkdtemp(join(tmpdir(), "axond-terraverse-"))
+        roots.push(root)
+        const terraverse = TerraverseLab({ root: root, build: "development", terra: join(root, "missing-terra") })
+
+        const state = await terraverse.state()
+        expect(state.id).toBe("terraverse")
+        expect(state.worlds).toEqual([])
+        expect(state.problem).toContain("no terra at")
+    })
+
+    test("lists the player's worlds as terra says them", async () => {
+        const root = await mkdtemp(join(tmpdir(), "axond-terraverse-worlds-"))
+        roots.push(root)
+        const world = join(root, "Kilns")
+        await mkdir(world, { recursive: true })
+        await writeFile(join(world, "world.mt"), "world_name = Kilns\n")
+        // a terra that answers `worlds --json` as the real one does
+        const terra = join(root, "terra")
+        await writeFile(terra, `#!/bin/sh\necho '${JSON.stringify({ profile: "local", worlds: [{ name: "Kilns", title: "Kilns", path: world, server: null }] })}'\n`, { mode: 0o755 })
+        const terraverse = TerraverseLab({ root: root, build: "development", terra: terra })
+
+        const state = await terraverse.state()
+        expect(state.problem).toBeNull()
+        expect(state.worlds.map(w => [w.name, w.path])).toEqual([["Kilns", world]])
     })
 
     test("reports a missing Terraria install when the lab is read, not constructed", async () => {

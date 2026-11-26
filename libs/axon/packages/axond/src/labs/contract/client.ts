@@ -1,6 +1,6 @@
 import type {
-    BodyInfo, BridgeState, Embodiment, Imported, LabAction, LabActionResult, LabId, LabIntervention, LabState,
-    LeaseInput, LibraryEntry, MinecraftPlace, RunningWorld, ScenarioRun, StudioOpened, StudioPlace,
+    BodyInfo, BridgeState, Embodiment, LabAction, LabActionResult, LabId, LabIntervention, LabState,
+    LeaseInput, RunningWorld, ScenarioRun,
 } from "./index"
 import { LAB_IDS } from "./index"
 
@@ -62,44 +62,7 @@ export function LabsClient(opts: LabsClientOpts) {
     }
 
     const labs = {
-        terraria: lab("terraria"),
-        minecraft: {
-            ...lab("minecraft"),
-            studio: {
-                status: () => call(["labs", "minecraft", "studio", "status"]) as Promise<{ state: "stopped" | "starting" | "running" | "failed"; on: StudioPlace | null; failure: string | null }>,
-                open: (input: { on: StudioPlace }) => call(["labs", "minecraft", "studio", "open"], input) as Promise<StudioOpened>,
-                stop: () => call(["labs", "minecraft", "studio", "stop"]) as Promise<void>,
-            },
-            worlds: {
-                scenarios: (input: { name: string }) => call(["labs", "minecraft", "worlds", "scenarios"], input) as Promise<string[]>,
-                import: (input: { name: string; source: "minecraft" | "prism" }) => call(["labs", "minecraft", "worlds", "import"], input) as Promise<void>,
-                remove: (input: { name: string }) => call(["labs", "minecraft", "worlds", "remove"], input) as Promise<string>,
-                places: {
-                    list: (input: { world: string }) => call(["labs", "minecraft", "worlds", "places", "list"], input) as Promise<MinecraftPlace[]>,
-                    add: (input: { world: string; name: string; x: number; y: number; z: number }) => call(["labs", "minecraft", "worlds", "places", "add"], input) as Promise<MinecraftPlace>,
-                    remove: (input: { world: string; id: string }) => call(["labs", "minecraft", "worlds", "places", "remove"], input) as Promise<void>,
-                },
-            },
-            /**
-             * Download and configure Fabric. Minecraft's only extra verb, and
-             * it stays an extra verb rather than being forced into the shared
-             * surface: tModLoader arrives through Steam, so Terraria has
-             * nothing to bootstrap and a stub pretending otherwise would be a
-             * lie. EULA acceptance is an explicit caller decision.
-             */
-            bootstrap: (input: { acceptEula: boolean; name: string; port?: number; players?: number }) =>
-                call(["labs", "minecraft", "bootstrap"], input) as Promise<void>,
-        },
-
-        atrium: {
-            ...lab("atrium"),
-            /** The bodies and worlds Atrium has baked, and baking more from files on this machine. */
-            library: {
-                list: () => call(["labs", "atrium", "library", "list"]) as Promise<LibraryEntry[]>,
-                import: (input: { file: string; name?: string; as?: "body" | "world"; props?: Array<{ node: string; mass?: number }>; replace?: boolean }) =>
-                    call(["labs", "atrium", "library", "import"], input) as Promise<Imported>,
-            },
-        },
+        terraverse: lab("terraverse"),
 
         /**
          * Every lab's state, or none when no daemon is running — the labs

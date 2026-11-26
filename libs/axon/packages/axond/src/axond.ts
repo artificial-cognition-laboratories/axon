@@ -318,7 +318,7 @@ export function Axond(opts: AxondOpts = {}) {
 
     // Labs are machine-wide: a display, a port, and a game client can only
     // belong to one process on this box.
-    const labs = Labs({ root: join(paths.root, "worlds"), launcher: launcher })
+    const labs = Labs({ root: join(paths.root, "worlds"), launcher: launcher, build: distribution() })
 
     const dispatch = Dispatch({
         domains: {

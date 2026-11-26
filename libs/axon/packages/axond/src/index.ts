@@ -52,5 +52,5 @@ export { parseSpecifier, Artifacts, MODEL_PROTOCOL } from "./models/index"
  * one entry in the daemon rather than an edit in each consumer.
  */
 export { LAB_IDS } from "./labs/contract/index"
-export type { AtriumAction, BodyClient, BodyInfo, BodyState, Imported, LibraryEntry, BridgeState, Embodiment, LabAction, LabActionResult, LabIntervention, LabId, LabState, LabT, Lease, LeaseInput, MinecraftAction, MinecraftPlace, MinecraftPlayer, Notice, Observer, RunningWorld, StudioOpened, StudioPlace, ScenarioEvent, ScenarioProgress, ScenarioRun, TerrariaAction, WorldInfo } from "./labs/index"
+export type { BodyClient, BodyInfo, BodyState, BridgeState, Embodiment, LabAction, LabActionResult, LabIntervention, LabId, LabKind, LabState, LabT, Lease, LeaseInput, MinecraftAction, MinecraftPlace, MinecraftPlayer, Notice, Observer, RunningWorld, StudioOpened, StudioPlace, ScenarioEvent, ScenarioProgress, ScenarioRun, TerrariaAction, WorldInfo } from "./labs/index"
 export type { ParsedSpecifier } from "./models/index"

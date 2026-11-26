@@ -3,11 +3,11 @@ import { world as contract, type body } from "@arcforge/types"
 
 type Said = contract.Said
 
-const CODES: readonly contract.Code[] = ["BODY_NOT_FOUND", "WORLD_NOT_FOUND", "IMPORT_UNSUPPORTED", "IMPORT_FAILED", "CONTRACT_UNSAID", "PHYSICS", "REFUSED", "WIRE", "IO"]
+const CODES: readonly contract.Code[] = ["BODY_NOT_FOUND", "WORLD_NOT_FOUND", "IMPORT_UNSUPPORTED", "IMPORT_FAILED", "CONTRACT_UNSAID", "PHYSICS", "REFUSED", "WIRE", "IO", "NOT_WIRED"]
 const EVENTS: readonly contract.Event["kind"][] = ["unsound", "behind", "refused"]
 
 /**
- * world — the world contract (atrium.world/0) at work: each line a world
+ * world — the world contract (axon.world/0) at work: each line a world
  * says, read and checked, and rebuilt from the fields that were — so a world
  * that says something else is refused by name, never half-believed.
  */
@@ -24,7 +24,7 @@ export const world = {
                     type: "ready",
                     contract: contract.CONTRACT,
                     version: read.text("version"),
-                    mujoco: read.text("mujoco"),
+                    engine: read.engine("engine"),
                     world: read.text("world"),
                     bridge: read.text("bridge"),
                     view: read.text("view"),
@@ -85,6 +85,13 @@ function Read(fields: Record<string, unknown>, line: string) {
             const found = allowed.find(option => option === fields[key])
             if (found === undefined) refuse(what(key))
             return found
+        },
+        engine(key: string): { name: string; version: string } {
+            const held = fields[key]
+            if (typeof held !== "object" || held === null) refuse(what(key))
+            const engine = Object.fromEntries(Object.entries(held))
+            if (typeof engine.name !== "string" || typeof engine.version !== "string") refuse(what(key))
+            return { name: engine.name, version: engine.version }
         },
         pace(key: string): body.Pace {
             const held = fields[key]

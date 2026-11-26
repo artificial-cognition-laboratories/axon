@@ -1,19 +1,15 @@
-import { mkdir, rm } from "node:fs/promises"
-import { join } from "node:path"
 import { err } from "@arcforge/err"
 import type { ProcessesT } from "../processes"
 import type { RunningWorld, WorldInfo } from "../types"
-import type { BinaryT } from "./binary"
 import { Bodies, type BodiesT } from "./bodies"
-import type { LibraryT } from "./library"
 import { Served, type ServedT } from "./served"
+import type { ServersT } from "./servers"
+import type { TerraT } from "./terra"
 
 export type WorldsOpts = {
-    binary: BinaryT
-    library: LibraryT
+    terra: TerraT
+    servers: ServersT
     processes: ProcessesT
-    /** The lab's state folder: each world's senses live under it. */
-    root: string
     /** Something a person should know, said against the world it happened in. */
     notice: (world: string, text: string) => void
 }
@@ -24,7 +20,7 @@ const SWEEP_MS = 2_000
 /** One world of the lab, running: what serves it, where it came from, and the bodies in it. */
 type Running = {
     served: ServedT
-    /** Where it lives in the library, as the library said when it was started. */
+    /** Its folder, in the player's profile. */
     path: string
     bodies: BodiesT
     sweeping: ReturnType<typeof setInterval>
@@ -33,8 +29,8 @@ type Running = {
 /**
  * Worlds — every world this lab is serving, beside each other.
  *
- * One world per name, each its own `atrium serve` process with its own
- * senses, its own bodies, and its own sweep. Asking for a world already
+ * One world per name, each its own `terra serve --world-contract` process
+ * with its own bodies and its own sweep. Asking for a world already
  * running gives that one back untouched — which is how a second agent joins
  * the world a first is already in, rather than restarting it underneath.
  *
@@ -46,17 +42,9 @@ export function Worlds(opts: WorldsOpts) {
     const starting = new Map<string, Promise<RunningWorld>>()
     let reaped = false
 
-    /** Every world the library holds, whether running or not. */
-    async function all(): Promise<WorldInfo[]> {
-        const built = (await opts.binary.state()).built?.at ?? new Date(0).toISOString()
-        const entries = await opts.library.list()
-        return entries.filter(entry => entry.kind === "world").map(entry => ({
-            name: entry.name,
-            path: entry.path ?? `${entry.name} (built into Atrium)`,
-            // A built-in world is as new as the Atrium it is built into.
-            modifiedAt: entry.path ? new Date(Bun.file(join(entry.path, "world.json")).lastModified).toISOString() : built,
-            source: "lab" as const,
-        }))
+    /** Every server the lab has, whether running or not. */
+    function all(): Promise<WorldInfo[]> {
+        return opts.servers.list()
     }
 
     function describe(name: string, world: Running): RunningWorld {
@@ -71,7 +59,8 @@ export function Worlds(opts: WorldsOpts) {
             players: world.bodies.list().filter(body => body.state === "embodied").map(body => body.identity ?? body.id),
             pid: world.served.pid,
             startedAt: world.served.startedAt,
-            observers: [{ id: "scene", kind: "geometry", label: "the whole world", url: world.served.ready.view }],
+            // watched by joining it from the game (`view`, a terra:// address), not by a viewer here
+            observers: [],
         }
     }
 
@@ -81,18 +70,11 @@ export function Worlds(opts: WorldsOpts) {
             if (killed.length > 0) opts.notice(name, `reaped worlds an earlier daemon left behind: ${killed.join(", ")}`)
             reaped = true
         }
-        await opts.binary.stage()
         const found = (await all()).find(world => world.name === name)
-        if (!found) throw err("WORLD_NOT_FOUND", { detail: `Atrium's library has no world ${name} — import one first` })
-
-        const senses = join(opts.root, "senses", name)
-        await rm(senses, { recursive: true, force: true })
-        await mkdir(senses, { recursive: true })
+        if (!found) throw err("WORLD_NOT_FOUND", { detail: `there's no world ${name} in the player's Play list — \`terra worlds\` lists them` })
         const served = await Served({
             processes: opts.processes,
-            binary: opts.binary.path,
-            library: opts.library.args,
-            senses: senses,
+            terra: opts.terra.path(),
             name: name,
             heard: said => opts.notice(name, said.text),
         })
@@ -160,7 +142,7 @@ export function Worlds(opts: WorldsOpts) {
                 throw err("WORLD_NOT_RUNNING", {
                     detail: running.size === 0
                         ? `${name} is not running — an agent's address starts it, or start it from the Worlds view`
-                        : `${name} is not running; Atrium is serving ${[...running.keys()].join(", ")}`,
+                        : `${name} is not running; Terraverse is serving ${[...running.keys()].join(", ")}`,
                     context: { world: name },
                 })
             }
@@ -176,8 +158,8 @@ export function Worlds(opts: WorldsOpts) {
         only(): string {
             const names = [...running.keys()]
             if (names.length === 1) return names[0]!
-            if (names.length === 0) throw err("WORLD_NOT_RUNNING", { detail: "no Atrium world is running, and this address names none to start — say which: world://localhost/atrium/<world>" })
-            throw err("WORLD_ALREADY_RUNNING", { detail: `Atrium is serving ${names.join(", ")} — say which to join: world://localhost/atrium/<world>` })
+            if (names.length === 0) throw err("WORLD_NOT_RUNNING", { detail: "no Terraverse server is running, and this address names none to start — say which: world://localhost/terraverse/<server>" })
+            throw err("WORLD_ALREADY_RUNNING", { detail: `Terraverse is serving ${names.join(", ")} — say which to join: world://localhost/terraverse/<server>` })
         },
 
         /** Every world's bodies, in one list, each saying which world it is in. */

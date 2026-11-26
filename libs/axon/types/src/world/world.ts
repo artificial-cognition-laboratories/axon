@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- *  THE WORLD CONTRACT — atrium.world/0                       2026-10-09
+ *  THE WORLD CONTRACT — axon.world/0                         2026-11-24
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * How whoever runs a world — axond's lab, a test, a person at a terminal —
@@ -48,14 +48,14 @@
  *
  * SPOKEN BY
  *
- *   Atrium (`apps/atrium`), Axon's own lab: MuJoCo physics, bodies and
- *   worlds imported from MJCF, URDF, USD, glTF and OBJ. The Rust side of these
- *   types is `apps/atrium/src/world/wire.rs`; they are the source of truth.
+ *   Terraverse: `terra serve --world-contract`, run by axond's lab. A body
+ *   is a player in the world — a game client with no window — worn over its
+ *   bridge. Atrium spoke it first (atrium.world/0) and is gone.
  */
 
 import type { Pace } from "../body/body"
 
-export const CONTRACT = "atrium.world/0"
+export const CONTRACT = "axon.world/0"
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  1. REQUESTS — what the runner asks
@@ -102,20 +102,20 @@ export type Said = Ready | Reply | Failed | Event | Ticked
 
 /**
  * The first line: the world is loaded and listening. `bridge` is where minds
- * connect — a body at `<bridge>/<name>` — and `view` where a viewer watches
- * the whole world (`View`, below).
+ * connect — a body at `<bridge>/<name>` — and `view` where a person watches
+ * the whole world: an address their own client joins (Terraverse's `terra://…`).
  */
 export type Ready = {
     type: "ready"
     contract: typeof CONTRACT
     /** The world process's own version. */
     version: string
-    /** The physics engine's. */
-    mujoco: string
+    /** What runs the world, for logs and people: `terraverse` and its version. A runner never branches on it. */
+    engine: { name: string; version: string }
     world: string
     bridge: string
     view: string
-    /** One physics step, s. */
+    /** One step of the world, s: a Terraverse server's tick. */
     timestep: number
     pace: Pace
 }
@@ -150,6 +150,8 @@ export type Code =
     | "REFUSED"
     | "WIRE"
     | "IO"
+    /** A request of the contract this world does not do yet, said so rather than pretended. */
+    | "NOT_WIRED"
 
 // ── results ───────────────────────────────────────────────────────────────
 
@@ -171,7 +173,8 @@ export type StateResult = { world: string; time: number; pace: Pace; bodies: Bod
 //  3. THE VIEW — the whole world, for whoever watches it
 // ═══════════════════════════════════════════════════════════════════════════
 //
-//  On `Ready.view`, a WebSocket that only speaks:
+//  On a lab's geometry observer (`Observer.url`, kind "geometry"), a
+//  WebSocket that only speaks:
 //
 //    text    a `ViewScene` — what is drawn — said again whenever a body is
 //            placed or taken out (geoms are numbered afresh)
@@ -195,7 +198,7 @@ export type ViewGeom = {
     /** The part of that body (or the prop) it is on. */
     part: string
     shape: "plane" | "sphere" | "capsule" | "ellipsoid" | "cylinder" | "box" | "mesh"
-    /** MuJoCo's size parameters, as the shape reads them: a box's half-sizes; a sphere's radius; a capsule's or cylinder's radius and half-length; a plane's half-extents (0: endless). */
+    /** The shape's size parameters: a box's half-sizes; a sphere's radius; a capsule's or cylinder's radius and half-length; a plane's half-extents (0: endless). */
     size: [number, number, number]
     /** Which of the scene's meshes, for a mesh. */
     mesh?: number
