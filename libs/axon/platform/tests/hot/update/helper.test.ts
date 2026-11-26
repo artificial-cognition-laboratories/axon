@@ -78,7 +78,9 @@ describe("Axon update installer", () => {
                 commands.push(command)
                 if (command[0] === "/axon") return { code: 0, stdout: "2.0.21\n" }
                 installs++
-                return { code: installs < 3 ? 1 : 0, stdout: "" }
+                return installs < 3
+                    ? { code: 1, stdout: "", stderr: 'error: No version matching "2.0.21" found for specifier "@arcforge/axon" (but package exists)' }
+                    : { code: 0, stdout: "" }
             },
         }).apply(request(state))
 
@@ -86,6 +88,31 @@ describe("Axon update installer", () => {
         expect(delays).toEqual([1_000, 2_000])
         expect(commands.filter(command => command[0] === "/bun")).toHaveLength(3)
         expect(JSON.parse(await readFile(state, "utf-8"))).toMatchObject({ status: "complete" })
+    })
+
+    test("bun's warnings stay out of a successful update, and are shown when it fails", async () => {
+        const state = await statePath()
+        const printed: string[] = []
+        const noisy = 'warn: Duplicate key "@arcforge/axon" in object literal'
+        const ok = await Installer({
+            out: message => { printed.push(message) },
+            err: message => { printed.push(message) },
+            sleep: async () => { },
+            run: async command => command[0] === "/axon"
+                ? { code: 0, stdout: "2.0.21\n" }
+                : { code: 0, stdout: "", stderr: noisy },
+        }).apply(request(state))
+        expect(ok).toBe(0)
+        expect(printed.join("")).not.toContain("Duplicate key")
+
+        const failed = await Installer({
+            out: message => { printed.push(message) },
+            err: message => { printed.push(message) },
+            sleep: async () => { },
+            run: async () => ({ code: 1, stdout: "", stderr: "error: EACCES writing the global manifest" }),
+        }).apply(request(state))
+        expect(failed).toBe(1)
+        expect(printed.join("")).toContain("EACCES writing the global manifest")
     })
 })
 

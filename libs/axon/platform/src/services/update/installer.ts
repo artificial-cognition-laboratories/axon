@@ -6,7 +6,8 @@ import { withPropagationRetry } from "../../build/project/propagation"
 
 /** How the installer reaches the outside world. Injected so tests drive it without spawning. */
 export type InstallerIo = {
-    run?: (command: string[]) => Promise<{ code: number; stdout: string }>
+    /** `stderr` is captured, never inherited: bun's own warnings are shown only when an install fails. */
+    run?: (command: string[]) => Promise<{ code: number; stdout: string; stderr?: string }>
     sleep?: (milliseconds: number) => Promise<void>
     out?: (message: string) => void
     err?: (message: string) => void
@@ -54,10 +55,10 @@ export function Installer(io: InstallerIo = {}) {
         const outcome = await withPropagationRetry(
             async () => {
                 const result = await run([request.bun, "add", "-g", "--no-cache", `@arcforge/axon@${request.to}`])
-                // No `output`: bun's stderr is inherited so the user sees the
-                // install directly, which means the text to classify on never
-                // reaches here. Retries unconditionally — see PropagationAttempt.
-                return { ok: result.code === 0 }
+                // bun's output is CAPTURED. Inherited, it printed every warning
+                // bun had about the machine's global manifest straight into a
+                // successful update, and the classifier never saw the text.
+                return { ok: result.code === 0, output: `${result.stdout}${result.stderr ?? ""}` }
             },
             {
                 sleep,
@@ -66,6 +67,7 @@ export function Installer(io: InstallerIo = {}) {
                 ),
             },
         )
+        if (!outcome.ok) report(`bun could not install @arcforge/axon@${request.to}:\n${outcome.output ?? ""}\n`)
         return outcome.ok
     }
 
@@ -78,6 +80,7 @@ export function Installer(io: InstallerIo = {}) {
     async function rollback(request: UpdateRequest): Promise<boolean> {
         report("Axon update failed verification; restoring the previous version…\n")
         const result = await run([request.bun, "add", "-g", `@arcforge/axon@${request.from}`])
+        if (result.code !== 0) report(`${result.stdout}${result.stderr ?? ""}\n`)
         return result.code === 0
     }
 
@@ -127,13 +130,13 @@ export function Installer(io: InstallerIo = {}) {
 
 export type InstallerT = ReturnType<typeof Installer>
 
-async function runCommand(command: string[]): Promise<{ code: number; stdout: string }> {
+async function runCommand(command: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
     const proc = Bun.spawn(command, {
         stdin: "ignore",
         stdout: "pipe",
-        stderr: "inherit",
+        stderr: "pipe",
         env: process.env,
     })
-    const [code, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()])
-    return { code: code, stdout: stdout }
+    const [code, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    return { code: code, stdout: stdout, stderr: stderr }
 }

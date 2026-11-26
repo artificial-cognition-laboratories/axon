@@ -162,6 +162,10 @@ export type HistoryEntry = {
  * cold boot is in anyway.
  */
 export type AgentManifest = {
+    /** Its identity (package name, e.g. "@axon/zeno") — the header's title row. */
+    name?: string
+    /** Its project directory — the header's "home:" row. */
+    root?: string
     /** The model it ran on — what the header's "model:" row shows. */
     model?: string
     /** How many modules it loaded. */
@@ -256,22 +260,9 @@ export type AppState = {
     lastAgent?: string
 
     /**
-     * Last known model per agent, keyed by ADDRESS.
-     *
-     * Purely a render cache for the header's "model:" row. That value is read
-     * off the agent's live blueprint, which does not exist until boot
-     * completes, so a cold start showed a spinner for the whole boot even
-     * though the answer had not changed since last run. Written on every
-     * successful boot, read only while booting, and always superseded by the
-     * live blueprint the moment it lands — a stale entry is visible for one
-     * boot at most, and never overrides truth.
-     */
-    agentModels?: Record<string, string>
-
-    /**
      * What each agent looked like when it last shut down, keyed by ADDRESS.
      *
-     * The generalisation of `agentModels`, and the same reasoning: every value
+     * Every value
      * a status line shows is read off a live blueprint or session, none of
      * which exist until boot completes. A cold start therefore rendered a bar
      * of empty sections for the second or so the agent took to come up, and
@@ -280,8 +271,7 @@ export type AppState = {
      *
      * Written on shutdown and on every successful boot, read only while
      * booting, and superseded by live values the moment they land. A stale
-     * entry is visible for one boot at most and never overrides truth — the
-     * same contract `agentModels` states, widened to the rest of the row.
+     * entry is visible for one boot at most and never overrides truth.
      *
      * Deliberately NOT a general component cache. Only values that are
      * expensive to learn and stable across a restart belong here; a clock or a

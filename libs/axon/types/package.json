@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/types",
-    "version": "2.0.247",
+    "version": "2.0.248",
     "license": "Apache-2.0",
     "type": "module",
     "private": false,
@@ -49,5 +49,5 @@
         "agent-runtime",
         "typescript"
     ],
-    "axonRevision": "cd0410b6a55d1024b46dae23a9abf3b850fd4547"
+    "axonRevision": "72638cc35fa151f0d9a6a654a5504b425987d176"
 }

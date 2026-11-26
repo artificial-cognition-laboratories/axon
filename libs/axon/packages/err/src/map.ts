@@ -1839,6 +1839,20 @@ export const errorMap = {
         severity: "fatal",
         expected: true,
     },
+    SESSION_WRITE_FAILED: {
+        code: "AX-SESSION-009",
+        title: "Session Log Write Failed",
+        description: "An event could not be appended to the agent's session log. The agent keeps running, but its durable record is now missing what happened — anything reading the session (the debugger, Fleet, a resume) will not see it.",
+        source: "runtime",
+        severity: "degraded",
+    },
+    USAGE_SAMPLING_STOPPED: {
+        code: "AX-DAEMON-010",
+        title: "Resource Sampling Stopped",
+        description: "The daemon could not measure what this agent costs the machine, so it stopped sampling. The agent keeps running; `axonl debug resources` and Fleet's usage view will have no data past this point for this session.",
+        source: "daemon",
+        severity: "degraded",
+    },
     SESSION_UNREADABLE: {
         code: "AX-SESSION-006",
         title: "Session Log Unreadable",

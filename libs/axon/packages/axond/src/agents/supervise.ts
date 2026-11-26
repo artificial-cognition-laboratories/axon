@@ -5,6 +5,7 @@ import type { UsageT } from "./usage"
 import { isEntryEvent, Policy, type AxonBlueprint, type EngineCapability } from "@arcforge/types"
 import type { AxonEngineRequest, AxonEngineRawEvent } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
+import { err } from "@arcforge/err"
 
 /** How often a running agent's cost is sampled into its session. */
 const USAGE_MS = 2_000
@@ -107,6 +108,18 @@ export function Supervise(opts: SuperviseOpts) {
                 ? { ...input.blueprint, cognet: { ...input.blueprint.cognet, resolvedEngines: await services.engines.facts() } }
                 : input.blueprint
 
+            /*
+             * Every write into this agent's log. The log lives in this process
+             * and the wire is one-way, so a failed append has no caller to
+             * return to: it is raised as SESSION_WRITE_FAILED, which the
+             * daemon's error observers report, instead of being dropped.
+             */
+            const record = (type: string, write: Promise<unknown>) => {
+                write.catch(cause => {
+                    err("SESSION_WRITE_FAILED", { cause: cause, context: { sessionId: input.sessionId, type: type } })
+                })
+            }
+
             const resolved = Policy({
                 blueprint: input.blueprint,
                 tools: (input.blueprint.tools ?? []).map(tool => tool.name),
@@ -139,10 +152,10 @@ export function Supervise(opts: SuperviseOpts) {
                      */
                     commit: (type, data, ctx) => {
                         if (isEntryEvent(type as string)) {
-                            void services.session.commitEntry(type as never, data as never, ctx)
+                            record(type, services.session.commitEntry(type as never, data as never, ctx))
                             return
                         }
-                        void services.session.commit(type, data, ctx)
+                        record(type, services.session.commit(type, data, ctx))
                     },
                     ...(opts.decide
                         ? {
@@ -153,7 +166,7 @@ export function Supervise(opts: SuperviseOpts) {
                         : {}),
                 },
                 onError: error => {
-                    void services.session.commit("axon:log:error", { message: error.message } as never)
+                    record("axon:error", services.session.commit("axon:error", { error: err(error) }))
                 },
             })
 
@@ -178,10 +191,11 @@ export function Supervise(opts: SuperviseOpts) {
                     if (measuring) return
                     measuring = true
                     sampler.measure().then(
-                        usage => { void services.session.commit("axon:usage", usage) },
+                        usage => { record("axon:usage", services.session.commit("axon:usage", usage)) },
                         cause => {
-                            void services.session.commit("axon:log:error", { message: `usage sampling stopped: ${cause instanceof Error ? cause.message : String(cause)}` } as never)
                             quiet()
+                            const stopped = err("USAGE_SAMPLING_STOPPED", { cause: cause, context: { sessionId: input.sessionId } })
+                            record("axon:error", services.session.commit("axon:error", { error: stopped }))
                         },
                     ).finally(() => { measuring = false })
                 }, USAGE_MS)

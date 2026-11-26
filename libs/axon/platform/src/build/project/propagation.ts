@@ -72,13 +72,7 @@ export type PropagationAttempt = {
     ok: boolean
     /**
      * Combined output, for classifying the failure — omit when the caller
-     * cannot capture it.
-     *
-     * The updater is exactly that case: it runs bun with `stderr: "inherit"`
-     * so the user watches the install progress directly, which means the text
-     * this classifies on never comes back to it. Absent output retries
-     * unconditionally, which is what that path already did and is correct for
-     * it — a failed global install is worth a few seconds either way.
+     * cannot capture it. Absent output retries unconditionally.
      */
     output?: string
 }

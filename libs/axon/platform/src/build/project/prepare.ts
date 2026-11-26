@@ -366,7 +366,19 @@ export function Prepare(opts: PrepareOpts) {
         // range fails every other package with it — a poisoned cognet range
         // killed the modules install long before the cognet step that would
         // have re-resolved it.
-        const repairedRanges = await installer.repairForeignRanges()
+        // Traced, not warned: only a machine talking to two registries (prod
+        // and local staging — i.e. us, switching `axon` ↔ `axonl`) ever hits
+        // this, the repair is complete, and a user-facing warning about it is
+        // noise on every switch.
+        for (const fixed of await installer.repairForeignRanges()) {
+            report?.("build:range:repaired", {
+                root: root,
+                name: fixed.name,
+                from: fixed.from,
+                to: fixed.to,
+                origin: fixed.origin,
+            })
+        }
 
         // The registry bunfig.toml FETCHES from, corrected here for the same
         // reason ranges are: bun reads this file, not our env, so a stale
@@ -757,16 +769,6 @@ export function Prepare(opts: PrepareOpts) {
                     domain: "dependencies",
                     error: `${fault.name} is pinned to a local workspace copy, not the registry — this agent will not behave like a fresh clone. `
                         + `Set it back to a version range in package.json if that was not deliberate.`,
-                })),
-                // A range this tool wrote against one registry and then had to
-                // rewrite for another. Always surfaced: the manifest changed
-                // underneath the user, and the reason (two registries, one
-                // package.json) is not something they can infer from the diff.
-                ...repairedRanges.map(fixed => ({
-                    domain: "dependencies",
-                    error: `${fixed.name} was ${fixed.from}, auto-resolved against ${fixed.origin}. `
-                        + `That version does not exist here, so it was re-resolved to ${fixed.to}. `
-                        + `Switching between registries rewrites this range each time.`,
                 })),
             ],
         }

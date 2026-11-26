@@ -220,10 +220,7 @@ export async function main(): Promise<void> {
         })
     } catch (cause) {
         const failure = err(cause)
-        supervisor.commit("axon:boot:failed" as never, {
-            error: failure.toJSON(),
-            durationMs: 0,
-        } as never)
+        supervisor.commit("axon:boot:failed", { error: failure, durationMs: 0 })
         // Give the commit a turn to reach the wire before the process ends —
         // it is fire-and-forget, and an exit here would drop it.
         await new Promise(resolve => setTimeout(resolve, 100))
@@ -349,9 +346,7 @@ export async function main(): Promise<void> {
      */
     for (const event of ["uncaughtException", "unhandledRejection"] as const) {
         process.on(event, (cause: unknown) => {
-            supervisor.commit("axon:log:error" as never, {
-                message: cause instanceof Error ? cause.message : String(cause),
-            } as never)
+            supervisor.commit("axon:error", { event: event, error: err(cause) })
             process.exit(1)
         })
     }
