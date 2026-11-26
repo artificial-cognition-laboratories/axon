@@ -1,14 +1,14 @@
 import { Receiver } from "./control/stream"
 import type { AxonEngineRequest } from "@arcforge/types"
 import { Agents, type AttachResult } from "@arcforge/cloud"
-import { Caller, daemonPaths, Lifecycle, remoteClient, socketFetch, type RemoteClient } from "./control/index"
+import { Caller, Connection, daemonPaths, Lifecycle, remoteClient, socketFetch, type RemoteClient } from "./control/index"
 import type { AgentRecord, AgentsState } from "./agents/index"
 import type { ModelRecord, ModelsState } from "./models/index"
 import type { Download } from "./models/downloads"
 import type { Actor, Job, JobsState } from "./jobs/index"
 import type { Admission, MachineState } from "./machine/index"
 import type { MachineEntry, NetState } from "./net/index"
-import type { DaemonPaths, DaemonStarted, DaemonStatus } from "../types/index"
+import type { DaemonPaths, DaemonStatus } from "../types/index"
 // The lab contract, not the labs: a client of the daemon must never load what runs a world (and its native image codec).
 import { LabsClient } from "./labs/contract/index"
 import type { AgentSchedule, CreateSchedule, ScheduleState, UpdateSchedule, ScheduleResult } from "./schedule/schedule"
@@ -17,6 +17,11 @@ import type { DictationState, Dictated } from "./dictation/dictation"
 export type AxonDaemonOpts = {
     /** Override where the socket lives. Tests point this at a scratch dir. */
     root?: string
+    /**
+     * Bring a current daemon up — see Connection. Every host that may be the
+     * first to need the daemon supplies one, so the first request starts it.
+     */
+    launch?: () => Promise<void>
 }
 
 /**
@@ -43,8 +48,11 @@ export type AxonDaemonOpts = {
  */
 export function AxonDaemon(opts: AxonDaemonOpts = {}) {
     const paths: DaemonPaths = daemonPaths(opts.root)
-    const call = Caller({ paths: paths })
+    const connection = Connection({ ...(opts.launch !== undefined ? { launch: opts.launch } : {}) })
+    const caller = Caller({ paths: paths })
+    const call: typeof caller = (path, arg) => connection.through(() => caller(path, arg))
     const receiver = Receiver({ socket: paths.socket })
+    const streamed = <T>(open: () => AsyncIterable<T>) => gated(connection.ensure, open)
     /**
      * Whether a daemon is listening, answered WITHOUT one.
      *
@@ -61,7 +69,11 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
      * bundler's JSON handling is not a value to build a status line on.
      */
     const lifecycle = Lifecycle({ paths: paths, version: "", entrypoint: "" })
-    const tunnel = socketFetch({ paths: paths })
+    const socketed = socketFetch({ paths: paths })
+    const tunnel = (async (input: string | URL | Request, init?: RequestInit) => {
+        await connection.ensure()
+        return socketed(input, init)
+    }) as typeof fetch
 
     /**
      * One other machine: its remote verbs, plus attaching to an agent on it.
@@ -100,30 +112,14 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
         version: () => call(["version"]) as Promise<string>,
 
         /**
-         * Make sure a daemon is running, starting one if not.
+         * Bring the daemon up now, without waiting for a verb to need it.
          *
-         * The verb that makes the daemon INVISIBLE. Nobody should have to know
-         * it exists — a surface calls this before it needs the machine, and
-         * either finds one already up (the common case, one pidfile read) or
-         * starts one and waits for its socket.
-         *
-         * Idempotent and cheap when it is already running, which is what lets
-         * every entry point call it unconditionally rather than each deciding
-         * whether it is the one responsible.
-         *
-         * `runtime` and `entrypoint` are the caller's to supply: a host that
-         * is not Bun cannot run a `.ts` daemon with its own interpreter, and
-         * finding a suitable one is a question about that host rather than
-         * about the daemon.
+         * Every verb already does this on its first request, so a host calls
+         * it only to warm up — Fleet at activation, so its first panel is not
+         * the one that pays for the start. Rejects when the start failed;
+         * a host with no `launch` resolves at once and its verbs say why.
          */
-        async ensure(input: { entrypoint: string; runtime?: string }): Promise<DaemonStarted> {
-            return Lifecycle({
-                paths: paths,
-                version: "",
-                entrypoint: input.entrypoint,
-                ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
-            }).up()
-        },
+        ensure: (): Promise<void> => connection.ensure(),
 
         machine: {
             /** Everything the machine reports: identity, capacity, usage, holds, history. */
@@ -208,7 +204,7 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
                 call(["models", "installRuntime"], runtime) as Promise<import("./models/runtimes").RuntimeState>,
             removeRuntime: (runtime: "onnx" | "llama.cpp" | "transformers") =>
                 call(["models", "removeRuntime"], runtime) as Promise<boolean>,
-            stream: (model: string, request: AxonEngineRequest) => receiver.stream({ model: model, request: { ...request, signal: undefined } }, request.signal),
+            stream: (model: string, request: AxonEngineRequest) => streamed(() => receiver.stream({ model: model, request: { ...request, signal: undefined } }, request.signal)),
             /** Local generation models this daemon can serve right now. */
             local: () => call(["models", "local"]) as Promise<import("@arcforge/types").EngineCapability[]>,
             /** Load a weight into memory and take a hold on it. */
@@ -320,3 +316,9 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
 }
 
 export type AxonDaemonT = ReturnType<typeof AxonDaemon>
+
+/** A stream that opens only once the daemon is up. Not retried: a stream is not idempotent. */
+async function* gated<T>(ensure: () => Promise<void>, open: () => AsyncIterable<T>): AsyncGenerator<T> {
+    await ensure()
+    yield* open()
+}

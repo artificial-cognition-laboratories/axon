@@ -370,7 +370,10 @@ export async function main(): Promise<void> {
      */
     const watchdog = setInterval(() => {
         if (channels.control.isClosed && channels.data.isClosed) {
-            trace("orphaned")
+            // Always said, never traced-only: during boot the supervisor is
+            // still racing this process's exit, and a silent exit 0 reached it
+            // as "exited with code 0" with no cause (AX-AGENT-006, 2.0.246).
+            process.stderr.write("agent link closed by the supervisor; exiting\n")
             process.exit(0)
         }
     }, 1_000)

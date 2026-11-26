@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import type { AxonEngineRequest, AxonEngineRawEvent, EngineCapability } from "@arcforge/types"
 import type { AxonCloudClient } from "@arcforge/cloud"
-import { Attach, Boot, daemonPaths, Dispatch, distribution, Lifecycle, Preferences, profileRoot, Remote, RemoteServer, Server, Service, Tunnel } from "./control/index"
+import { Attach, Boot, Caller, daemonPaths, Dispatch, distribution, Lifecycle, Preferences, profileRoot, Remote, RemoteServer, Server, Service, Tunnel } from "./control/index"
 import { Key, Machine } from "./machine/index"
 import { Directory, Net, type SidecarMode } from "./net/index"
 import { Agents, Credential, Supervise, Usage } from "./agents/index"
@@ -142,12 +142,20 @@ export function Axond(opts: AxondOpts = {}) {
          * Replace a daemon from an older build — unless it is supervising
          * agents, because shutdown disposes every one of them.
          *
-         * A thunk: `agents` is constructed below, in terms of things built
-         * here, so the answer is read at the moment it is needed rather than
-         * captured now. Reading a live count is also the only correct timing —
-         * a machine idle at construction may not be idle at the call.
+         * The RUNNING daemon is asked, over its socket. This used to read
+         * `agents.list()` — the agents of THIS process's Axond, which is the
+         * CLI's in-process handle and supervises nothing — so the answer was
+         * always "idle" and every update killed whatever the old daemon ran.
+         *
+         * Refused while busy, the next request asks again (Connection retries
+         * a failed launch after its cooldown), so the old daemon is replaced
+         * at the first moment it is idle. `agents list` is a verb every build
+         * has answered, which is what makes it safe to put to an older one.
          */
-        onStale: () => agents.list().length === 0,
+        onStale: async () => {
+            const running = await Caller({ paths: paths })(["agents", "list"]) as unknown[]
+            return running.length === 0
+        },
     })
 
     const machine = Machine({

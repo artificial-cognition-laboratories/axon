@@ -81,11 +81,10 @@ whichever lands second should absorb the other rather than duplicate it.
 is what lets the daemon be tested in-process without a socket — construct
 `Axond()` and exercise it — while the transport is tested once, separately.
 
-**Degraded, never blocked.** The daemon being down must not stop local agents
-working. Every verb that needs it fails loudly naming the fix; the file-based
-reservation protocol in `~/.axon/cache/resources` stays as the honest degraded
-path, because every reader already reaps dead pids and works with no daemon at
-all.
+**No degraded mode.** The daemon is a dependency, not an optimisation. A
+client's first request starts it (or replaces a stale one) through
+`Connection`; if it still cannot be reached, the verb fails loudly with
+DAEMON_NOT_RUNNING naming the fix. Nothing pretends to work without it.
 
 **The client handle IS the SDK.** `daemon.agents.at(id)` returns an instance
 handle you can talk to, not a record you look things up in. That distinction

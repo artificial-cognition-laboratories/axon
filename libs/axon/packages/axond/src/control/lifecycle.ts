@@ -56,6 +56,8 @@ type LifecycleOpts = {
 export function Lifecycle(opts: LifecycleOpts) {
     /** How long a fresh daemon has to bind its socket before the start is called failed. */
     const READY_TIMEOUT_MS = 5_000
+    /** A stopping daemon disposes every agent it supervises first; that is not instant. */
+    const STOP_TIMEOUT_MS = 30_000
     const POLL_MS = 50
 
     /**
@@ -80,9 +82,7 @@ export function Lifecycle(opts: LifecycleOpts) {
             return null
         }
 
-        try {
-            process.kill(raw, 0)
-        } catch {
+        if (!alive(raw)) {
             rmSync(opts.paths.pid, { force: true })
             return null
         }
@@ -91,22 +91,7 @@ export function Lifecycle(opts: LifecycleOpts) {
     }
 
     function livePid(): number | null {
-        if (!existsSync(opts.paths.pid)) return null
-
-        const raw = Number.parseInt(readFileSync(opts.paths.pid, "utf-8").trim().split("\n")[0] ?? "", 10)
-        if (!Number.isFinite(raw)) {
-            rmSync(opts.paths.pid, { force: true })
-            return null
-        }
-
-        try {
-            // Signal 0 probes without delivering — the pid exists and is ours.
-            process.kill(raw, 0)
-            return raw
-        } catch {
-            rmSync(opts.paths.pid, { force: true })
-            return null
-        }
+        return readRecord()?.pid ?? null
     }
 
     return {
@@ -148,6 +133,46 @@ export function Lifecycle(opts: LifecycleOpts) {
             // The build that is actually serving, so a later client can tell a
             // current daemon from one left over across an update.
             writeFileSync(opts.paths.pid, `${process.pid}\n${opts.version}`, "utf-8")
+        },
+
+        /**
+         * Run a daemon's start with the machine-wide start lock held.
+         *
+         * Two clients bringing a daemon up at once — a TUI and Fleet at login
+         * — spawn two. Each checked the pidfile, saw none, and bound: the
+         * second removed the first's socket as "stale", leaving a daemon
+         * nobody could reach still holding agents and the GPU. The check and
+         * the bind have to be one step, and `O_EXCL` is the one primitive that
+         * makes them so across processes.
+         *
+         * A lock left by a start that crashed names a dead pid and is taken
+         * over; one naming a live pid means a start is in progress, and this
+         * one stands down.
+         */
+        async exclusive<T>(work: () => Promise<T>): Promise<T> {
+            mkdirSync(opts.paths.root, { recursive: true })
+            const lock = join(opts.paths.root, "start.lock")
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    writeFileSync(lock, String(process.pid), { flag: "wx" })
+                    break
+                } catch (cause) {
+                    if ((cause as { code?: unknown }).code !== "EEXIST" || attempt > 0) throw cause
+                    const holder = Number.parseInt(readFileSync(lock, "utf-8"), 10)
+                    if (alive(holder)) {
+                        throw err("DAEMON_ALREADY_RUNNING", {
+                            detail: `pid ${holder} is starting a daemon on ${opts.paths.socket}`,
+                            context: { pid: holder, socket: opts.paths.socket },
+                        })
+                    }
+                    rmSync(lock, { force: true })
+                }
+            }
+            try {
+                return await work()
+            } finally {
+                rmSync(lock, { force: true })
+            }
         },
 
         /** Release the record. Best-effort — a crash leaves it for the next reader to reap. */
@@ -216,12 +241,23 @@ export function Lifecycle(opts: LifecycleOpts) {
                 }
 
                 process.kill(existing.pid, "SIGTERM")
-                // Wait for the pidfile to clear rather than sleeping a guess:
-                // the old daemon releases it on the way down, and starting
-                // before it has would race two processes onto one socket.
-                const until = Date.now() + READY_TIMEOUT_MS
-                while (readRecord() !== null && Date.now() < until) {
-                    await Bun.sleep(POLL_MS)
+                /*
+                 * Wait for the PROCESS, not the pidfile. This waited five
+                 * seconds, then deleted the record and started a new daemon
+                 * whether the old one had gone or not — and an old daemon still
+                 * disposing its agents was simply left running beside the new
+                 * one. A daemon that will not stop is a failure to report, never
+                 * a record to delete.
+                 */
+                const until = Date.now() + STOP_TIMEOUT_MS
+                while (alive(existing.pid)) {
+                    if (Date.now() >= until) {
+                        throw err("DAEMON_STALE", {
+                            detail: `the ${existing.version ?? "older"} daemon (pid ${existing.pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s of being asked to`,
+                            context: { pid: existing.pid, running: existing.version ?? "unknown", expected: opts.version },
+                        })
+                    }
+                    await new Promise(resolve => setTimeout(resolve, POLL_MS))
                 }
                 rmSync(opts.paths.pid, { force: true })
             }
@@ -298,6 +334,17 @@ export function Lifecycle(opts: LifecycleOpts) {
             process.kill(pid, "SIGTERM")
             return true
         },
+    }
+}
+
+/** Whether a pid names a live process. Signal 0 probes without delivering. */
+function alive(pid: number): boolean {
+    if (!Number.isFinite(pid)) return false
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch {
+        return false
     }
 }
 

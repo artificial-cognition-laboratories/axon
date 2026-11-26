@@ -2766,6 +2766,13 @@ export const errorMap = {
         source: "daemon",
         severity: "fatal",
     },
+    DAEMON_CONNECTION_LOST: {
+        code: "AX-DAEMON-009",
+        title: "The Daemon Dropped the Request",
+        description: "A daemon accepted the connection and then closed it before answering — it crashed, or it was being replaced (an update restarts a stale daemon). Distinct from not running: the request may have been partly acted on, so it is not retried automatically.",
+        source: "daemon",
+        severity: "fatal",
+    },
     DAEMON_ALREADY_RUNNING: {
         code: "AX-DAEMON-002",
         title: "A Daemon Is Already Running",
@@ -2791,7 +2798,7 @@ export const errorMap = {
     DAEMON_STALE: {
         code: "AX-DAEMON-006",
         title: "The Running Daemon Is From an Older Build",
-        description: "`axon update` replaces the CLI and does not touch the supervisor, so a daemon started before the update keeps running the old code — dispatching verbs it has never heard of, or worse, answering with old behaviour. It is normally replaced automatically on the next command; this is reported instead when the daemon is supervising live agents, because a restart ends them and that is not a decision to make on someone's behalf.",
+        description: "`axon update` replaces the CLI and does not touch the supervisor, so a daemon started before the update keeps running the old code — dispatching verbs it has never heard of, or worse, answering with old behaviour. It is normally replaced automatically on the next command; this is reported instead when the daemon is supervising live agents, because a restart ends them and that is not a decision to make on someone's behalf. The next request asks again, so the old daemon is replaced the first time it is idle; `axon daemon restart` replaces it now.",
         source: "daemon",
         severity: "fatal",
         expected: true,

@@ -15,14 +15,7 @@ export function Caller(opts: { paths: DaemonPaths }) {
         try {
             response = await post(opts.paths.socket, JSON.stringify({ path: path, arg: arg }))
         } catch (cause) {
-            // A refused connection is the ordinary "no daemon" case, not a
-            // fault — reported as such so a caller can offer `axon daemon up`
-            // rather than surfacing a socket error.
-            throw err("DAEMON_NOT_RUNNING", {
-                detail: `no daemon listening on ${opts.paths.socket}`,
-                context: { socket: opts.paths.socket, verb: path.join(".") },
-                cause,
-            })
+            throw socketFault(cause, opts.paths.socket, path.join("."))
         }
 
         const body = JSON.parse(response.body) as {
@@ -110,13 +103,36 @@ export function socketFetch(opts: { paths: DaemonPaths }): typeof fetch {
                 },
             )
             request.signal.addEventListener("abort", () => outgoing.destroy(new Error("aborted")))
-            outgoing.on("error", cause => reject(err("DAEMON_NOT_RUNNING", {
-                detail: `no daemon listening on ${opts.paths.socket}`,
-                context: { socket: opts.paths.socket, path: url.pathname },
-                cause: cause,
-            })))
+            outgoing.on("error", cause => reject(request.signal.aborted ? cause : socketFault(cause, opts.paths.socket, url.pathname)))
             outgoing.end(body ?? undefined)
         })
     }
     return socketed as typeof fetch
+}
+
+/**
+ * What a socket failure MEANS, decided once for every transport.
+ *
+ * Only a connection that never opened is "no daemon": the socket file is
+ * missing (ENOENT) or nothing is accepting on it (ECONNREFUSED). Everything
+ * else happened to a daemon that WAS there — EPIPE and ECONNRESET are a daemon
+ * dying or being replaced mid-request. Reporting those as "not running" was a
+ * lie a client then acted on (AX-DAEMON-001 with `cause: write EPIPE`), and it
+ * is the line a reconnecting client must not cross: retrying a refused
+ * connection is safe, retrying a half-delivered verb is not.
+ */
+export function socketFault(cause: unknown, socket: string, verb: string): Error {
+    const code = (cause as { code?: unknown } | null)?.code
+    if (code === "ENOENT" || code === "ECONNREFUSED") {
+        return err("DAEMON_NOT_RUNNING", {
+            detail: `no daemon listening on ${socket}`,
+            context: { socket: socket, verb: verb },
+            cause: cause,
+        })
+    }
+    return err("DAEMON_CONNECTION_LOST", {
+        detail: `the daemon on ${socket} closed the connection during ${verb}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        context: { socket: socket, verb: verb },
+        cause: cause,
+    })
 }

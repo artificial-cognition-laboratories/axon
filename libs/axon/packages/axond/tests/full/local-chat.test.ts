@@ -49,7 +49,7 @@ test("a real local model retains conversation context, streams, interrupts and r
         await models.refresh()
         expect((await models.local()).map(model => model.id)).toContain(id)
         const client = AxonDaemon({ root: root })
-        const ui = LocalModels({ daemon: client, ensure: async () => {} })
+        const ui = LocalModels({ daemon: client })
         await ui.refresh()
         expect(ui.current.models.map(model => model.id)).toEqual([id])
         expect(ui.current.state?.cached).toHaveLength(2)

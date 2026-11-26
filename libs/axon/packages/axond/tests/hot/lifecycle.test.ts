@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { existsSync } from "node:fs"
+import { existsSync, rmSync, writeFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -267,6 +267,60 @@ describe("daemon staleness", () => {
             if (status.running) expect(status.version).toBe("unknown")
         } finally {
             await serving.shutdown()
+        }
+    })
+})
+
+describe("one daemon per machine, even when two start at once", () => {
+    /**
+     * Regression: serve() checked the pidfile, then listen() deleted the socket
+     * as "stale". Two concurrent starts both passed the check, and the second
+     * deleted the first's live socket — a daemon nobody could reach, still
+     * running. Two roots on one directory stand in for two processes.
+     */
+    test("two concurrent serves on one root: exactly one wins", async () => {
+        const root = await mkdtemp(join(tmpdir(), "axond-race-"))
+        roots.push(root)
+        const a = Axond({ root: root, version: "9.9.9" })
+        const b = Axond({ root: root, version: "9.9.9" })
+        const outcomes = await Promise.allSettled([a.serve(), b.serve()])
+        try {
+            expect(outcomes.filter(o => o.status === "fulfilled")).toHaveLength(1)
+            const refused = outcomes.find(o => o.status === "rejected") as PromiseRejectedResult
+            expect(refused.reason).toMatchObject({ code: "AX-DAEMON-002" })
+        } finally {
+            await a.shutdown()
+            await b.shutdown()
+        }
+    })
+
+    test("a live socket with no pid record is never deleted", async () => {
+        const root = await mkdtemp(join(tmpdir(), "axond-orphan-"))
+        roots.push(root)
+        const first = Axond({ root: root, version: "9.9.9" })
+        await first.serve()
+        try {
+            // The old replacement path deleted the record of a daemon still running.
+            rmSync(first.paths.pid, { force: true })
+            const second = Axond({ root: root, version: "9.9.9" })
+            await expect(second.serve()).rejects.toMatchObject({ code: "AX-DAEMON-002" })
+            expect(await first.server.answering()).toBe(true)
+        } finally {
+            await first.shutdown()
+        }
+    })
+
+    test("a start lock left by a dead process is taken over", async () => {
+        const root = await mkdtemp(join(tmpdir(), "axond-lock-"))
+        roots.push(root)
+        writeFileSync(join(root, "start.lock"), "2147483646")
+        const axond = Axond({ root: root, version: "9.9.9" })
+        try {
+            await axond.serve()
+            expect(axond.lifecycle.status().running).toBe(true)
+            expect(existsSync(join(root, "start.lock"))).toBe(false)
+        } finally {
+            await axond.shutdown()
         }
     })
 })

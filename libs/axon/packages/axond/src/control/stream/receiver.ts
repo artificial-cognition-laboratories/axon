@@ -1,4 +1,5 @@
 import { request as httpRequest } from "node:http"
+import { socketFault } from "../caller"
 import type { IncomingMessage } from "node:http"
 import { err } from "@arcforge/err"
 import type { AxonEngineRawEvent } from "@arcforge/types"
@@ -13,7 +14,7 @@ export function Receiver(opts: { socket: string }) {
         const response = await new Promise<IncomingMessage>((resolve, reject) => {
             const request = httpRequest({ socketPath: opts.socket, path: "/", method: "POST", signal: abort,
                 headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) } }, resolve)
-            request.on("error", reject)
+            request.on("error", cause => reject(abort.aborted ? cause : socketFault(cause, opts.socket, "models.stream")))
             request.end(body)
         })
         try {

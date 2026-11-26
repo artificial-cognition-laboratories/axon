@@ -1,6 +1,7 @@
 import { Stream } from "./stream"
 import { existsSync, mkdirSync, rmSync } from "node:fs"
 import { dirname } from "node:path"
+import { connect } from "node:net"
 import { err, isAxonError } from "@arcforge/err"
 import type { DaemonPaths } from "../../types/index"
 
@@ -44,6 +45,16 @@ export function Server(opts: ServerOpts) {
     let server: ReturnType<typeof Bun.serve> | null = null
 
     return {
+        /** Whether ANY process is accepting on the socket. A refused or missing socket is no. */
+        answering(): Promise<boolean> {
+            if (!existsSync(opts.paths.socket)) return Promise.resolve(false)
+            return new Promise(resolve => {
+                const probe = connect(opts.paths.socket)
+                probe.once("connect", () => { probe.destroy(); resolve(true) })
+                probe.once("error", () => resolve(false))
+            })
+        },
+
         /** Whether this process is currently listening. */
         get listening(): boolean {
             return server !== null

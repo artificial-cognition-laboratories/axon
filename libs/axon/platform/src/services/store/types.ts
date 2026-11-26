@@ -255,9 +255,6 @@ export type AppState = {
      */
     lastAgent?: string
 
-    /** Last selected Claude subscription model, when Claude owns the terminal. */
-    lastClaudeModel?: string
-
     /**
      * Last known model per agent, keyed by ADDRESS.
      *

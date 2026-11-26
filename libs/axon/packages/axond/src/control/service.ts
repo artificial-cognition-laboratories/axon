@@ -47,16 +47,25 @@ export function Service(opts: ServiceOpts) {
      * `up` report ready to a client that then cannot connect.
      */
     async function serve(): Promise<void> {
-        const running = opts.lifecycle.pid()
-        if (running !== null) {
-            throw err("DAEMON_ALREADY_RUNNING", {
-                detail: `pid ${running} is already listening on ${opts.paths.socket}`,
-                context: { pid: running, socket: opts.paths.socket },
-            })
-        }
-
-        opts.server.listen()
-        opts.lifecycle.claim()
+        await opts.lifecycle.exclusive(async () => {
+            const running = opts.lifecycle.pid()
+            if (running !== null) {
+                throw err("DAEMON_ALREADY_RUNNING", {
+                    detail: `pid ${running} is already listening on ${opts.paths.socket}`,
+                    context: { pid: running, socket: opts.paths.socket },
+                })
+            }
+            // A daemon whose record was lost is still a daemon. Only a socket
+            // nothing answers on is stale, and only that one may be removed.
+            if (await opts.server.answering()) {
+                throw err("DAEMON_ALREADY_RUNNING", {
+                    detail: `a daemon with no pid record is still answering on ${opts.paths.socket}`,
+                    context: { socket: opts.paths.socket },
+                })
+            }
+            opts.server.listen()
+            opts.lifecycle.claim()
+        })
         /*
          * The network after the socket: a daemon is useful to this machine
          * before it is useful to others. A sidecar that will not start does not

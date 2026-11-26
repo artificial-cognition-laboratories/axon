@@ -366,7 +366,10 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
     })()
 
     const stderr: string[] = []
-    void (async () => {
+    // Held, not fired-and-forgotten: the exit arm below must read the agent's
+    // last words AFTER the pipe has drained. `exited` can resolve before the
+    // final chunk is read, and the diagnosis came back empty.
+    const stderrDrained = (async () => {
         for await (const chunk of child.stderr as ReadableStream<Uint8Array>) {
             stderr.push(new TextDecoder().decode(chunk))
         }
@@ -387,20 +390,16 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
      * agent's own output to a person watching — buffering it until exit
      * would make a long-running script look silent.
      */
-    void (async () => {
+    // The tail is kept as well, because a TUI owns this process's stdout and
+    // whatever an agent printed before dying is otherwise gone with the frame.
+    const stdoutTail = Tail(4_000)
+    const stdoutDrained = (async () => {
         for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
             process.stdout.write(chunk)
+            stdoutTail.push(new TextDecoder().decode(chunk))
         }
     })().catch(() => { /* the pipe closing with the process is not itself a fault */ })
 
-    /**
-     * Whichever happens first: the agent connects, or it dies trying.
-     *
-     * Without the race this awaited a connection that was never coming — a
-     * child that exits at startup leaves `connected` pending forever, so a
-     * broken agent presented as a hang rather than an error. The exit branch
-     * always throws; it exists to convert silence into a diagnosis.
-     */
     /**
      * Whichever happens first: the agent is up, or it is dead.
      *
@@ -432,12 +431,14 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
      * The stack is torn down too: slirp holds the box's namespace open, and an
      * agent that died at boot must not leave one running.
      */
+    let linked = false
     const spawned = await Promise.race([
         // Connected is NOT booted: the agent dials before it constructs its
         // runtime so it can report a boot failure. Axon's existing completion
         // event is the exact readiness fact; the former 250ms grace was both
         // a fixed startup cost and still only a guess.
         link.connected.then(async agent => {
+            linked = true
             await Promise.race([booted, bootFailure.promise])
             return agent
         }),
@@ -446,9 +447,16 @@ export async function spawnConfined(opts: ConfinedOpts): Promise<ConfinedAgent> 
             // The agent may have reported a reason a moment before dying.
             // Give that commit a turn to land rather than racing past it.
             await Promise.race([bootFailure.promise, new Promise(r => setTimeout(r, 150))])
+            // The pipes close with the process; bounded so a grandchild holding
+            // one open cannot turn a diagnosis into a hang.
+            await Promise.race([Promise.all([stderrDrained, stdoutDrained]), new Promise(r => setTimeout(r, 500))])
+            const said = stderr.join("").trim() || stdoutTail.text().trim()
+            const when = linked ? "after connecting, before it finished booting" : "before connecting"
             throw err("AGENT_BOOT_FAILED", {
-                detail: stderr.join("").trim() || `the agent process exited with code ${code} before connecting`,
-                context: { code, tier },
+                detail: said
+                    ? `the agent process exited with code ${code} ${when}:\n${said}`
+                    : `the agent process exited with code ${code} ${when}, and printed nothing`,
+                context: { code, tier, stage: linked ? "connected" : "spawned" },
             })
         }),
     ]).catch(async error => {
@@ -580,4 +588,17 @@ export function agentEntrypoints(dir: string): string[] {
 /** Resolve the agent entrypoint from the candidates a build may have produced. */
 export function agentEntrypoint(candidates: string[]): string {
     return resolveEntrypoint(candidates)
+}
+
+/** The last `limit` characters of a stream, for a diagnosis that must stay bounded. */
+function Tail(limit: number) {
+    let text = ""
+    return {
+        push(chunk: string) {
+            text = (text + chunk).slice(-limit)
+        },
+        text() {
+            return text
+        },
+    }
 }
