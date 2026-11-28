@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/link",
-    "version": "2.0.250",
+    "version": "2.0.251",
     "license": "Apache-2.0",
     "type": "module",
     "exports": {
@@ -53,5 +53,5 @@
         "agent-runtime",
         "typescript"
     ],
-    "axonRevision": "20accc7246e2e5b6690ee52ebc1ccc2db64bfebc"
+    "axonRevision": "719746ee01062598e1d16971fd584f0acc3defea"
 }

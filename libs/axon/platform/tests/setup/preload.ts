@@ -118,8 +118,11 @@ process.env.AXON_STORE_ROOT ??= join(
  * live). At the default of 24 a run evicts trees its own concurrent tests are
  * still about to use, and every one of those misses becomes a full install
  * inside a test with a fixed timeout.
+ *
+ * On disk under the repo's .output, not tmpdir: 96 trees are ~5GB, and on a
+ * tmpfs /tmp that filled the box mid-suite (EDQUOT in tree materialize).
  */
-process.env.AXON_TREE_CACHE_ROOT ??= join(tmpdir(), "axon-test-tree-cache")
+process.env.AXON_TREE_CACHE_ROOT ??= join(import.meta.dir, "../../../../../.output/cache/axon-test-tree-cache")
 process.env.AXON_TREE_CACHE_MAX ??= "96"
 
 const sweepLock = join(tmpdir(), `axon-tui-test-bootstrap-${process.env.BUN_TEST_RUN_ID ?? process.ppid}`)

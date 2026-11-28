@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/body",
-    "version": "2.0.250",
+    "version": "2.0.251",
     "license": "Apache-2.0",
     "description": "The body and world contracts at work — checking what a body says about itself, the messages a body and a mind exchange, what a world says to whoever runs it, and URDF to and from a body's skeleton.",
     "type": "module",
@@ -40,5 +40,5 @@
         "ros",
         "embodiment"
     ],
-    "axonRevision": "20accc7246e2e5b6690ee52ebc1ccc2db64bfebc"
+    "axonRevision": "719746ee01062598e1d16971fd584f0acc3defea"
 }
