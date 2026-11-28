@@ -12,7 +12,22 @@ import { Mock } from "@arcforge/engines"
  * same two doors a real body uses.
  */
 describe("kernel scheduling: waking on a stimulus", () => {
-    /** Stimulus → wake is asynchronous and detached; give it room to land. */
+    type Runtime = Awaited<ReturnType<typeof Axon>>
+
+    /**
+     * Stimulus → wake is asynchronous and detached: wait until the reply has
+     * landed. A fixed sleep failed under a loaded suite, where the wake took
+     * longer than the sleep and the reply arrived after the assertion.
+     */
+    async function replied(runtime: Runtime): Promise<void> {
+        const deadline = Date.now() + 10_000
+        while (!runtime.session.entries.some(e => e.type === "cognet:output:text")) {
+            if (Date.now() > deadline) throw new Error("no cognet:output:text within 10s of the stimulus")
+            await new Promise(resolve => setTimeout(resolve, 20))
+        }
+    }
+
+    /** After the reply, give a runaway echo room to show itself. */
     async function settle(): Promise<void> {
         await new Promise(resolve => setTimeout(resolve, 200))
     }
@@ -26,7 +41,7 @@ describe("kernel scheduling: waking on a stimulus", () => {
             channel: "telegram:1",
             content: "hello",
         })
-        await settle()
+        await replied(runtime)
 
         const reply = runtime.session.entries.find(e => e.type === "cognet:output:text")
         expect((reply?.data as { content: string } | undefined)?.content).toBe("Hi there!")
@@ -43,7 +58,7 @@ describe("kernel scheduling: waking on a stimulus", () => {
             channel: "telegram:1",
             content: "hello",
         })
-        await settle()
+        await replied(runtime)
         await settle()
 
         // One stimulus in, one reply out. A brain waking on its own echo
@@ -61,7 +76,7 @@ describe("kernel scheduling: waking on a stimulus", () => {
 
         await runtime.axon.stim("cognet:stimulus:text", { channel: "telegram:1", content: "hello" })
         await runtime.axon.stim("cognet:stimulus:text", { channel: "telegram:2", content: "hello" })
-        await settle()
+        await replied(runtime)
 
         // Both are committed; the second is either its own wake or drained by
         // the first's — either way the sensation is never lost.

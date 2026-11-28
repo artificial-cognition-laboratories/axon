@@ -1,6 +1,6 @@
 {
     "name": "@arcforge/capsule",
-    "version": "2.0.249",
+    "version": "2.0.250",
     "license": "Apache-2.0",
     "type": "module",
     "main": "./src/index.ts",
@@ -29,5 +29,5 @@
         "@types/bun": "latest",
         "typescript": "^5"
     },
-    "axonRevision": "758d52643921e831bc235df5c51c1495eaa6503c"
+    "axonRevision": "20accc7246e2e5b6690ee52ebc1ccc2db64bfebc"
 }

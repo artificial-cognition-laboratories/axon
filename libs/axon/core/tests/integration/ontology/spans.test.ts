@@ -157,12 +157,18 @@ describe("Event ontology", () => {
         // was reported for a meaningful span of time is an accountability
         // hole, and the event AFTER it names what the boot was doing.
         const clock = (e: AnyEvent) => (e.time as { ms?: number }).ms ?? 0
-        let previous = clock(boot)
+        // A gap that closes a span opened by the event just before it is not a
+        // hole: that span names the time. Under a loaded suite a provider
+        // resolve took 1.1s inside its own span and was reported as untraced.
+        const closes = (prev: AnyEvent, event: AnyEvent) =>
+            prev.type.endsWith(":start") && event.type.endsWith(":complete")
+            && stem(prev) === stem(event) && identity(prev) === identity(event)
+        let prev: AnyEvent = boot
         const holes: Array<{ before: string; ms: number }> = []
         for (const event of inside) {
-            const gap = clock(event) - previous
-            if (gap > GAP_BUDGET_MS) holes.push({ before: event.type, ms: gap })
-            previous = clock(event)
+            const gap = clock(event) - clock(prev)
+            if (gap > GAP_BUDGET_MS && !closes(prev, event)) holes.push({ before: event.type, ms: gap })
+            prev = event
         }
 
         expect(holes).toEqual([])
@@ -187,9 +193,10 @@ describe("Event ontology", () => {
  * Generous deliberately: this is a floor against UNTRACED WORK, not a
  * performance budget. A slow machine, a cold import or a loaded CI box may
  * legitimately make any single step take a while — what must not happen is
- * that it takes a while with no span saying what it was.
+ * that it takes a while with no span saying what it was. Raised from 150ms:
+ * in the full core suite, untraced steps that take ~50ms alone stretched past 200ms.
  */
-const GAP_BUDGET_MS = 150
+const GAP_BUDGET_MS = 300
 
 /** What distinguishes this bracket from its siblings of the same stem. */
 function identity(event: AnyEvent): string {
@@ -208,4 +215,9 @@ function identity(event: AnyEvent): string {
     const spanId = (event as unknown as AxonEvent<never>).context && (event.context as { spanId?: string }).spanId
     if (spanId) parts.push(`x${spanId}`)
     return parts.join("|")
+}
+
+/** "axon:inference:provider:start" → "axon:inference:provider". */
+function stem(event: AnyEvent): string {
+    return event.type.replace(/:(start|complete)$/, "")
 }
