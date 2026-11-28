@@ -5,7 +5,7 @@ import type { BodyInfo, BodyState, RunningWorld } from "../../src/labs/types"
 
 const WORLD: RunningWorld = {
     name: "Axon_Town", path: "/tmp/axon-town", state: "running",
-    host: "127.0.0.1", port: 25565, password: "", players: [], observers: [],
+    host: "127.0.0.1", port: 25565, password: "", players: [], observers: [], attached: false,
     pid: 1, startedAt: new Date().toISOString(),
 }
 

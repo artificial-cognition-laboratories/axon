@@ -1,3 +1,5 @@
+import { err } from "@arcforge/err"
+import type { RunningWorld } from "../types"
 import { TerrariaWorlds } from "./terraria-worlds"
 
 export type TerrariaLabOpts = {
@@ -21,6 +23,7 @@ export function TerrariaLab(opts: TerrariaLabOpts) {
         scenarios: worlds.scenarios,
         runs: worlds.runs,
         start: worlds.start,
+        attach: async (): Promise<RunningWorld> => { throw err("WORLD_REFUSED", { detail: "Terraria worlds can't be attached to: the lab serves its own" }) },
         stop: worlds.stop,
         restart: worlds.restart,
         logs: worlds.logs,

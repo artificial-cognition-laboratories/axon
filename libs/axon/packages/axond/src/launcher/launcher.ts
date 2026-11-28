@@ -64,10 +64,14 @@ export function Launcher(opts: { agents: AgentsT; version?: string }) {
             await host.agents.zeno.ensure()
             return host.agents.zeno.name
         },
-        async launch(ref: string, input: { job?: string } = {}): Promise<Launched> {
+        /** `connect`: a world address (`world://…`) the agent embodies in, as `-c` gives one. */
+        async launch(ref: string, input: { job?: string; connect?: string } = {}): Promise<Launched> {
             const host = await current()
             const project = await host.agents.resolve(ref)
-            const instance = await host.agents.spawn(project, input.job ? { job: input.job } : {})
+            const instance = await host.agents.spawn(project, {
+                ...(input.job ? { job: input.job } : {}),
+                ...(input.connect ? { env: { AXON_CONNECT: input.connect } } : {}),
+            })
             if (instance.source.kind !== "linked") {
                 throw err("CLI_AGENT_NOT_LOCAL", {
                     detail: `${ref} resolved to an agent that is not running on this machine`,

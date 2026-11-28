@@ -26,6 +26,9 @@ export type TerraverseLabOpts = {
  * player's body is placed in it and worn over the body contract, through the
  * bridge terra serves.
  *
+ * A world the player opened in the game is attached to instead, by its address
+ * (`terra attach`): spoken for the same way, never stopped from here.
+ *
  * A pure orchestrator: `Worlds` owns what is running, each world owns its
  * own bodies, and this fans the lab's verbs across them.
  */
@@ -83,6 +86,8 @@ export function TerraverseLab(opts: TerraverseLabOpts) {
             }
         },
         start: (input: { name: string }): Promise<RunningWorld> => worlds.start(input.name),
+        /** A world the player opened in the game, by its address: spoken for, so agents can go in. Stopping it lets it go. */
+        attach: (input: { address: string }): Promise<RunningWorld> => worlds.attach(input.address),
         stop: (input?: { name: string }): Promise<void> => (input ? worlds.stop(input.name) : worlds.stopAll()),
         async restart(input?: { name: string }): Promise<void> {
             const name = input?.name ?? worlds.only()

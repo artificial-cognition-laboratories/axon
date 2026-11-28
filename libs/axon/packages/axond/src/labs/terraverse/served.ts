@@ -8,8 +8,14 @@ export type ServedOpts = {
     processes: ProcessesT
     /** The `terra` executable. */
     terra: string
-    /** The world's name in the player's Play list (`terra worlds`). */
+    /** What it's called while it runs: the world's name, or the address it's attached by until it says its own. */
     name: string
+    /**
+     * Which world. `world`: one of the player's Play list (`terra worlds`), served here as
+     * `terra serve --world`. `address`: one already running on this machine (a world the game
+     * opened), spoken for by `terra attach` and never stopped from here.
+     */
+    how: { world: string } | { address: string }
 }
 
 /** How long a server has to prepare its mods, make its universe and take players. A first start compiles its mods. */
@@ -23,8 +29,9 @@ const KEPT_LINES = 500
 export type Said = { at: string; text: string }
 
 /**
- * Served — one world, running: `terra serve --world-contract`, spoken to over
- * the world contract (axon.world/0) on its stdin and stdout. Resolves once
+ * Served — one world, running: `terra serve --world-contract` (or `terra attach`
+ * for one already running here), spoken to over the world contract (axon.world/0)
+ * on its stdin and stdout. Resolves once
  * the world says it is ready, so a handle is never half-started.
  *
  * Every request carries an id, and is answered or refused by it; a refusal
@@ -34,11 +41,14 @@ export type Said = { at: string; text: string }
  * whatever is still asked of it fails, saying how it ended.
  */
 export async function Served(opts: ServedOpts & { heard: (said: Said) => void }) {
-    // the port players join on: one the machine has free now
-    const port = await freePort()
+    // the port players join on: one the machine has free now, or the attached world's own
+    const port = "world" in opts.how ? await freePort() : addressPort(opts.how.address)
+    const cmd = "world" in opts.how
+        ? [opts.terra, "serve", "--world", opts.how.world, "--world-contract", "--port", String(port)]
+        : [opts.terra, "attach", opts.how.address, "--world-contract"]
     const proc = opts.processes.spawn({
         label: `terraverse:${opts.name}`,
-        cmd: [opts.terra, "serve", "--world", opts.name, "--world-contract", "--port", String(port)],
+        cmd: cmd,
         stdout: "pipe",
         stdin: "pipe",
     })
@@ -146,7 +156,8 @@ export async function Served(opts: ServedOpts & { heard: (said: Said) => void })
     }
 
     return {
-        name: opts.name,
+        /** A served world's Play list name; an attached one's, as it says it (the address was only its name until then). */
+        name: "world" in opts.how ? opts.how.world : said.world,
         pid: proc.pid,
         startedAt: startedAt,
         ready: said,
@@ -174,6 +185,20 @@ export async function Served(opts: ServedOpts & { heard: (said: Said) => void })
 }
 
 export type ServedT = Awaited<ReturnType<typeof Served>>
+
+/** The port a world's address names: `terra://localhost:41877`; a game's default when it names none. */
+export function addressPort(address: string): number {
+    let url: URL
+    try {
+        url = new URL(address)
+    } catch {
+        throw err("WORLD_ADDRESS_INVALID", { detail: `${address} is not an address` })
+    }
+    if (url.protocol !== "terra:") throw err("WORLD_ADDRESS_INVALID", { detail: `${address} is not a game's address (terra://host:port)` })
+    if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+        throw err("WORLD_ADDRESS_REMOTE", { detail: `${url.hostname} is not this machine, and attaching elsewhere is not wired yet` })
+    return url.port === "" ? 30000 : Number(url.port)
+}
 
 /** A UDP port nothing on this machine holds, as the OS hands one out. */
 function freePort(): Promise<number> {

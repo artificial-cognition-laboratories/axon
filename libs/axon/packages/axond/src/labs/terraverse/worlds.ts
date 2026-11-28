@@ -2,7 +2,7 @@ import { err } from "@arcforge/err"
 import type { ProcessesT } from "../processes"
 import type { RunningWorld, WorldInfo } from "../types"
 import { Bodies, type BodiesT } from "./bodies"
-import { Served, type ServedT } from "./served"
+import { addressPort, Served, type ServedT } from "./served"
 import type { ServersT } from "./servers"
 import type { TerraT } from "./terra"
 
@@ -20,8 +20,10 @@ const SWEEP_MS = 2_000
 /** One world of the lab, running: what serves it, where it came from, and the bodies in it. */
 type Running = {
     served: ServedT
-    /** Its folder, in the player's profile. */
+    /** Its folder, in the player's profile; empty for an attached world, whose folder is the game's. */
     path: string
+    /** Running before the lab came to it: stopping lets it go. */
+    attached: boolean
     bodies: BodiesT
     sweeping: ReturnType<typeof setInterval>
 }
@@ -61,6 +63,7 @@ export function Worlds(opts: WorldsOpts) {
             startedAt: world.served.startedAt,
             // watched by joining it from the game (`view`, a terra:// address), not by a viewer here
             observers: [],
+            attached: world.attached,
         }
     }
 
@@ -76,8 +79,31 @@ export function Worlds(opts: WorldsOpts) {
             processes: opts.processes,
             terra: opts.terra.path(),
             name: name,
+            how: { world: name },
             heard: said => opts.notice(name, said.text),
         })
+        return keep(name, served, { path: found.path, attached: false })
+    }
+
+    /** A world already running here, by its address: spoken for under the name it says it has. */
+    async function attach(address: string): Promise<RunningWorld> {
+        const served = await Served({
+            processes: opts.processes,
+            terra: opts.terra.path(),
+            name: address,
+            how: { address: address },
+            heard: said => opts.notice(address, said.text),
+        })
+        const name = served.ready.world
+        if (running.has(name)) {
+            await served.close()
+            throw err("WORLD_ALREADY_RUNNING", { detail: `the lab already has a world called ${name}; the one at ${address} can't be attached beside it` })
+        }
+        return keep(name, served, { path: "", attached: true })
+    }
+
+    /** A world now running, kept: its bodies, and the sweep that tends them. */
+    function keep(name: string, served: ServedT, how: { path: string; attached: boolean }): RunningWorld {
         const bodies = Bodies({ world: served, notice: text => opts.notice(name, text) })
         const sweeping = setInterval(() => {
             bodies.sweep().catch(cause => opts.notice(name, `sweeping ${name}: ${cause instanceof Error ? cause.message : String(cause)}`))
@@ -86,7 +112,7 @@ export function Worlds(opts: WorldsOpts) {
                 void stop(name)
             }
         }, SWEEP_MS)
-        const world: Running = { served: served, path: found.path, bodies: bodies, sweeping: sweeping }
+        const world: Running = { served: served, path: how.path, attached: how.attached, bodies: bodies, sweeping: sweeping }
         running.set(name, world)
         return describe(name, world)
     }
@@ -109,7 +135,7 @@ export function Worlds(opts: WorldsOpts) {
             const live = [...running.entries()].map(([name, world]) => describe(name, world))
             const pending: RunningWorld[] = [...starting.keys()]
                 .filter(name => !running.has(name))
-                .map(name => ({ name: name, path: "", state: "starting", host: "127.0.0.1", port: 0, password: "", players: [], pid: null, startedAt: new Date().toISOString(), observers: [] }))
+                .map(name => ({ name: name, path: "", state: "starting", host: "127.0.0.1", port: 0, password: "", players: [], pid: null, startedAt: new Date().toISOString(), observers: [], attached: false }))
             return [...live, ...pending]
         },
 
@@ -125,6 +151,21 @@ export function Worlds(opts: WorldsOpts) {
             if (pending) return await pending
             const begun = serve(name).finally(() => starting.delete(name))
             starting.set(name, begun)
+            return await begun
+        },
+
+        /**
+         * The world at `address` (terra://localhost:<port>) spoken for. One the lab already has
+         * on that port, served or attached: that one, untouched. Attaching twice at once attaches once.
+         */
+        async attach(address: string): Promise<RunningWorld> {
+            const port = addressPort(address)
+            const held = [...running.entries()].find(([, world]) => world.served.port === port)
+            if (held) return describe(held[0], held[1])
+            const pending = starting.get(address)
+            if (pending) return await pending
+            const begun = attach(address).finally(() => starting.delete(address))
+            starting.set(address, begun)
             return await begun
         },
 

@@ -166,6 +166,7 @@ export function Server(opts: ServerOpts) {
                 pid: proc.pid,
                 startedAt: new Date().toISOString(),
                 observers: [],
+                attached: false,
                 proc: proc,
             }
             const started = current

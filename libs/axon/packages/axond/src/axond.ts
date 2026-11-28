@@ -7,7 +7,7 @@ import { Directory, Net, type SidecarMode } from "./net/index"
 import { Agents, Credential, Supervise, Usage } from "./agents/index"
 import { Models, Runtimes } from "./models/index"
 import { Jobs, Runner, Workspaces, type Job } from "./jobs/index"
-import { Launcher } from "./launcher/index"
+import { Embark, Launcher } from "./launcher/index"
 import { Schedule } from "./schedule/index"
 import { Dictation } from "./dictation/index"
 import { LAB_IDS, Labs, type LabState } from "./labs/index"
@@ -327,6 +327,7 @@ export function Axond(opts: AxondOpts = {}) {
     // Labs are machine-wide: a display, a port, and a game client can only
     // belong to one process on this box.
     const labs = Labs({ root: join(paths.root, "worlds"), launcher: launcher, build: distribution() })
+    const embark = Embark({ launcher: launcher, labs: labs.all })
 
     const dispatch = Dispatch({
         domains: {
@@ -337,6 +338,8 @@ export function Axond(opts: AxondOpts = {}) {
             schedule: schedule,
             dictation: dictation,
             labs: labs.all,
+            /** An agent sent into a world, owned by the daemon: the world made ready, then the agent booted into it. */
+            embark: embark.run,
             preferences: preferences,
             /**
              * Who is signed in. A domain of one verb, because a surface asking
@@ -396,6 +399,7 @@ export function Axond(opts: AxondOpts = {}) {
         schedule: schedule,
         dictation: dictation,
         labs: labs,
+        embark: embark.run,
         net: net,
 
         serve: service.serve,

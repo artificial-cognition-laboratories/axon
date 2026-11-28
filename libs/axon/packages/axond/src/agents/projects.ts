@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { readSettingsSync } from "@arcforge/platform/build/extensions/edit"
 import { err } from "@arcforge/err"
 import type { DefinitionFile, InstalledAgent } from "./types"
 
@@ -35,7 +36,11 @@ export function Projects(opts: ProjectsOpts = {}) {
 export type ProjectsT = ReturnType<typeof Projects>
 
 /**
- * Every agent project under the given stores, most recently used first.
+ * Every agent project under the given stores, most recently used first: each
+ * profile's own `agents/`, and every folder it watches (`axon watch`, the
+ * `paths` its profile.config.ts settles) — the same pools `axon <ref>` resolves
+ * against, so an agent you can run is one listed here. A project in two pools
+ * is listed once.
  *
  * A directory is an agent when it declares itself one (`axon.config.ts`).
  * Anything else under `agents/` is somebody's stray folder, and listing it
@@ -43,25 +48,29 @@ export type ProjectsT = ReturnType<typeof Projects>
  */
 function scan(stores: readonly string[]): InstalledAgent[] {
     const found: InstalledAgent[] = []
+    const seen = new Set<string>()
     for (const store of stores) {
         const profiles = join(store, "profiles")
         for (const profile of readDirs(profiles)) {
-            const agents = join(profiles, profile, "agents")
-            for (const name of readDirs(agents)) {
-                const root = join(agents, name)
-                if (!existsSync(join(root, "axon.config.ts"))) continue
-                const declared = manifest(root)
-                found.push({
-                    name: name,
-                    // What the agent CALLS itself, which is what the CLI
-                    // takes and what a person recognises.
-                    ref: declared.name ?? name,
-                    version: declared.version,
-                    profile: profile,
-                    root: root,
-                    usedAt: usedAt(root),
-                    definition: definition(root),
-                })
+            const pools = [join(profiles, profile, "agents"), ...watched(join(profiles, profile))]
+            for (const pool of pools) {
+                for (const name of readDirs(pool)) {
+                    const root = join(pool, name)
+                    if (seen.has(root) || !existsSync(join(root, "axon.config.ts"))) continue
+                    seen.add(root)
+                    const declared = manifest(root)
+                    found.push({
+                        name: name,
+                        // What the agent CALLS itself, which is what the CLI
+                        // takes and what a person recognises.
+                        ref: declared.name ?? name,
+                        version: declared.version,
+                        profile: profile,
+                        root: root,
+                        usedAt: usedAt(root),
+                        definition: definition(root),
+                    })
+                }
             }
         }
     }
@@ -71,6 +80,18 @@ function scan(stores: readonly string[]): InstalledAgent[] {
     return found.sort((a, b) => (b.usedAt ?? 0) - (a.usedAt ?? 0) || a.name.localeCompare(b.name))
 }
 
+
+/**
+ * The folders a profile watches for agents, absolute: its settings' `paths`, read from its
+ * profile.config.ts as the platform reads them (an AST read: nothing evaluated).
+ */
+function watched(profile: string): string[] {
+    const paths = readSettingsSync(profile).paths
+    if (paths === undefined) return []
+    if (!Array.isArray(paths) || !paths.every(p => typeof p === "string"))
+        throw err("FILE_UNREADABLE", { detail: `${profile}/profile.config.ts: settings.paths isn't a list of folders`, context: { path: join(profile, "profile.config.ts") } })
+    return paths.map(p => (p.startsWith("~") ? join(homedir(), p.slice(1)) : resolve(profile, p)))
+}
 
 /**
  * Where agent projects live, for both distributions.

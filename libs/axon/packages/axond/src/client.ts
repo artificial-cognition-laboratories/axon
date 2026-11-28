@@ -13,6 +13,7 @@ import type { DaemonPaths, DaemonStatus } from "../types/index"
 import { LabsClient } from "./labs/contract/index"
 import type { AgentSchedule, CreateSchedule, ScheduleState, UpdateSchedule, ScheduleResult } from "./schedule/schedule"
 import type { DictationState, Dictated } from "./dictation/dictation"
+import type { Embarked } from "./launcher/embark"
 
 export type AxonDaemonOpts = {
     /** Override where the socket lives. Tests point this at a scratch dir. */
@@ -312,6 +313,9 @@ export function AxonDaemon(opts: AxonDaemonOpts = {}) {
         },
 
         labs: labs,
+
+        /** An agent sent into a world, owned by the daemon: a game's address is attached to, a lab world started. */
+        embark: (input: { agent: string; world: string }) => call(["embark"], input) as Promise<Embarked>,
     }
 }
 

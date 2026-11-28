@@ -185,7 +185,7 @@ export function Server(opts: ServerOpts) {
                 stdout: "pipe",
                 stdin: "pipe",
             }) } catch (cause) { operator.clear(); throw cause }
-            current = { name: input.name, path: input.level ?? join(install.worlds, input.name), state: "starting", host: "127.0.0.1", port: input.port, password: "", players: [], pid: proc.pid, startedAt: new Date().toISOString(), observers: [], proc: proc }
+            current = { name: input.name, path: input.level ?? join(install.worlds, input.name), state: "starting", host: "127.0.0.1", port: input.port, password: "", players: [], pid: proc.pid, startedAt: new Date().toISOString(), observers: [], attached: false, proc: proc }
             const started = current
             const ready = new Promise<void>((resolve, reject) => {
                 const timer = setTimeout(() => reject(new Error(`did not finish booting within ${READY_MS / 1000}s`)), READY_MS)

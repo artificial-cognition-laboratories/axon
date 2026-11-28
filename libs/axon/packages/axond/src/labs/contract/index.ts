@@ -110,6 +110,12 @@ export type RunningWorld = {
     pid: number | null
     startedAt: string
     /**
+     * Running before the lab came to it — a world the player opened in the game, attached
+     * to by its address. The lab speaks for it but doesn't own it: stopping lets it go,
+     * its bodies taken out, and the world stays up.
+     */
+    attached: boolean
+    /**
      * How a person may watch the world as it is — never the mind: these are
      * the lab's, never handed to an agent and never sensed. Empty for a lab
      * that offers none yet; an empty list is explicit.
@@ -290,7 +296,13 @@ export type LabT = {
      * asking for a world that is already up is how an agent joins it.
      */
     start(input: { name: string }): Promise<RunningWorld>
-    /** Stop one world; no name stops every one of them. */
+    /**
+     * Speak for a world already running on this machine, by the address players join it on —
+     * one the player opened in the game — so agents can be put in it. Already attached (or
+     * served here): that one. A lab that can't throws saying so.
+     */
+    attach(input: { address: string }): Promise<RunningWorld>
+    /** Stop one world (an attached one is let go); no name stops every one of them. */
     stop(input?: { name: string }): Promise<void>
     restart(input?: { name: string }): Promise<void>
     logs(input?: { lines?: number }): { server: string[] }

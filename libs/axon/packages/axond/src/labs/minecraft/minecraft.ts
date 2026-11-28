@@ -1,3 +1,5 @@
+import { err } from "@arcforge/err"
+import type { RunningWorld } from "../types"
 import { MinecraftWorlds } from "./minecraft-worlds"
 
 import type { LauncherT } from "../../launcher/index"
@@ -16,6 +18,7 @@ export function MinecraftLab(opts: MinecraftLabOpts) {
         runs: worlds.runs,
         bootstrap: worlds.bootstrap,
         start: worlds.start,
+        attach: async (): Promise<RunningWorld> => { throw err("WORLD_REFUSED", { detail: "Minecraft worlds can't be attached to: the lab serves its own" }) },
         stop: worlds.stop,
         restart: worlds.restart,
         logs: worlds.logs,

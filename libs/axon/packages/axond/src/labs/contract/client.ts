@@ -33,6 +33,8 @@ export function LabsClient(opts: LabsClientOpts) {
             state: () => call(["labs", id, "state"]) as Promise<LabState>,
             /** Serve one of its worlds, beside whatever else it serves; gives back the world now running. */
             start: (input: { name: string }) => call(["labs", id, "start"], input) as Promise<RunningWorld>,
+            /** A world already running here, by the address players join it on: spoken for, so agents can go in. */
+            attach: (input: { address: string }) => call(["labs", id, "attach"], input) as Promise<RunningWorld>,
             stop: (input?: { name: string }) => call(["labs", id, "stop"], input) as Promise<void>,
             restart: (input?: { name: string }) => call(["labs", id, "restart"], input) as Promise<void>,
             logs: (input?: { lines?: number }) => call(["labs", id, "logs"], input) as Promise<{ server: string[] }>,
